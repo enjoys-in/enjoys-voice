@@ -209,7 +209,9 @@ export function useSipPhone() {
 
   const answer = useCallback(async () => {
     const session = sessionRef.current;
-    if (!session || session.state !== SessionState.Initial) return;
+    if (!session) return;
+    // Accept from Initial or Establishing state (provisional responses may have been auto-sent)
+    if (session.state !== SessionState.Initial && session.state !== SessionState.Establishing) return;
     stopTone();
     try {
       await (session as any).accept({

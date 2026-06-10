@@ -118,6 +118,12 @@ export class IVRSystem {
       console.error('❌ IVR error:', err.message);
       this.activeCalls.delete(callId);
       this.db.updateCall(callId, { status: 'failed' });
+      // Send error response if call wasn't answered yet
+      if (!res.finalResponseSent) {
+        res.send(503, 'Service Unavailable');
+      }
+      // Mark IVR as disconnected so future calls skip IVR
+      this.ms = null;
     }
   }
 

@@ -183,7 +183,13 @@ export class SipServer {
       // IVR routing
       if (route.type === 'ivr' && this.ivr?.isConnected() && config.ivr.enabled) {
         console.log(`🎙️ IVR: Routing call`);
-        await this.ivr.handleIncomingCall(req, res);
+        try {
+          await this.ivr.handleIncomingCall(req, res);
+        } catch (ivrErr: any) {
+          console.error('❌ IVR routing failed:', ivrErr.message);
+          if (!res.finalResponseSent) res.send(503);
+          this.db.updateCall(callId, { status: 'failed' });
+        }
         return;
       }
 
