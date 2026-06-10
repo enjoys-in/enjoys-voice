@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { PhoneInput } from "../ui/PhoneInput";
 import { useAuthStore, useSettingsStore } from "../../stores";
 import { useSettingsSync } from "../../hooks/useSettingsSync";
+import { getCachedSoundUrl, invalidateSoundCache } from "../../lib/sound-cache";
 
 const CALLER_TUNES = [
   { id: "caller_tune.wav", name: "Default Tune" },
@@ -44,7 +45,7 @@ export function SettingsScreen() {
     setShowDeleteDialog(false);
   };
 
-  const playPreview = (file: string) => {
+  const playPreview = async (file: string) => {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
@@ -54,7 +55,7 @@ export function SettingsScreen() {
       return;
     }
     if (file === "none") return;
-    const src = file.startsWith("blob:") ? file : `/sounds/${file}`;
+    const src = file.startsWith("blob:") ? file : await getCachedSoundUrl(`/sounds/${file}`);
     const audio = new Audio(src);
     audio.onended = () => setPlayingId(null);
     audio.play();
@@ -86,6 +87,8 @@ export function SettingsScreen() {
         setCustomRingtones((prev) => [...prev, entry]);
         setSettings({ ringtone: url });
       }
+      // Invalidate sound cache so new uploads are fetched fresh
+      invalidateSoundCache();
     };
     input.click();
   };

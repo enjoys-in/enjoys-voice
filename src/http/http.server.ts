@@ -1,9 +1,10 @@
 import express, { Application } from 'express';
 import cors from 'cors';
 import { config } from '@/core';
-import { DatabaseService, TrunkService } from '@/services';
+import { DatabaseService, TrunkService, AuditService } from '@/services';
 import { SipServer } from '@/sip';
 import { createRoutes } from './routes/api.routes';
+import { apiRateLimit } from './middleware/rate-limit';
 
 export class HttpServer {
   private app: Application;
@@ -12,6 +13,7 @@ export class HttpServer {
     private db: DatabaseService,
     private trunk: TrunkService,
     private sip: SipServer,
+    private audit: AuditService,
   ) {
     this.app = express();
     this.configure();
@@ -20,7 +22,8 @@ export class HttpServer {
   private configure(): void {
     this.app.use(cors());
     this.app.use(express.json());
-    this.app.use('/api', createRoutes(this.db, this.trunk, this.sip));
+    this.app.use(apiRateLimit);
+    this.app.use('/api', createRoutes(this.db, this.trunk, this.sip, this.audit));
   }
 
   start(): void {

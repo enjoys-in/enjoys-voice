@@ -7,9 +7,10 @@ import { useCallStore } from "../../stores";
 
 interface ActiveCallScreenProps {
   onHangUp: () => void;
+  onAnswer?: () => void;
 }
 
-export function ActiveCallScreen({ onHangUp }: ActiveCallScreenProps) {
+export function ActiveCallScreen({ onHangUp, onAnswer }: ActiveCallScreenProps) {
   const { activeCall, muted, speakerOn, toggleMute, toggleSpeaker } = useCallStore();
   const [elapsed, setElapsed] = useState(0);
 
@@ -92,16 +93,36 @@ export function ActiveCallScreen({ onHangUp }: ActiveCallScreenProps) {
           </div>
         )}
 
-        {/* Hang up */}
-        <div className="flex justify-center">
-          <Button
-            size="lg"
-            className="h-16 w-16 rounded-full bg-red-600 hover:bg-red-700 text-white"
-            onClick={onHangUp}
-          >
-            <PhoneOff className="h-6 w-6" />
-          </Button>
-        </div>
+        {/* Incoming ringing: Answer + Decline */}
+        {activeCall.direction === "inbound" && activeCall.status === "ringing" && onAnswer ? (
+          <div className="flex justify-center gap-8">
+            <Button
+              size="lg"
+              className="h-16 w-16 rounded-full bg-red-600 hover:bg-red-700 text-white"
+              onClick={onHangUp}
+            >
+              <PhoneOff className="h-6 w-6" />
+            </Button>
+            <Button
+              size="lg"
+              className="h-16 w-16 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white animate-pulse"
+              onClick={onAnswer}
+            >
+              <Phone className="h-6 w-6" />
+            </Button>
+          </div>
+        ) : (
+          /* Hang up */
+          <div className="flex justify-center">
+            <Button
+              size="lg"
+              className="h-16 w-16 rounded-full bg-red-600 hover:bg-red-700 text-white"
+              onClick={onHangUp}
+            >
+              <PhoneOff className="h-6 w-6" />
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

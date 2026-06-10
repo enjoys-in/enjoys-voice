@@ -29,7 +29,7 @@
 - [ ] Support calling external mobile numbers directly (with country code dial plan)
 
 ## Dial Plan
-- [ ] Internal: 4-digit extensions (1001-9999)
+- [ ] Internal: 7-digit extensions (1001-9999)
 - [ ] External: `+{countryCode}{number}` → route via trunk
 - [ ] IVR: 5000, 1800*, 800* → IVR system
 - [ ] Emergency: configurable per-region
@@ -44,9 +44,8 @@
 - [ ] Horizontal scaling: multiple drachtio instances behind load balancer
 
 ## Go Voice Core (sipgo)
-- [ ] Separate Go service for SIP trunk management and CRUD API
-- [ ] Use `sipgo` library for SIP stack (REGISTER, INVITE, BYE handling)
-- [ ] SIP Trunk CRUD: Create, Read, Update, Delete trunk configurations
+
+ 
 - [ ] Trunk model: `{ id, name, host, port, transport, username, password, callerNumber, prefix, codecs, enabled }`
 - [ ] REST API endpoints:
   - `GET /api/trunks` — list all trunks

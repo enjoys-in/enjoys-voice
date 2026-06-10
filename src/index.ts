@@ -1,5 +1,5 @@
 import { config } from '@/core';
-import { DatabaseService, TrunkService, createRegistrationStore } from '@/services';
+import { DatabaseService, TrunkService, AuditService, createRegistrationStore } from '@/services';
 import { SipServer } from '@/sip';
 import { SignalingServer } from '@/websocket';
 import { HttpServer } from '@/http';
@@ -7,6 +7,7 @@ import { HttpServer } from '@/http';
 class Application {
   private db: DatabaseService;
   private trunk: TrunkService;
+  private audit: AuditService;
   private sip: SipServer;
   private ws: SignalingServer;
   private http: HttpServer;
@@ -14,10 +15,11 @@ class Application {
   constructor() {
     this.db = new DatabaseService();
     this.trunk = new TrunkService();
+    this.audit = new AuditService();
     const registrationStore = createRegistrationStore();
-    this.sip = new SipServer(this.db, this.trunk, registrationStore);
+    this.sip = new SipServer(this.db, this.trunk, registrationStore, this.audit);
     this.ws = new SignalingServer(this.db);
-    this.http = new HttpServer(this.db, this.trunk, this.sip);
+    this.http = new HttpServer(this.db, this.trunk, this.sip, this.audit);
   }
 
   async start(): Promise<void> {

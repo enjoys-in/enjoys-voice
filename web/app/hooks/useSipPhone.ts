@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import { UserAgent, Registerer, Inviter, SessionState, Session } from "sip.js";
 import { useCallStore } from "../stores";
+import { getCachedSoundUrl } from "../lib/sound-cache";
 
 export function useSipPhone() {
   const [registered, setRegistered] = useState(false);
@@ -18,9 +19,10 @@ export function useSipPhone() {
 
   // ─── Tone Playback ───────────────────────────────────
 
-  const playTone = useCallback((src: string, loop = false) => {
+  const playTone = useCallback(async (src: string, loop = false) => {
     stopTone();
-    const audio = new Audio(src);
+    const url = await getCachedSoundUrl(src);
+    const audio = new Audio(url);
     audio.loop = loop;
     audio.volume = 0.5;
     audio.play().catch(() => {});
@@ -160,12 +162,16 @@ export function useSipPhone() {
       startTime: Date.now(),
     });
     setTone("dialing");
+    // Play ringback tone immediately while waiting for remote side
+    playTone("/sounds/ringback.wav", true);
 
     inviter.stateChange.addListener((state: SessionState) => {
       switch (state) {
         case SessionState.Establishing:
           updateCall({ status: "ringing" });
           setTone("ringback");
+          // Switch to caller tune once we know remote is ringing
+          stopTone();
           playTone("/sounds/caller_tune.wav", true);
           break;
         case SessionState.Established:

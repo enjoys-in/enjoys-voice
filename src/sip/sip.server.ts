@@ -1,7 +1,7 @@
 import Srf from 'drachtio-srf';
 import crypto from 'crypto';
 import { config } from '@/core';
-import { DatabaseService, TrunkService } from '@/services';
+import { DatabaseService, TrunkService, AuditService, DialPlanService } from '@/services';
 import type { RegistrationStore } from '@/services/registration';
 import { IVRSystem } from './ivr.system';
 
@@ -10,11 +10,17 @@ export class SipServer {
   private connected = false;
   private ivr: IVRSystem | null = null;
   private notifyFn?: (extension: string, event: string, data?: any) => void;
+  private dialPlan = new DialPlanService();
+  /** SIP rate limiter: tracks REGISTER/INVITE per IP */
+  private sipRateMap = new Map<string, { count: number; resetAt: number }>();
+  private readonly SIP_RATE_LIMIT = 30; // per minute per IP
+  private readonly SIP_RATE_WINDOW = 60_000;
 
   constructor(
     private db: DatabaseService,
     private trunk: TrunkService,
     private registrationStore: RegistrationStore,
+    private audit: AuditService,
   ) {
     this.srf = new Srf();
   }
@@ -22,6 +28,18 @@ export class SipServer {
   /** Register a callback to notify users of call events via WebSocket */
   setNotifier(fn: (extension: string, event: string, data?: any) => void): void {
     this.notifyFn = fn;
+  }
+
+  /** Check SIP rate limit per source IP. Returns true if allowed. */
+  private checkSipRate(ip: string): boolean {
+    const now = Date.now();
+    const entry = this.sipRateMap.get(ip);
+    if (!entry || now > entry.resetAt) {
+      this.sipRateMap.set(ip, { count: 1, resetAt: now + this.SIP_RATE_WINDOW });
+      return true;
+    }
+    entry.count++;
+    return entry.count <= this.SIP_RATE_LIMIT;
   }
 
   async start(): Promise<void> {
@@ -73,6 +91,11 @@ export class SipServer {
   private handleRegister(): void {
     this.srf.register(async (req: any, res: any) => {
       try {
+        if (!this.checkSipRate(req.source_address)) {
+          res.send(429);
+          return;
+        }
+
         const fromHeader = req.get('From') || req.get('from') || '';
         const toHeader = req.get('To') || req.get('to') || '';
         const contact = req.get('Contact') || '';
@@ -97,6 +120,7 @@ export class SipServer {
         if (expires === 0) {
           await this.registrationStore.unregister(user.extension);
           this.db.unregisterUser(user.extension);
+          this.audit.log('unregister', user.extension, { contact }, req.source_address);
           res.send(200, { headers: { 'Contact': contact, 'Expires': '0' } });
           console.log(`🔴 SIP: ${user.name} unregistered`);
         } else {
@@ -107,6 +131,7 @@ export class SipServer {
           };
           await this.registrationStore.register(user.extension, { contact, expires, source });
           this.db.registerUser(user.extension, contact, expires, undefined, source);
+          this.audit.log('register', user.extension, { contact, source }, req.source_address);
           res.send(200, { headers: { 'Contact': contact, 'Expires': expires.toString() } });
           console.log(`✅ SIP: ${user.name} registered at ${contact} (source: ${source.protocol}/${source.address}:${source.port})`);
         }
@@ -119,6 +144,11 @@ export class SipServer {
 
   private handleInvite(): void {
     this.srf.invite(async (req: any, res: any) => {
+      if (!this.checkSipRate(req.source_address)) {
+        res.send(429);
+        return;
+      }
+
       const calledMatch = req.uri?.match(/sip:([^@]+)/);
       const calledNumber = calledMatch ? calledMatch[1] : req.calledNumber;
       const callingNumber = req.callingNumber || 'unknown';
@@ -131,25 +161,53 @@ export class SipServer {
         fromName: this.db.getUser(callingNumber)?.name || callingNumber,
         status: 'ringing', direction: 'inbound', startTime: new Date().toISOString(),
       });
+      this.audit.log('call_start', callingNumber, { to: calledNumber, callId }, req.source_address);
 
-      // IVR routing
-      if (this.shouldRouteToIvr(calledNumber)) {
-        console.log(`🎙️ IVR: Routing call`);
-        await this.ivr!.handleIncomingCall(req, res);
+      // Use dial plan to resolve routing
+      const route = this.dialPlan.resolve(calledNumber);
+      console.log(`🗺️ Dial plan: ${calledNumber} → ${route.type} (${route.normalizedNumber})`);
+
+      // Emergency calls always go to trunk
+      if (route.type === 'emergency') {
+        console.log(`🚨 Emergency: Routing ${route.target} to trunk`);
+        if (this.trunk.isEnabled) {
+          const ok = await this.trunk.routeCall(this.srf, req, res, route.target);
+          this.db.updateCall(callId, { status: ok ? 'answered' : 'failed' });
+        } else {
+          res.send(503);
+          this.db.updateCall(callId, { status: 'failed' });
+        }
         return;
       }
 
-      // Local extension
-      const reg = this.db.getRegistration(calledNumber);
-      if (reg) {
-        await this.routeToExtension(req, res, reg.contact, callId);
+      // IVR routing
+      if (route.type === 'ivr' && this.ivr?.isConnected() && config.ivr.enabled) {
+        console.log(`🎙️ IVR: Routing call`);
+        await this.ivr.handleIncomingCall(req, res);
         return;
+      }
+
+      // Internal extension
+      if (route.type === 'internal') {
+        const reg = this.db.getRegistration(route.target);
+        if (reg) {
+          await this.routeToExtension(req, res, reg.contact, callId);
+          return;
+        }
+        // Internal ext not registered → try PSTN fallback via mobile number
+        const targetUser = this.db.getUser(route.target);
+        if (targetUser?.mobile && this.trunk.isEnabled) {
+          console.log(`📱 PSTN fallback: ${route.target} → mobile ${targetUser.mobile}`);
+          const ok = await this.trunk.routeCall(this.srf, req, res, targetUser.mobile);
+          this.db.updateCall(callId, { status: ok ? 'answered' : 'failed' });
+          return;
+        }
       }
 
       // External via trunk
-      if (this.trunk.isEnabled) {
-        console.log(`📞 Trunk: Routing to ${calledNumber}`);
-        const ok = await this.trunk.routeCall(this.srf, req, res, calledNumber);
+      if (route.type === 'external' && this.trunk.isEnabled) {
+        console.log(`📞 Trunk: Routing to ${route.normalizedNumber}`);
+        const ok = await this.trunk.routeCall(this.srf, req, res, route.normalizedNumber);
         this.db.updateCall(callId, { status: ok ? 'answered' : 'failed' });
         return;
       }
@@ -171,11 +229,6 @@ export class SipServer {
   }
 
   // ─── Helpers ─────────────────────────────────────────
-
-  private shouldRouteToIvr(calledNumber: string): boolean {
-    if (!this.ivr?.isConnected() || !config.ivr.enabled) return false;
-    return /^(18\d{8}|1800\d+|800\d+|888\d+|877\d+|866\d+|855\d+|844\d+|833\d+|5555\d*|5000)$/.test(calledNumber);
-  }
 
   private async routeToExtension(req: any, res: any, contact: string, callId: string): Promise<void> {
     const calledMatch = req.uri?.match(/sip:([^@]+)/);
@@ -213,9 +266,11 @@ export class SipServer {
 
       console.log(`✅ Call connected: ${callingNumber} → ${calledExt} via B2BUA`);
       this.notifyFn?.(callingNumber, 'answered', { target: calledExt, callId });
+      this.audit.log('call_answered', callingNumber, { to: calledExt, callId });
 
       const onDestroy = () => {
         this.db.updateCall(callId, { status: 'ended', endTime: new Date().toISOString() });
+        this.audit.log('call_ended', callingNumber, { to: calledExt, callId });
       };
       uas.on('destroy', () => { uac.destroy(); onDestroy(); });
       uac.on('destroy', () => { uas.destroy(); onDestroy(); });
@@ -228,6 +283,7 @@ export class SipServer {
       if (status === 486 || status === 603) {
         // Declined / Busy
         console.log(`📵 Call declined/busy: ${status}`);
+        this.audit.log('call_declined', callingNumber, { to: calledExt, callId, status });
         if (forwarding.busy) {
           console.log(`↪️ Forwarding on busy to ${forwarding.busy}`);
           await this.forwardCall(req, res, forwarding.busy, callId, callingNumber);
@@ -265,6 +321,7 @@ export class SipServer {
       } else {
         console.error('❌ Call routing failed:', err.message);
         if (err.status) console.error(`❌ SIP response status: ${err.status}`);
+        this.audit.log('call_failed', callingNumber, { to: calledExt, callId, error: err.message });
         this.notifyFn?.(callingNumber, 'failed', { reason: 'error', callId });
         this.db.updateCall(callId, { status: 'failed' });
         if (!res.finalResponseSent) res.send(503);
@@ -275,7 +332,14 @@ export class SipServer {
   private async forwardCall(req: any, res: any, target: string, callId: string, callingNumber: string): Promise<void> {
     const reg = this.db.getRegistration(target);
     if (!reg) {
-      // Forward target not registered
+      // Forward target not registered → try PSTN mobile fallback
+      const targetUser = this.db.getUser(target);
+      if (targetUser?.mobile && this.trunk.isEnabled) {
+        console.log(`📱 Forward PSTN fallback: ${target} → mobile ${targetUser.mobile}`);
+        const ok = await this.trunk.routeCall(this.srf, req, res, targetUser.mobile);
+        this.db.updateCall(callId, { status: ok ? 'answered' : 'failed' });
+        return;
+      }
       console.log(`❌ Forward target ${target} not registered`);
       this.notifyFn?.(callingNumber, 'unavailable', { callId });
       this.db.updateCall(callId, { status: 'missed' });

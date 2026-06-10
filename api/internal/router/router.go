@@ -63,6 +63,13 @@ func Setup(r *gin.Engine, h *Handlers, jwtSecret string) {
 		}
 	}
 
-	// Serve uploaded sounds as static files
+	// Serve uploaded sounds as static files with aggressive caching
+	// Filenames include timestamps so they're effectively immutable
+	r.Use(func(c *gin.Context) {
+		if len(c.Request.URL.Path) > 8 && c.Request.URL.Path[:8] == "/sounds/" {
+			c.Header("Cache-Control", "public, max-age=31536000, immutable")
+		}
+		c.Next()
+	})
 	r.Static("/sounds", "./uploads/sounds")
 }

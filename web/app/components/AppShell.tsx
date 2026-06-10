@@ -47,6 +47,7 @@ export function AppShell() {
     return (
       <ActiveCallScreen
         onHangUp={hangUp}
+        onAnswer={answer}
       />
     );
   }

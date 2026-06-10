@@ -1,9 +1,11 @@
 import { Router, Request, Response } from 'express';
-import { DatabaseService, TrunkService } from '@/services';
+import { DatabaseService, TrunkService, AuditService } from '@/services';
+import type { AuditEvent } from '@/services';
 import { SipServer } from '@/sip';
 import { config } from '@/core';
+import { authRateLimit } from '../middleware/rate-limit';
 
-export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipServer): Router {
+export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipServer, audit: AuditService): Router {
   const router = Router();
 
   // ─── Health ──────────────────────────────────────────
@@ -18,7 +20,7 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
   });
 
   // ─── Auth ────────────────────────────────────────────
-  router.post('/auth', (req: Request, res: Response) => {
+  router.post('/auth', authRateLimit, (req: Request, res: Response) => {
     const { username, password } = req.body;
     if (!username || !password) {
       res.status(400).json({ error: 'Missing credentials' });
@@ -44,7 +46,7 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
   });
 
   // ─── Signup ──────────────────────────────────────────
-  router.post('/auth/signup', (req: Request, res: Response) => {
+  router.post('/auth/signup', authRateLimit, (req: Request, res: Response) => {
     const { name, mobile, password } = req.body;
     if (!name || !mobile || !password) {
       res.status(400).json({ error: 'Missing fields: name, mobile, password required' });
@@ -177,6 +179,24 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
     }
     const ok = db.setForwarding(req.params.ext, type, target || null);
     res.json({ success: ok });
+  });
+
+  // ─── Audit Log ──────────────────────────────────────
+  router.get('/audit', (req: Request, res: Response) => {
+    const { user, event, from, to, limit } = req.query;
+    const entries = audit.query({
+      user: user as string | undefined,
+      event: event as AuditEvent | undefined,
+      from: from as string | undefined,
+      to: to as string | undefined,
+      limit: limit ? parseInt(limit as string, 10) : undefined,
+    });
+    res.json(entries);
+  });
+
+  router.get('/audit/:ext', (req: Request, res: Response) => {
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+    res.json(audit.getByExtension(req.params.ext, limit));
   });
 
   return router;
