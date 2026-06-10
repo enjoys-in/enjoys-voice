@@ -51,8 +51,8 @@ export class DatabaseService {
 
   // ─── Registrations ───────────────────────────────────
 
-  registerUser(extension: string, contact: string, expires: number, ua?: string): void {
-    this.registrations.set(extension, { contact, expires, ua });
+  registerUser(extension: string, contact: string, expires: number, ua?: string, source?: { address: string; port: number; protocol: string }): void {
+    this.registrations.set(extension, { contact, expires, ua, source });
     const user = this.users.get(extension);
     if (user) {
       user.registered = true;

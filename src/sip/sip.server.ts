@@ -2,6 +2,7 @@ import Srf from 'drachtio-srf';
 import crypto from 'crypto';
 import { config } from '@/core';
 import { DatabaseService, TrunkService } from '@/services';
+import type { RegistrationStore } from '@/services/registration';
 import { IVRSystem } from './ivr.system';
 
 export class SipServer {
@@ -12,6 +13,7 @@ export class SipServer {
   constructor(
     private db: DatabaseService,
     private trunk: TrunkService,
+    private registrationStore: RegistrationStore,
   ) {
     this.srf = new Srf();
   }
@@ -63,7 +65,7 @@ export class SipServer {
   }
 
   private handleRegister(): void {
-    this.srf.register((req: any, res: any) => {
+    this.srf.register(async (req: any, res: any) => {
       try {
         const fromHeader = req.get('From') || req.get('from') || '';
         const toHeader = req.get('To') || req.get('to') || '';
@@ -87,13 +89,20 @@ export class SipServer {
         }
 
         if (expires === 0) {
+          await this.registrationStore.unregister(user.extension);
           this.db.unregisterUser(user.extension);
           res.send(200, { headers: { 'Contact': contact, 'Expires': '0' } });
           console.log(`🔴 SIP: ${user.name} unregistered`);
         } else {
-          this.db.registerUser(user.extension, contact, expires);
+          const source = {
+            address: req.source_address,
+            port: req.source_port,
+            protocol: req.protocol,
+          };
+          await this.registrationStore.register(user.extension, { contact, expires, source });
+          this.db.registerUser(user.extension, contact, expires, undefined, source);
           res.send(200, { headers: { 'Contact': contact, 'Expires': expires.toString() } });
-          console.log(`✅ SIP: ${user.name} registered at ${contact}`);
+          console.log(`✅ SIP: ${user.name} registered at ${contact} (source: ${source.protocol}/${source.address}:${source.port})`);
         }
       } catch (err: any) {
         console.error('❌ SIP REGISTER error:', err.message, err.stack);
@@ -164,17 +173,30 @@ export class SipServer {
 
   private async routeToExtension(req: any, res: any, contact: string, callId: string): Promise<void> {
     try {
-      console.log(`📞 Routing call via B2BUA to contact: ${contact}`);
-      console.log(`📞 Caller SDP length: ${req.body?.length || 0}`);
-      console.log(`📞 Request URI: ${req.uri}`);
+      // Get the callee's registration from the store
+      const calledMatch = req.uri?.match(/sip:([^@]+)/);
+      const calledExt = calledMatch ? calledMatch[1] : '';
+      const reg = await this.registrationStore.get(calledExt);
 
-      // Use B2BUA to bridge — drachtio routes INVITE through callee's existing WS connection
-      const { uas, uac } = await this.srf.createB2BUA(req, res, contact, {
+      // Build route URI using source connection info (avoids DNS lookup on .invalid domains)
+      let routeUri = contact;
+      if (reg?.source) {
+        const { address, port, protocol } = reg.source;
+        const transport = protocol === 'ws' ? 'ws' : protocol;
+        routeUri = `sip:${calledExt}@${address}:${port};transport=${transport}`;
+      }
+
+      console.log(`📞 Routing call via B2BUA:`);
+      console.log(`   Contact: ${contact}`);
+      console.log(`   Route URI: ${routeUri}`);
+      console.log(`   Source: ${reg?.source ? `${reg.source.protocol}/${reg.source.address}:${reg.source.port}` : 'none'}`);
+
+      const { uas, uac } = await this.srf.createB2BUA(req, res, routeUri, {
         proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
         proxyResponseHeaders: ['contact', 'allow', 'supported'],
       });
 
-      console.log(`✅ Call connected: ${req.callingNumber} → bridged via B2BUA`);
+      console.log(`✅ Call connected: ${req.callingNumber} → ${calledExt} via B2BUA`);
 
       const onDestroy = () => {
         this.db.updateCall(callId, { status: 'ended', endTime: new Date().toISOString() });

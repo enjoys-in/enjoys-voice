@@ -1,5 +1,5 @@
 import { config } from '@/core';
-import { DatabaseService, TrunkService } from '@/services';
+import { DatabaseService, TrunkService, createRegistrationStore } from '@/services';
 import { SipServer } from '@/sip';
 import { SignalingServer } from '@/websocket';
 import { HttpServer } from '@/http';
@@ -14,7 +14,8 @@ class Application {
   constructor() {
     this.db = new DatabaseService();
     this.trunk = new TrunkService();
-    this.sip = new SipServer(this.db, this.trunk);
+    const registrationStore = createRegistrationStore();
+    this.sip = new SipServer(this.db, this.trunk, registrationStore);
     this.ws = new SignalingServer(this.db);
     this.http = new HttpServer(this.db, this.trunk, this.sip);
   }

@@ -24,6 +24,12 @@ export interface SipRegistration {
   contact: string;
   expires: number;
   ua?: string;
+  /** Source connection info from REGISTER request — used to route back through same transport */
+  source?: {
+    address: string;
+    port: number;
+    protocol: string;
+  };
 }
 
 export interface Department {
