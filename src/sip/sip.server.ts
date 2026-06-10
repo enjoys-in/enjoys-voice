@@ -265,20 +265,24 @@ export class SipServer {
     // Notify caller that the call is ringing (UI plays caller tune)
     this.notifyFn?.(callingNumber, 'ringing', { target: calledExt, callId });
 
-    // For WebSocket clients with .invalid domain, rewrite to localhost
-    // drachtio-server matches the request to the existing WS connection
+    // For WebSocket clients with .invalid domain, we need drachtio to route
+    // through the existing WS connection. Use source address as Route header.
     let routeUri = contactUri;
-    if (contactUri.includes('.invalid')) {
-      routeUri = contactUri.replace(/[^@]+\.invalid/, 'localhost');
-      console.log(`   Rewritten URI: ${routeUri} (replaced .invalid with localhost)`);
-    }
-
     const b2bOpts: any = {
       proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
       proxyResponseHeaders: ['contact', 'allow', 'supported'],
       noAck: false,
       timeout: 15000,
     };
+
+    if (contactUri.includes('.invalid') && reg?.source) {
+      // Tell drachtio to send via the WS connection using the source address
+      // The request-URI stays as-is; we route via the client's connection
+      b2bOpts.headers = {
+        'Route': `<sip:${reg.source.address}:${reg.source.port};transport=ws;lr>`,
+      };
+      console.log(`   Route: via ${reg.source.address}:${reg.source.port} (WS client)`);
+    }
 
     try {
       // Create B2BUA with a 15s no-answer timeout
@@ -378,14 +382,14 @@ export class SipServer {
       proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
       proxyResponseHeaders: ['contact', 'allow', 'supported'],
     };
-    // Rewrite .invalid domain to localhost for WS clients
-    let fwdRouteUri = contactUri;
-    if (contactUri.includes('.invalid')) {
-      fwdRouteUri = contactUri.replace(/[^@]+\.invalid/, 'localhost');
+    if (contactUri.includes('.invalid') && reg.source) {
+      fwdOpts.headers = {
+        'Route': `<sip:${reg.source.address}:${reg.source.port};transport=ws;lr>`,
+      };
     }
 
     try {
-      const { uas, uac } = await this.srf.createB2BUA(req, res, fwdRouteUri, fwdOpts);
+      const { uas, uac } = await this.srf.createB2BUA(req, res, contactUri, fwdOpts);
 
       console.log(`✅ Call forwarded: ${callingNumber} → ${target}`);
       this.notifyFn?.(callingNumber, 'answered', { target, callId });

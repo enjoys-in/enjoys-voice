@@ -53,5 +53,11 @@ export function useCallHistory() {
 
   const refresh = useCallback(() => fetch(true), [fetch]);
 
-  return { calls, loading, error, refresh };
+  const clearHistory = useCallback(() => {
+    cachedCalls = [];
+    lastFetchedAt = Date.now();
+    setCalls([]);
+  }, []);
+
+  return { calls, loading, error, refresh, clearHistory };
 }

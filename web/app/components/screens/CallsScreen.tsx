@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, RefreshCw } from "lucide-react";
+import { Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, RefreshCw, Trash2 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ interface CallsScreenProps {
 }
 
 export function CallsScreen({ onCall }: CallsScreenProps) {
-  const { calls, loading, refresh } = useCallHistory();
+  const { calls, loading, refresh, clearHistory } = useCallHistory();
   const [pulling, setPulling] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const startY = useRef(0);
@@ -60,15 +60,28 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
       {/* Header */}
       <div className="px-4 pt-6 pb-3 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Recents</h1>
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-8 w-8"
-          onClick={refresh}
-          disabled={loading || pulling}
-        >
-          <RefreshCw className={`h-4 w-4 ${loading || pulling ? "animate-spin" : ""}`} />
-        </Button>
+        <div className="flex gap-1">
+          {calls.length > 0 && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 text-destructive hover:text-destructive"
+              onClick={clearHistory}
+              title="Clear recents"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8"
+            onClick={refresh}
+            disabled={loading || pulling}
+          >
+            <RefreshCw className={`h-4 w-4 ${loading || pulling ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
       </div>
 
       {/* Pull indicator */}
