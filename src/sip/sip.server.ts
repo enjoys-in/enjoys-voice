@@ -164,9 +164,19 @@ export class SipServer {
 
   private async routeToExtension(req: any, res: any, contact: string, callId: string): Promise<void> {
     try {
+      // Send 180 Ringing with early media SDP for ringback tone
+      res.send(180, { headers: { 'Content-Type': 'application/sdp' } });
+
+      // Create B-leg (to callee) with ringback
       const uac = await this.srf.createUAC(contact, {
         localSdp: req.body,
         headers: { 'From': req.get('From'), 'To': req.get('To') },
+        cbProvisional: (provisionalRes: any) => {
+          // Forward 180/183 to caller so they hear ringback
+          if (provisionalRes.status === 180 || provisionalRes.status === 183) {
+            console.log(`🔔 Ringback: Sending ${provisionalRes.status} to caller`);
+          }
+        },
       });
       const uas = await this.srf.createUAS(req, res, {
         localSdp: uac.remote.sdp, headers: {},

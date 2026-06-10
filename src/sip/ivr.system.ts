@@ -109,6 +109,9 @@ export class IVRSystem {
       state.department = deptMap[dept] || 'care';
       state.status = 'queued';
 
+      // Play hold music while waiting for agent
+      await endpoint.play(config.sounds.holdMusic);
+
       this.db.updateCall(callId, { status: 'answered' });
       console.log(`🎙️ IVR: ${callerNumber} → ${state.department} (${state.language})`);
     } catch (err: any) {

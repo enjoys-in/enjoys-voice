@@ -42,6 +42,13 @@ export interface AppConfig {
     recordingsDir: string;
     defaultLanguage: 'en' | 'hi';
   };
+  sounds: {
+    basePath: string;
+    ringback: string;
+    ringbackIn: string;
+    callerTune: string;
+    holdMusic: string;
+  };
   sipUsers: Array<{ extension: string; username: string; password: string; name: string }>;
 }
 
@@ -86,6 +93,13 @@ export const config: AppConfig = {
     maxVoicemailSec: parseInt(process.env.MAX_VOICEMAIL_SEC || '180'),
     recordingsDir: process.env.RECORDINGS_DIR || '/usr/local/freeswitch/recordings',
     defaultLanguage: (process.env.IVR_DEFAULT_LANG || 'en') as 'en' | 'hi',
+  },
+  sounds: {
+    basePath: process.env.SOUNDS_PATH || '/usr/share/freeswitch/sounds',
+    ringback: process.env.RINGBACK_FILE || '/usr/share/freeswitch/sounds/ringtones/ringback.wav',
+    ringbackIn: process.env.RINGBACK_IN_FILE || '/usr/share/freeswitch/sounds/ringtones/ringback_in.wav',
+    callerTune: process.env.CALLER_TUNE_FILE || '/usr/share/freeswitch/sounds/ringtones/caller_tune.wav',
+    holdMusic: process.env.HOLD_MUSIC_FILE || '/usr/share/freeswitch/sounds/music/hold_music_1.wav',
   },
   sipUsers: [
     { extension: '1001', username: 'user1', password: 'pass123', name: 'Alice' },

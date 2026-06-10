@@ -23,11 +23,16 @@ services:
   drachtio-freeswitch:
     image: drachtio/drachtio-freeswitch-mrf
     container_name: drachtio-freeswitch
-    network_mode: host
+    ports:
+      - "8021:8021"
+      - "16384-16403:16384-16403/udp"
     environment:
-      - FREESWITCH_EVENT_SOCKET_PASSWORD=ClueCon
+      - FREESWITCH_EVENT_SOCKET_PASSWORD=JambonzR0ck$
     volumes:
       - ./drachtio/drachtio-freeswitch-mrf/config:/etc/freeswitch
+      - ./drachtio/drachtio-freeswitch-mrf/sounds:/usr/share/freeswitch/sounds
+    networks:
+      - voipnet
     restart: unless-stopped
 
   # freeswitch:
