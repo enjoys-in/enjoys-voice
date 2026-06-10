@@ -250,6 +250,9 @@ export class SipServer {
       return;
     }
 
+    // Get full registration (need source for WS routing)
+    const reg = this.db.getRegistration(calledExt);
+
     // Extract the SIP URI from the contact header
     const contactUriMatch = contact.match(/<([^>]+)>/);
     const contactUri = contactUriMatch ? contactUriMatch[1] : contact;
@@ -257,18 +260,28 @@ export class SipServer {
     console.log(`📞 Routing call via B2BUA:`);
     console.log(`   Called: ${calledExt}`);
     console.log(`   Contact URI: ${contactUri}`);
+    if (reg?.source) console.log(`   Source: ${reg.source.protocol}/${reg.source.address}:${reg.source.port}`);
 
     // Notify caller that the call is ringing (UI plays caller tune)
     this.notifyFn?.(callingNumber, 'ringing', { target: calledExt, callId });
 
+    // For WebSocket clients with .invalid domain, route via stored source connection
+    const b2bOpts: any = {
+      proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
+      proxyResponseHeaders: ['contact', 'allow', 'supported'],
+      noAck: false,
+      timeout: 15000,
+    };
+
+    if (contactUri.includes('.invalid') && reg?.source) {
+      // Route through the actual WebSocket connection using source address
+      b2bOpts.proxy = `sip:${reg.source.address}:${reg.source.port};transport=${reg.source.protocol}`;
+      console.log(`   Proxy: ${b2bOpts.proxy} (WS client with .invalid domain)`);
+    }
+
     try {
       // Create B2BUA with a 15s no-answer timeout
-      const { uas, uac } = await this.srf.createB2BUA(req, res, contactUri, {
-        proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
-        proxyResponseHeaders: ['contact', 'allow', 'supported'],
-        noAck: false,
-        timeout: 15000, // 15 second ring timeout
-      });
+      const { uas, uac } = await this.srf.createB2BUA(req, res, contactUri, b2bOpts);
 
       console.log(`✅ Call connected: ${callingNumber} → ${calledExt} via B2BUA`);
       this.notifyFn?.(callingNumber, 'answered', { target: calledExt, callId });
@@ -359,11 +372,17 @@ export class SipServer {
     console.log(`📞 Forwarding to ${target} (${contactUri})`);
     this.notifyFn?.(callingNumber, 'forwarding', { target, callId });
 
+    // Route via stored source for WS clients with .invalid domain
+    const fwdOpts: any = {
+      proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
+      proxyResponseHeaders: ['contact', 'allow', 'supported'],
+    };
+    if (contactUri.includes('.invalid') && reg.source) {
+      fwdOpts.proxy = `sip:${reg.source.address}:${reg.source.port};transport=${reg.source.protocol}`;
+    }
+
     try {
-      const { uas, uac } = await this.srf.createB2BUA(req, res, contactUri, {
-        proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
-        proxyResponseHeaders: ['contact', 'allow', 'supported'],
-      });
+      const { uas, uac } = await this.srf.createB2BUA(req, res, contactUri, fwdOpts);
 
       console.log(`✅ Call forwarded: ${callingNumber} → ${target}`);
       this.notifyFn?.(callingNumber, 'answered', { target, callId });
