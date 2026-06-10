@@ -4,6 +4,10 @@ export class DatabaseService {
   private users = new Map<string, SipUser>();
   private callLogs: CallLog[] = [];
   private registrations = new Map<string, SipRegistration>();
+  /** phone number → extension lookup */
+  private phoneIndex = new Map<string, string>();
+  /** Track used extensions for collision avoidance */
+  private usedExtensions = new Set<string>();
 
   constructor() {
     this.seed();
@@ -14,7 +18,68 @@ export class DatabaseService {
       const user: SipUser = { ...u, registered: false };
       this.users.set(u.extension, user);
       this.users.set(u.username, user);
+      this.usedExtensions.add(u.extension);
     }
+  }
+
+  // ─── Signup / Extension Generation ───────────────────
+
+  /**
+   * Generate a unique 7-digit extension from a phone number.
+   * Takes last 7 digits of the phone, if collision, increments.
+   */
+  private generateExtension(phone: string): string {
+    const digits = phone.replace(/\D/g, '');
+    // Use last 7 digits as base
+    let base = digits.slice(-7).padStart(7, '1');
+    let ext = base;
+    let attempts = 0;
+    while (this.usedExtensions.has(ext) && attempts < 1000) {
+      // Increment numerically
+      const num = (parseInt(ext, 10) + 1) % 10000000;
+      ext = num.toString().padStart(7, '0');
+      attempts++;
+    }
+    return ext;
+  }
+
+  /**
+   * Register a new user with phone number → auto-assigned 7-digit extension.
+   * Returns the created user or null if phone already registered.
+   */
+  signup(name: string, mobile: string, password: string): SipUser | null {
+    const normalized = mobile.replace(/\D/g, '');
+    if (this.phoneIndex.has(normalized)) return null; // already exists
+
+    const extension = this.generateExtension(normalized);
+    const username = normalized; // phone number is the username
+
+    const user: SipUser = {
+      extension,
+      username,
+      password,
+      name,
+      mobile: normalized,
+      registered: false,
+    };
+
+    this.users.set(extension, user);
+    this.users.set(username, user);
+    this.usedExtensions.add(extension);
+    this.phoneIndex.set(normalized, extension);
+
+    return user;
+  }
+
+  /** Lookup extension by phone number */
+  getExtensionByPhone(phone: string): string | undefined {
+    return this.phoneIndex.get(phone.replace(/\D/g, ''));
+  }
+
+  /** Lookup user by phone number */
+  getUserByPhone(phone: string): SipUser | undefined {
+    const ext = this.getExtensionByPhone(phone);
+    return ext ? this.users.get(ext) : undefined;
   }
 
   // ─── Users ───────────────────────────────────────────

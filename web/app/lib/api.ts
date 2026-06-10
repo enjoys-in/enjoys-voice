@@ -17,6 +17,12 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface SignupRequest {
+  name: string;
+  mobile: string;
+  password: string;
+}
+
 export interface BlockNumberRequest {
   number: string;
 }
@@ -48,6 +54,7 @@ export interface LoginResponse {
     extension: string;
     name: string;
     username: string;
+    mobile?: string;
   };
   sipConfig: {
     wsUrl: string;
@@ -55,6 +62,14 @@ export interface LoginResponse {
     domain: string;
     trunkEnabled: boolean;
   };
+}
+
+export type SignupResponse = LoginResponse;
+
+export interface LookupResponse {
+  extension: string;
+  name: string;
+  mobile: string;
 }
 
 export interface UserResponse {
@@ -160,6 +175,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  signup: (data: SignupRequest) =>
+    request<SignupResponse>("/auth/signup", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  // Lookup
+  lookupByPhone: (phone: string) =>
+    request<LookupResponse>(`/lookup/${encodeURIComponent(phone)}`),
 
   // Users
   getUsers: () => request<UserResponse[]>("/users"),

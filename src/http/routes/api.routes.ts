@@ -33,7 +33,7 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
 
     res.json({
       success: true,
-      user: { extension: user.extension, name: user.name, username: user.username },
+      user: { extension: user.extension, name: user.name, username: user.username, mobile: user.mobile },
       sipConfig: {
         wsUrl: `ws://${config.server.publicIp}:${config.server.wsPort}`,
         sipWsUrl: `ws://${config.server.publicIp}:${config.sipWs.port}`,
@@ -41,6 +41,45 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
         trunkEnabled: trunk.isEnabled,
       },
     });
+  });
+
+  // ─── Signup ──────────────────────────────────────────
+  router.post('/auth/signup', (req: Request, res: Response) => {
+    const { name, mobile, password } = req.body;
+    if (!name || !mobile || !password) {
+      res.status(400).json({ error: 'Missing fields: name, mobile, password required' });
+      return;
+    }
+
+    const normalized = mobile.replace(/\D/g, '');
+    if (normalized.length < 7) {
+      res.status(400).json({ error: 'Invalid phone number (min 7 digits)' });
+      return;
+    }
+
+    const user = db.signup(name, mobile, password);
+    if (!user) {
+      res.status(409).json({ error: 'Phone number already registered' });
+      return;
+    }
+
+    res.status(201).json({
+      success: true,
+      user: { extension: user.extension, name: user.name, username: user.username, mobile: user.mobile },
+      sipConfig: {
+        wsUrl: `ws://${config.server.publicIp}:${config.server.wsPort}`,
+        sipWsUrl: `ws://${config.server.publicIp}:${config.sipWs.port}`,
+        domain: config.server.domain,
+        trunkEnabled: trunk.isEnabled,
+      },
+    });
+  });
+
+  // ─── Lookup by phone ────────────────────────────────
+  router.get('/lookup/:phone', (req: Request, res: Response) => {
+    const user = db.getUserByPhone(req.params.phone);
+    if (!user) { res.status(404).json({ error: 'Not found' }); return; }
+    res.json({ extension: user.extension, name: user.name, mobile: user.mobile });
   });
 
   // ─── Users ───────────────────────────────────────────

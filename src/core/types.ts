@@ -15,6 +15,7 @@ export interface SipUser {
   username: string;
   password: string;
   name: string;
+  mobile?: string;
   registered?: boolean;
   contact?: string;
   userAgent?: string;
