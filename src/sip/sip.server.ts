@@ -266,7 +266,7 @@ export class SipServer {
     this.notifyFn?.(callingNumber, 'ringing', { target: calledExt, callId });
 
     const b2bOpts: any = {
-      proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
+      proxyRequestHeaders: ['to', 'from', 'cseq', 'max-forwards', 'content-type'],
       proxyResponseHeaders: ['contact', 'allow', 'supported'],
       noAck: false,
       timeout: 15000,
@@ -371,7 +371,7 @@ export class SipServer {
     this.notifyFn?.(callingNumber, 'forwarding', { target, callId });
 
     const fwdOpts: any = {
-      proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
+      proxyRequestHeaders: ['to', 'from', 'cseq', 'max-forwards', 'content-type'],
       proxyResponseHeaders: ['contact', 'allow', 'supported'],
     };
 
