@@ -28,6 +28,9 @@ class Application {
     console.log(`   Trunk:  ${config.trunk.enabled ? config.trunk.host : 'disabled'}`);
     console.log(`   IVR:    ${config.ivr.enabled ? 'enabled' : 'disabled'}`);
 
+    // Wire SIP call events → WebSocket notifications
+    this.sip.setNotifier((ext, event, data) => this.ws.notifyCallEvent(ext, event, data));
+
     await this.sip.start();
     this.ws.start();
     this.http.start();

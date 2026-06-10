@@ -9,6 +9,7 @@ export class SipServer {
   private srf: InstanceType<typeof Srf>;
   private connected = false;
   private ivr: IVRSystem | null = null;
+  private notifyFn?: (extension: string, event: string, data?: any) => void;
 
   constructor(
     private db: DatabaseService,
@@ -16,6 +17,11 @@ export class SipServer {
     private registrationStore: RegistrationStore,
   ) {
     this.srf = new Srf();
+  }
+
+  /** Register a callback to notify users of call events via WebSocket */
+  setNotifier(fn: (extension: string, event: string, data?: any) => void): void {
+    this.notifyFn = fn;
   }
 
   async start(): Promise<void> {
@@ -173,30 +179,30 @@ export class SipServer {
 
   private async routeToExtension(req: any, res: any, contact: string, callId: string): Promise<void> {
     try {
-      // Get the callee's registration from the store
       const calledMatch = req.uri?.match(/sip:([^@]+)/);
       const calledExt = calledMatch ? calledMatch[1] : '';
-      const reg = await this.registrationStore.get(calledExt);
+      const callingNumber = req.callingNumber || 'unknown';
 
-      // Build route URI using source connection info (avoids DNS lookup on .invalid domains)
-      let routeUri = contact;
-      if (reg?.source) {
-        const { address, port, protocol } = reg.source;
-        const transport = protocol === 'ws' ? 'ws' : protocol;
-        routeUri = `sip:${calledExt}@${address}:${port};transport=${transport}`;
-      }
+      // Extract the SIP URI from the contact header
+      const contactUriMatch = contact.match(/<([^>]+)>/);
+      const contactUri = contactUriMatch ? contactUriMatch[1] : contact;
 
       console.log(`📞 Routing call via B2BUA:`);
-      console.log(`   Contact: ${contact}`);
-      console.log(`   Route URI: ${routeUri}`);
-      console.log(`   Source: ${reg?.source ? `${reg.source.protocol}/${reg.source.address}:${reg.source.port}` : 'none'}`);
+      console.log(`   Called: ${calledExt}`);
+      console.log(`   Contact URI: ${contactUri}`);
 
-      const { uas, uac } = await this.srf.createB2BUA(req, res, routeUri, {
+      // Notify caller that the call is ringing (UI plays caller tune)
+      this.notifyFn?.(callingNumber, 'ringing', { target: calledExt, callId });
+
+      const { uas, uac } = await this.srf.createB2BUA(req, res, contactUri, {
         proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
         proxyResponseHeaders: ['contact', 'allow', 'supported'],
       });
 
-      console.log(`✅ Call connected: ${req.callingNumber} → ${calledExt} via B2BUA`);
+      console.log(`✅ Call connected: ${callingNumber} → ${calledExt} via B2BUA`);
+
+      // Notify caller that call is answered (UI stops caller tune)
+      this.notifyFn?.(callingNumber, 'answered', { target: calledExt, callId });
 
       const onDestroy = () => {
         this.db.updateCall(callId, { status: 'ended', endTime: new Date().toISOString() });
@@ -206,11 +212,33 @@ export class SipServer {
 
       this.db.updateCall(callId, { status: 'answered' });
     } catch (err: any) {
-      console.error('❌ Call routing failed:', err.message);
-      console.error('❌ Full error:', JSON.stringify(err, null, 2));
-      if (err.status) console.error(`❌ SIP response status: ${err.status}`);
-      if (!res.finalResponseSent) res.send(503);
-      this.db.updateCall(callId, { status: 'failed' });
+      const callingNumber = req.callingNumber || 'unknown';
+      const status = err.status || 0;
+
+      // Determine the reason and notify the caller's UI
+      if (status === 486 || status === 603) {
+        // 486 = Busy Here, 603 = Decline
+        console.log(`📵 Call declined/busy: ${status} ${err.reason || ''}`);
+        this.notifyFn?.(callingNumber, 'declined', { reason: 'busy', callId });
+        this.db.updateCall(callId, { status: 'missed' });
+        if (!res.finalResponseSent) res.send(486, 'Busy Here');
+      } else if (status === 487) {
+        // 487 = Request Terminated (caller cancelled)
+        console.log(`📵 Call cancelled by caller`);
+        this.db.updateCall(callId, { status: 'missed' });
+      } else if (status === 480) {
+        // 480 = Temporarily Unavailable
+        console.log(`📵 Callee unavailable`);
+        this.notifyFn?.(callingNumber, 'unavailable', { callId });
+        this.db.updateCall(callId, { status: 'missed' });
+        if (!res.finalResponseSent) res.send(480);
+      } else {
+        console.error('❌ Call routing failed:', err.message);
+        if (err.status) console.error(`❌ SIP response status: ${err.status}`);
+        this.notifyFn?.(callingNumber, 'failed', { reason: 'error', callId });
+        this.db.updateCall(callId, { status: 'failed' });
+        if (!res.finalResponseSent) res.send(503);
+      }
     }
   }
 }

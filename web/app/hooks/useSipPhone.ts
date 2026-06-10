@@ -29,6 +29,26 @@ export function useSipPhone() {
   const registererRef = useRef<Registerer | null>(null);
   const sessionRef = useRef<Session | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const toneAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // ─── Tone Playback ───────────────────────────────────
+
+  const playTone = useCallback((src: string, loop = false) => {
+    stopTone();
+    const audio = new Audio(src);
+    audio.loop = loop;
+    audio.volume = 0.5;
+    audio.play().catch(() => {});
+    toneAudioRef.current = audio;
+  }, []);
+
+  const stopTone = useCallback(() => {
+    if (toneAudioRef.current) {
+      toneAudioRef.current.pause();
+      toneAudioRef.current.currentTime = 0;
+      toneAudioRef.current = null;
+    }
+  }, []);
 
   // Get or create audio element for remote audio playback
   const getAudioElement = useCallback(() => {
@@ -90,16 +110,21 @@ export function useSipPhone() {
             startTime: Date.now(),
           });
 
+          // Play ringtone for incoming call
+          playTone("/sounds/ringtone.wav", true);
+
           // Auto-setup state change listener
           invitation.stateChange.addListener((state: SessionState) => {
             switch (state) {
               case SessionState.Established:
+                stopTone();
                 setupRemoteMedia(invitation);
                 setCallState((prev) =>
                   prev ? { ...prev, status: "connected", startTime: Date.now() } : null
                 );
                 break;
               case SessionState.Terminated:
+                stopTone();
                 setCallState(null);
                 sessionRef.current = null;
                 break;
@@ -171,12 +196,19 @@ export function useSipPhone() {
     inviter.stateChange.addListener((state: SessionState) => {
       switch (state) {
         case SessionState.Established:
+          stopTone();
           setupRemoteMedia(inviter);
           setCallState((prev) =>
             prev ? { ...prev, status: "connected", startTime: Date.now() } : null
           );
           break;
         case SessionState.Terminated:
+          stopTone();
+          // Play busy tone if call was never answered (declined/failed)
+          if (inviter.state !== SessionState.Established) {
+            playTone("/sounds/busy_tone.wav");
+            setTimeout(stopTone, 5000);
+          }
           setCallState(null);
           sessionRef.current = null;
           break;
@@ -185,8 +217,13 @@ export function useSipPhone() {
 
     try {
       await inviter.invite();
+      // Play caller tune while waiting for answer
+      playTone("/sounds/caller_tune.wav", true);
     } catch (err) {
       console.error("Call failed:", err);
+      stopTone();
+      playTone("/sounds/busy_tone.wav");
+      setTimeout(stopTone, 5000);
       setCallState(null);
       sessionRef.current = null;
     }
@@ -210,6 +247,7 @@ export function useSipPhone() {
 
   // Hang up / reject
   const hangUp = useCallback(async () => {
+    stopTone();
     const session = sessionRef.current;
     if (!session) {
       setCallState(null);
@@ -261,5 +299,6 @@ export function useSipPhone() {
     answerCall,
     hangUp,
     sendDtmf,
+    stopTone,
   };
 }
