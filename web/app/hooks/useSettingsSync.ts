@@ -1,22 +1,29 @@
 "use client";
 
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback } from "react";
 import { useAuthStore, useSettingsStore } from "../stores";
 import { api } from "../lib/api";
 
+// Module-level flag: ensures settings are only fetched once across all instances
+let settingsLoaded = false;
+
+export function resetSettingsCache() {
+  settingsLoaded = false;
+}
+
 /**
  * Syncs settings store with backend API.
- * Call once in the app shell to load initial data.
+ * Safe to call from multiple components — will only fetch once.
  */
 export function useSettingsSync() {
   const { user } = useAuthStore();
-  const { setSettings, setLoading, addBlockedNumber, settings } = useSettingsStore();
-  const loaded = useRef(false);
+  const { setSettings, setLoading } = useSettingsStore();
 
-  // Load blocked numbers + forwarding from API on mount (once)
+  // Load blocked numbers + forwarding from API (once globally)
   const loadSettings = useCallback(async () => {
     if (!user) return;
-    if (loaded.current) return;
+    if (settingsLoaded) return;
+    settingsLoaded = true;
     setLoading(true);
     try {
       const [blockRes, fwdRes] = await Promise.all([
@@ -31,9 +38,8 @@ export function useSettingsSync() {
           unavailable: fwdRes.unavailable || undefined,
         },
       });
-      loaded.current = true;
     } catch {
-      // Silently fail — settings will use defaults
+      settingsLoaded = false; // Allow retry on failure
     } finally {
       setLoading(false);
     }

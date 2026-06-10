@@ -146,6 +146,14 @@ export function SettingsScreen() {
                   onCheckedChange={(v) => setSettings({ soundsEnabled: v })}
                 />
               </div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="dtmf" className="text-sm">DTMF keypad tones</Label>
+                <Switch
+                  id="dtmf"
+                  checked={settings.dtmfEnabled}
+                  onCheckedChange={(v) => setSettings({ dtmfEnabled: v })}
+                />
+              </div>
               <Separator className="opacity-50" />
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground flex items-center gap-1">

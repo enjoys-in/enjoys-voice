@@ -15,6 +15,7 @@ import { ActiveCallScreen } from "./screens/ActiveCallScreen";
 import { IncomingCallSheet } from "./call/IncomingCallSheet";
 import { useSipPhone } from "../hooks/useSipPhone";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { useSettingsSync } from "../hooks/useSettingsSync";
 
 export function AppShell() {
   const [activeTab, setActiveTab] = useState<TabId>("calls");
@@ -23,6 +24,7 @@ export function AppShell() {
 
   const { register, makeCall, hangUp, answer } = useSipPhone();
   const { connect, disconnect } = useWebSocket();
+  const settingsSync = useSettingsSync();
 
   // Connect WS + register SIP on auth
   useEffect(() => {

@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Phone, Delete } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSettingsStore } from "../../stores";
 
 interface KeypadScreenProps {
   onCall: (target: string, name?: string) => void;
@@ -64,11 +65,12 @@ function playDtmfTone(key: string) {
 export function KeypadScreen({ onCall }: KeypadScreenProps) {
   const [number, setNumber] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
+  const { settings } = useSettingsStore();
 
   const handleKey = useCallback((key: string) => {
-    playDtmfTone(key);
+    if (settings.dtmfEnabled) playDtmfTone(key);
     setNumber((prev) => prev + key);
-  }, []);
+  }, [settings.dtmfEnabled]);
 
   const handleDelete = useCallback(() => {
     setNumber((prev) => prev.slice(0, -1));

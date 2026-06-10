@@ -5,6 +5,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   callerTune: "caller_tune.wav",
   ringtone: "ringtone.wav",
   soundsEnabled: true,
+  dtmfEnabled: true,
   pstnEnabled: false,
   pstnMobile: "",
   pstnCountryCode: "+91",

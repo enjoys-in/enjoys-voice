@@ -45,6 +45,7 @@ export interface UserSettings {
   callerTune: string;
   ringtone: string;
   soundsEnabled: boolean;
+  dtmfEnabled: boolean;
   pstnEnabled: boolean;
   pstnMobile?: string;
   pstnCountryCode?: string;

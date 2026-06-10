@@ -17,6 +17,10 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   login: (user, token, sipConfig) =>
     set({ user, token, sipConfig, isAuthenticated: true }),
-  logout: () =>
-    set({ user: null, token: null, sipConfig: null, isAuthenticated: false }),
+  logout: () => {
+    // Lazy imports to avoid circular deps (hooks import from stores)
+    import("../hooks/useCallHistory").then((m) => m.resetCallHistoryCache());
+    import("../hooks/useSettingsSync").then((m) => m.resetSettingsCache());
+    set({ user: null, token: null, sipConfig: null, isAuthenticated: false });
+  },
 }));
