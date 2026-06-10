@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { useAuthStore, useSettingsStore } from "../stores";
 import { api } from "../lib/api";
 
@@ -11,10 +11,12 @@ import { api } from "../lib/api";
 export function useSettingsSync() {
   const { user } = useAuthStore();
   const { setSettings, setLoading, addBlockedNumber, settings } = useSettingsStore();
+  const loaded = useRef(false);
 
-  // Load blocked numbers + forwarding from API on mount
+  // Load blocked numbers + forwarding from API on mount (once)
   const loadSettings = useCallback(async () => {
     if (!user) return;
+    if (loaded.current) return;
     setLoading(true);
     try {
       const [blockRes, fwdRes] = await Promise.all([
@@ -29,6 +31,7 @@ export function useSettingsSync() {
           unavailable: fwdRes.unavailable || undefined,
         },
       });
+      loaded.current = true;
     } catch {
       // Silently fail — settings will use defaults
     } finally {

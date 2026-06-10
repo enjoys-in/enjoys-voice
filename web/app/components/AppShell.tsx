@@ -64,10 +64,10 @@ export function AppShell() {
 
         {/* Screen content */}
         <main className="flex-1 overflow-y-auto pb-16 lg:pb-0">
-          {activeTab === "calls" && <CallsScreen onCall={makeCall} />}
-          {activeTab === "contacts" && <ContactsScreen onCall={makeCall} />}
-          {activeTab === "keypad" && <KeypadScreen onCall={makeCall} />}
-          {activeTab === "settings" && <SettingsScreen />}
+          <div className={activeTab === "calls" ? "" : "hidden"}><CallsScreen onCall={makeCall} /></div>
+          <div className={activeTab === "contacts" ? "" : "hidden"}><ContactsScreen onCall={makeCall} /></div>
+          <div className={activeTab === "keypad" ? "h-full" : "hidden"}><KeypadScreen onCall={makeCall} /></div>
+          <div className={activeTab === "settings" ? "" : "hidden"}><SettingsScreen /></div>
         </main>
 
         {/* Floating dial button */}
