@@ -189,8 +189,8 @@
 
 ## Go CRUD API Server (NOT YET STARTED — future work)
 - [ ] Separate Go service for REST CRUD operations
-- [ ] PostgreSQL/SQLite backend
+- [ ] PostgreSQL backend
 - [ ] JWT auth
-- [ ] Node server calls Go API internally for persistent data
+- [ ] Node server calls  only for sip handles
 - [ ] Go server is stateless, horizontally scalable
 
