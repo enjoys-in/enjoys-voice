@@ -12,6 +12,7 @@ export type WSMessage =
   | { type: "call_answered"; callId: string }
   | { type: "call_failed"; reason: string; callId: string }
   | { type: "call_ended"; callId: string }
+  | { type: "call_event"; event: string; from?: string; fromName?: string; target?: string; callId?: string; reason?: string; [key: string]: any }
   | { type: "hangup"; callId: string; from: string }
   | { type: "dtmf_sent"; callId: string; digit: string };
 

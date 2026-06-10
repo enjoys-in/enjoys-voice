@@ -8,7 +8,7 @@ export interface CallState {
   peerExtension: string;
   peerName: string;
   direction: "outbound" | "inbound";
-  status: "ringing" | "connected" | "ended";
+  status: "ringing" | "connected" | "ended" | "declined" | "no_answer" | "blocked";
   startTime: number;
 }
 
@@ -204,12 +204,19 @@ export function useSipPhone() {
           break;
         case SessionState.Terminated:
           stopTone();
-          // Play busy tone if call was never answered (declined/failed)
-          if (inviter.state !== SessionState.Established) {
-            playTone("/sounds/busy_tone.wav");
-            setTimeout(stopTone, 5000);
-          }
-          setCallState(null);
+          // Show declined state briefly, then clear
+          setCallState((prev) => {
+            if (prev && prev.status === "ringing") {
+              // Call was never answered — show declined
+              playTone("/sounds/busy_tone.wav");
+              setTimeout(() => {
+                stopTone();
+                setCallState(null);
+              }, 3000);
+              return { ...prev, status: "declined" };
+            }
+            return null;
+          });
           sessionRef.current = null;
           break;
       }

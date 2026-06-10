@@ -178,30 +178,40 @@ export class SipServer {
   }
 
   private async routeToExtension(req: any, res: any, contact: string, callId: string): Promise<void> {
+    const calledMatch = req.uri?.match(/sip:([^@]+)/);
+    const calledExt = calledMatch ? calledMatch[1] : '';
+    const callingNumber = req.callingNumber || 'unknown';
+
+    // ─── Block check ───────────────────────────────────
+    if (this.db.isBlocked(calledExt, callingNumber)) {
+      console.log(`🚫 Blocked: ${callingNumber} → ${calledExt}`);
+      this.notifyFn?.(callingNumber, 'declined', { reason: 'blocked', callId });
+      this.db.updateCall(callId, { status: 'missed' });
+      res.send(603, 'Decline');
+      return;
+    }
+
+    // Extract the SIP URI from the contact header
+    const contactUriMatch = contact.match(/<([^>]+)>/);
+    const contactUri = contactUriMatch ? contactUriMatch[1] : contact;
+
+    console.log(`📞 Routing call via B2BUA:`);
+    console.log(`   Called: ${calledExt}`);
+    console.log(`   Contact URI: ${contactUri}`);
+
+    // Notify caller that the call is ringing (UI plays caller tune)
+    this.notifyFn?.(callingNumber, 'ringing', { target: calledExt, callId });
+
     try {
-      const calledMatch = req.uri?.match(/sip:([^@]+)/);
-      const calledExt = calledMatch ? calledMatch[1] : '';
-      const callingNumber = req.callingNumber || 'unknown';
-
-      // Extract the SIP URI from the contact header
-      const contactUriMatch = contact.match(/<([^>]+)>/);
-      const contactUri = contactUriMatch ? contactUriMatch[1] : contact;
-
-      console.log(`📞 Routing call via B2BUA:`);
-      console.log(`   Called: ${calledExt}`);
-      console.log(`   Contact URI: ${contactUri}`);
-
-      // Notify caller that the call is ringing (UI plays caller tune)
-      this.notifyFn?.(callingNumber, 'ringing', { target: calledExt, callId });
-
+      // Create B2BUA with a 15s no-answer timeout
       const { uas, uac } = await this.srf.createB2BUA(req, res, contactUri, {
         proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
         proxyResponseHeaders: ['contact', 'allow', 'supported'],
+        noAck: false,
+        timeout: 15000, // 15 second ring timeout
       });
 
       console.log(`✅ Call connected: ${callingNumber} → ${calledExt} via B2BUA`);
-
-      // Notify caller that call is answered (UI stops caller tune)
       this.notifyFn?.(callingNumber, 'answered', { target: calledExt, callId });
 
       const onDestroy = () => {
@@ -212,26 +222,46 @@ export class SipServer {
 
       this.db.updateCall(callId, { status: 'answered' });
     } catch (err: any) {
-      const callingNumber = req.callingNumber || 'unknown';
       const status = err.status || 0;
+      const forwarding = this.db.getForwarding(calledExt);
 
-      // Determine the reason and notify the caller's UI
       if (status === 486 || status === 603) {
-        // 486 = Busy Here, 603 = Decline
-        console.log(`📵 Call declined/busy: ${status} ${err.reason || ''}`);
-        this.notifyFn?.(callingNumber, 'declined', { reason: 'busy', callId });
-        this.db.updateCall(callId, { status: 'missed' });
-        if (!res.finalResponseSent) res.send(486, 'Busy Here');
+        // Declined / Busy
+        console.log(`📵 Call declined/busy: ${status}`);
+        if (forwarding.busy) {
+          console.log(`↪️ Forwarding on busy to ${forwarding.busy}`);
+          await this.forwardCall(req, res, forwarding.busy, callId, callingNumber);
+        } else {
+          this.notifyFn?.(callingNumber, 'declined', { reason: 'busy', callId });
+          this.db.updateCall(callId, { status: 'missed' });
+          if (!res.finalResponseSent) res.send(486, 'Busy Here');
+        }
+      } else if (status === 408 || err.message?.includes('timeout')) {
+        // No answer (timeout)
+        console.log(`📵 No answer (timeout): ${calledExt}`);
+        if (forwarding.noAnswer) {
+          console.log(`↪️ Forwarding on no-answer to ${forwarding.noAnswer}`);
+          await this.forwardCall(req, res, forwarding.noAnswer, callId, callingNumber);
+        } else {
+          this.notifyFn?.(callingNumber, 'no_answer', { callId });
+          this.db.updateCall(callId, { status: 'missed' });
+          if (!res.finalResponseSent) res.send(480, 'No Answer');
+        }
       } else if (status === 487) {
-        // 487 = Request Terminated (caller cancelled)
+        // Caller cancelled
         console.log(`📵 Call cancelled by caller`);
         this.db.updateCall(callId, { status: 'missed' });
       } else if (status === 480) {
-        // 480 = Temporarily Unavailable
+        // Unavailable
         console.log(`📵 Callee unavailable`);
-        this.notifyFn?.(callingNumber, 'unavailable', { callId });
-        this.db.updateCall(callId, { status: 'missed' });
-        if (!res.finalResponseSent) res.send(480);
+        if (forwarding.unavailable) {
+          console.log(`↪️ Forwarding on unavailable to ${forwarding.unavailable}`);
+          await this.forwardCall(req, res, forwarding.unavailable, callId, callingNumber);
+        } else {
+          this.notifyFn?.(callingNumber, 'unavailable', { callId });
+          this.db.updateCall(callId, { status: 'missed' });
+          if (!res.finalResponseSent) res.send(480);
+        }
       } else {
         console.error('❌ Call routing failed:', err.message);
         if (err.status) console.error(`❌ SIP response status: ${err.status}`);
@@ -239,6 +269,47 @@ export class SipServer {
         this.db.updateCall(callId, { status: 'failed' });
         if (!res.finalResponseSent) res.send(503);
       }
+    }
+  }
+
+  private async forwardCall(req: any, res: any, target: string, callId: string, callingNumber: string): Promise<void> {
+    const reg = this.db.getRegistration(target);
+    if (!reg) {
+      // Forward target not registered
+      console.log(`❌ Forward target ${target} not registered`);
+      this.notifyFn?.(callingNumber, 'unavailable', { callId });
+      this.db.updateCall(callId, { status: 'missed' });
+      if (!res.finalResponseSent) res.send(480);
+      return;
+    }
+
+    const contactUriMatch = reg.contact.match(/<([^>]+)>/);
+    const contactUri = contactUriMatch ? contactUriMatch[1] : reg.contact;
+
+    console.log(`📞 Forwarding to ${target} (${contactUri})`);
+    this.notifyFn?.(callingNumber, 'forwarding', { target, callId });
+
+    try {
+      const { uas, uac } = await this.srf.createB2BUA(req, res, contactUri, {
+        proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
+        proxyResponseHeaders: ['contact', 'allow', 'supported'],
+      });
+
+      console.log(`✅ Call forwarded: ${callingNumber} → ${target}`);
+      this.notifyFn?.(callingNumber, 'answered', { target, callId });
+
+      const onDestroy = () => {
+        this.db.updateCall(callId, { status: 'ended', endTime: new Date().toISOString() });
+      };
+      uas.on('destroy', () => { uac.destroy(); onDestroy(); });
+      uac.on('destroy', () => { uas.destroy(); onDestroy(); });
+
+      this.db.updateCall(callId, { status: 'answered' });
+    } catch (fwdErr: any) {
+      console.error(`❌ Forward to ${target} failed:`, fwdErr.message);
+      this.notifyFn?.(callingNumber, 'failed', { reason: 'forward_failed', callId });
+      this.db.updateCall(callId, { status: 'failed' });
+      if (!res.finalResponseSent) res.send(503);
     }
   }
 }

@@ -108,5 +108,37 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
     });
   });
 
+  // ─── Block List ─────────────────────────────────────
+  router.get('/block/:ext', (req: Request, res: Response) => {
+    res.json({ blocked: db.getBlockedNumbers(req.params.ext) });
+  });
+
+  router.post('/block/:ext', (req: Request, res: Response) => {
+    const { number } = req.body;
+    if (!number) { res.status(400).json({ error: 'Missing number' }); return; }
+    const ok = db.blockNumber(req.params.ext, number);
+    res.json({ success: ok });
+  });
+
+  router.delete('/block/:ext/:number', (req: Request, res: Response) => {
+    const ok = db.unblockNumber(req.params.ext, req.params.number);
+    res.json({ success: ok });
+  });
+
+  // ─── Call Forwarding ────────────────────────────────
+  router.get('/forwarding/:ext', (req: Request, res: Response) => {
+    res.json(db.getForwarding(req.params.ext));
+  });
+
+  router.post('/forwarding/:ext', (req: Request, res: Response) => {
+    const { type, target } = req.body;
+    if (!type || !['busy', 'noAnswer', 'unavailable'].includes(type)) {
+      res.status(400).json({ error: 'Invalid type (busy | noAnswer | unavailable)' });
+      return;
+    }
+    const ok = db.setForwarding(req.params.ext, type, target || null);
+    res.json({ success: ok });
+  });
+
   return router;
 }

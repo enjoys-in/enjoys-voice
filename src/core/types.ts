@@ -18,6 +18,10 @@ export interface SipUser {
   registered?: boolean;
   contact?: string;
   userAgent?: string;
+  blockedNumbers?: string[];
+  forwardOnBusy?: string;
+  forwardOnNoAnswer?: string;
+  forwardOnUnavailable?: string;
 }
 
 export interface SipRegistration {

@@ -54,9 +54,15 @@ export default function CallScreen({ callState, onHangUp, onSendDtmf }: CallScre
         <h2 className="text-xl font-semibold text-white">{callState.peerName}</h2>
         <p className="text-sm text-white/30 mt-0.5">Ext. {callState.peerExtension}</p>
 
-        <p className={`text-lg mt-4 font-mono ${callState.status === "connected" ? "text-emerald-400" : "text-white/50"}`}>
+        <p className={`text-lg mt-4 font-mono ${callState.status === "connected" ? "text-emerald-400" : callState.status === "declined" || callState.status === "no_answer" || callState.status === "blocked" ? "text-red-400" : "text-white/50"}`}>
           {callState.status === "ringing"
             ? (callState.direction === "outbound" ? "Calling..." : "Incoming...")
+            : callState.status === "declined"
+            ? "Call Declined"
+            : callState.status === "no_answer"
+            ? "No Answer"
+            : callState.status === "blocked"
+            ? "Number Blocked"
             : formatTimer(elapsed)}
         </p>
 

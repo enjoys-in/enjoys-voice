@@ -97,4 +97,54 @@ export class DatabaseService {
   getCallsByUser(extension: string): CallLog[] {
     return this.callLogs.filter(c => c.from === extension || c.to === extension);
   }
+
+  // ─── Block List ──────────────────────────────────────
+
+  blockNumber(extension: string, numberToBlock: string): boolean {
+    const user = this.users.get(extension);
+    if (!user) return false;
+    if (!user.blockedNumbers) user.blockedNumbers = [];
+    if (!user.blockedNumbers.includes(numberToBlock)) {
+      user.blockedNumbers.push(numberToBlock);
+    }
+    return true;
+  }
+
+  unblockNumber(extension: string, number: string): boolean {
+    const user = this.users.get(extension);
+    if (!user || !user.blockedNumbers) return false;
+    user.blockedNumbers = user.blockedNumbers.filter(n => n !== number);
+    return true;
+  }
+
+  isBlocked(calleeExtension: string, callerNumber: string): boolean {
+    const user = this.users.get(calleeExtension);
+    return user?.blockedNumbers?.includes(callerNumber) ?? false;
+  }
+
+  getBlockedNumbers(extension: string): string[] {
+    return this.users.get(extension)?.blockedNumbers || [];
+  }
+
+  // ─── Call Forwarding ─────────────────────────────────
+
+  setForwarding(extension: string, type: 'busy' | 'noAnswer' | 'unavailable', target: string | null): boolean {
+    const user = this.users.get(extension);
+    if (!user) return false;
+    switch (type) {
+      case 'busy': user.forwardOnBusy = target || undefined; break;
+      case 'noAnswer': user.forwardOnNoAnswer = target || undefined; break;
+      case 'unavailable': user.forwardOnUnavailable = target || undefined; break;
+    }
+    return true;
+  }
+
+  getForwarding(extension: string): { busy?: string; noAnswer?: string; unavailable?: string } {
+    const user = this.users.get(extension);
+    return {
+      busy: user?.forwardOnBusy,
+      noAnswer: user?.forwardOnNoAnswer,
+      unavailable: user?.forwardOnUnavailable,
+    };
+  }
 }
