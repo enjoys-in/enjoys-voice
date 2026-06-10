@@ -65,21 +65,23 @@ export class SipServer {
   private handleRegister(): void {
     this.srf.register((req: any, res: any) => {
       try {
-        const contact = req.get('Contact');
-        const expires = parseInt(req.get('Expires') || '3600', 10);
-
-        // Extract user from From/To header (req.uri is the registrar domain in REGISTER)
         const fromHeader = req.get('From') || req.get('from') || '';
         const toHeader = req.get('To') || req.get('to') || '';
+        const contact = req.get('Contact') || '';
+        const expiresHeader = req.get('Expires');
+
+        console.log(`📋 SIP REGISTER raw: From="${fromHeader}" To="${toHeader}" Contact="${contact}" Expires="${expiresHeader}"`);
+
         const fromMatch = fromHeader.match(/sip:([^@>]+)@/);
         const toMatch = toHeader.match(/sip:([^@>]+)@/);
         const username = fromMatch?.[1] || toMatch?.[1] || req.callingNumber || 'unknown';
+        const expires = parseInt(expiresHeader || '3600', 10);
 
-        console.log(`📋 SIP REGISTER: ${username} (expires=${expires})`);
+        console.log(`📋 SIP REGISTER: user=${username} expires=${expires}`);
 
         const user = this.db.getUser(username);
         if (!user) {
-          console.log(`❌ SIP REGISTER: Unknown user ${username}`);
+          console.log(`❌ SIP REGISTER: Unknown user "${username}" (available: ${this.db.getUsers().map(u => u.extension).join(',')})`);
           res.send(403);
           return;
         }
@@ -87,14 +89,14 @@ export class SipServer {
         if (expires === 0) {
           this.db.unregisterUser(user.extension);
           res.send(200, { headers: { 'Contact': contact, 'Expires': '0' } });
-          console.log(`❌ SIP: ${user.name} unregistered`);
+          console.log(`🔴 SIP: ${user.name} unregistered`);
         } else {
           this.db.registerUser(user.extension, contact, expires);
           res.send(200, { headers: { 'Contact': contact, 'Expires': expires.toString() } });
           console.log(`✅ SIP: ${user.name} registered at ${contact}`);
         }
       } catch (err: any) {
-        console.error('❌ SIP REGISTER error:', err.message);
+        console.error('❌ SIP REGISTER error:', err.message, err.stack);
         res.send(500);
       }
     });

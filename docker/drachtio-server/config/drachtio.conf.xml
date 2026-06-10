@@ -13,16 +13,4 @@
   </sip>
 
   <admin port="9022" secret="siprocks">0.0.0.0</admin>
-
-  <request-handlers>
-    <request-handler sip-method="INVITE">
-      <action>route</action>
-    </request-handler>
-    <request-handler sip-method="REGISTER">
-      <action>route</action>
-    </request-handler>
-    <request-handler sip-method="OPTIONS">
-      <action>route</action>
-    </request-handler>
-  </request-handlers>
 </drachtio>
