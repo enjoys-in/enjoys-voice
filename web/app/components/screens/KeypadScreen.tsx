@@ -7,6 +7,7 @@ import { useSettingsStore } from "../../stores";
 
 interface KeypadScreenProps {
   onCall: (target: string, name?: string) => void;
+  active?: boolean;
 }
 
 const KEYS = [
@@ -62,7 +63,7 @@ function playDtmfTone(key: string) {
   setTimeout(() => ctx.close(), 200);
 }
 
-export function KeypadScreen({ onCall }: KeypadScreenProps) {
+export function KeypadScreen({ onCall, active = true }: KeypadScreenProps) {
   const [number, setNumber] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const { settings } = useSettingsStore();
@@ -83,8 +84,9 @@ export function KeypadScreen({ onCall }: KeypadScreenProps) {
     }
   }, [number, onCall]);
 
-  // Keyboard / numpad support
+  // Keyboard / numpad support — only when keypad tab is active
   useEffect(() => {
+    if (!active) return;
     const handler = (e: KeyboardEvent) => {
       // Ignore if user is typing in an input elsewhere
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -103,7 +105,7 @@ export function KeypadScreen({ onCall }: KeypadScreenProps) {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [handleKey, handleDelete, handleCall, number]);
+  }, [active, handleKey, handleDelete, handleCall, number]);
 
   return (
     <div ref={containerRef} className="flex flex-col h-full items-center justify-center px-4 max-w-xs mx-auto">

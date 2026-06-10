@@ -79,7 +79,7 @@ export function AppShell() {
         <main className="flex-1 overflow-y-auto pb-16 lg:pb-0">
           <div className={activeTab === "calls" ? "" : "hidden"}><CallsScreen onCall={makeCall} /></div>
           <div className={activeTab === "contacts" ? "" : "hidden"}><ContactsScreen onCall={makeCall} /></div>
-          <div className={activeTab === "keypad" ? "h-full" : "hidden"}><KeypadScreen onCall={makeCall} /></div>
+          <div className={activeTab === "keypad" ? "h-full" : "hidden"}><KeypadScreen onCall={makeCall} active={activeTab === "keypad"} /></div>
           <div className={activeTab === "settings" ? "" : "hidden"}><SettingsScreen /></div>
         </main>
 
