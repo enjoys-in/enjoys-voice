@@ -265,9 +265,6 @@ export class SipServer {
     // Notify caller that the call is ringing (UI plays caller tune)
     this.notifyFn?.(callingNumber, 'ringing', { target: calledExt, callId });
 
-    // For WebSocket clients, drachtio needs to route through the existing
-    // WS connection. Use proxy mode which leverages drachtio's built-in
-    // connection matching for transport=ws URIs.
     const b2bOpts: any = {
       proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
       proxyResponseHeaders: ['contact', 'allow', 'supported'],
@@ -275,16 +272,15 @@ export class SipServer {
       timeout: 15000,
     };
 
-    // Build a routable URI: use callee's extension@drachtio-WS-address
-    // so drachtio routes the INVITE through its WS interface to the registered client
+    // For WebSocket clients with .invalid Contact URIs:
+    // drachtio-server tracks the WS connection from REGISTER and can route
+    // to the .invalid URI via the stored connection. Use the Contact URI as-is.
+    // If that fails, fall back to using the source address with transport=ws.
     let routeUri = contactUri;
     if (contactUri.includes('.invalid') && reg?.source) {
-      // Construct a URI that drachtio can route via its WS listener
-      // The callee registered on drachtio's WS port - use that as the target
-      const userMatch = contactUri.match(/sip:([^@]+)@/);
-      const contactUser = userMatch ? userMatch[1] : calledExt;
-      routeUri = `sip:${contactUser}@${config.drachtio.host}:${config.sipWs.port};transport=ws`;
-      console.log(`   Routable URI: ${routeUri} (via drachtio WS interface)`);
+      // Use source address as outbound proxy — drachtio matches to existing WS conn
+      b2bOpts.proxy = `sip:${reg.source.address}:${reg.source.port};transport=ws`;
+      console.log(`   Proxy: sip:${reg.source.address}:${reg.source.port};transport=ws`);
     }
 
     try {
@@ -386,16 +382,12 @@ export class SipServer {
       proxyResponseHeaders: ['contact', 'allow', 'supported'],
     };
 
-    // Build routable URI for WS clients
-    let fwdRouteUri = contactUri;
     if (contactUri.includes('.invalid') && reg.source) {
-      const userMatch = contactUri.match(/sip:([^@]+)@/);
-      const contactUser = userMatch ? userMatch[1] : target;
-      fwdRouteUri = `sip:${contactUser}@${config.drachtio.host}:${config.sipWs.port};transport=ws`;
+      fwdOpts.proxy = `sip:${reg.source.address}:${reg.source.port};transport=ws`;
     }
 
     try {
-      const { uas, uac } = await this.srf.createB2BUA(req, res, fwdRouteUri, fwdOpts);
+      const { uas, uac } = await this.srf.createB2BUA(req, res, contactUri, fwdOpts);
 
       console.log(`✅ Call forwarded: ${callingNumber} → ${target}`);
       this.notifyFn?.(callingNumber, 'answered', { target, callId });
