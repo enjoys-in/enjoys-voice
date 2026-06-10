@@ -1,7 +1,8 @@
 "use client";
 
-import { Phone, Clock, Users, Hash, Settings } from "lucide-react";
+import { Phone, Clock, Users, Hash, Settings, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "../../stores";
 import type { TabId } from "./BottomNav";
 
 interface SidebarProps {
@@ -17,6 +18,8 @@ const tabs: { id: TabId; label: string; icon: typeof Phone }[] = [
 ];
 
 export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
+  const { logout } = useAuthStore();
+
   return (
     <aside className="hidden lg:flex flex-col w-64 border-r border-border/50 bg-card/30">
       {/* Brand */}
@@ -47,6 +50,17 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
           </button>
         ))}
       </nav>
+
+      {/* Footer */}
+      <div className="p-2 border-t border-border/50">
+        <button
+          onClick={logout}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+        >
+          <LogOut className="h-4 w-4" />
+          Sign Out
+        </button>
+      </div>
     </aside>
   );
 }

@@ -6,6 +6,9 @@ interface ContactStore {
   searchQuery: string;
   setContacts: (contacts: Contact[]) => void;
   setSearch: (query: string) => void;
+  addContact: (contact: Contact) => void;
+  updateContact: (extension: string, data: Partial<Contact>) => void;
+  removeContact: (extension: string) => void;
   filteredContacts: () => Contact[];
 }
 
@@ -14,6 +17,13 @@ export const useContactStore = create<ContactStore>((set, get) => ({
   searchQuery: "",
   setContacts: (contacts) => set({ contacts }),
   setSearch: (query) => set({ searchQuery: query }),
+  addContact: (contact) => set((s) => ({ contacts: [...s.contacts, contact] })),
+  updateContact: (extension, data) =>
+    set((s) => ({
+      contacts: s.contacts.map((c) => (c.extension === extension ? { ...c, ...data } : c)),
+    })),
+  removeContact: (extension) =>
+    set((s) => ({ contacts: s.contacts.filter((c) => c.extension !== extension) })),
   filteredContacts: () => {
     const { contacts, searchQuery } = get();
     const q = searchQuery.toLowerCase();

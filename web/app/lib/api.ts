@@ -7,7 +7,7 @@
 
 const API_BASE =
   typeof window !== "undefined"
-    ? `${window.location.protocol}//${window.location.hostname}:3000`
+    ? `${window.location.protocol}//${window.location.hostname}:3001`
     : "";
 
 // ─── Request Types ──────────────────────────────────────

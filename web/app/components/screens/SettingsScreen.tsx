@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
-import { LogOut, Shield, PhoneForwarded, Volume2, Voicemail, Music, Radio, Mic } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { LogOut, Shield, PhoneForwarded, Volume2, Voicemail, Music, Radio, Mic, Play, Square, Upload, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { PhoneInput } from "../ui/PhoneInput";
 import { useAuthStore, useSettingsStore } from "../../stores";
 import { useSettingsSync } from "../../hooks/useSettingsSync";
@@ -31,6 +32,63 @@ export function SettingsScreen() {
   const { user, logout } = useAuthStore();
   const { settings, setSettings, setForwarding, addBlockedNumber, removeBlockedNumber } = useSettingsStore();
   const { saveForwarding, blockNumber, unblockNumber } = useSettingsSync();
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [customCallerTunes, setCustomCallerTunes] = useState<{ id: string; name: string }[]>([]);
+  const [customRingtones, setCustomRingtones] = useState<{ id: string; name: string }[]>([]);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
+  const handleDeleteAccount = () => {
+    // TODO: call DELETE /api/users/:ext when backend supports it
+    logout();
+    setShowDeleteDialog(false);
+  };
+
+  const playPreview = (file: string) => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (playingId === file) {
+      setPlayingId(null);
+      return;
+    }
+    if (file === "none") return;
+    const src = file.startsWith("blob:") ? file : `/sounds/${file}`;
+    const audio = new Audio(src);
+    audio.onended = () => setPlayingId(null);
+    audio.play();
+    audioRef.current = audio;
+    setPlayingId(file);
+    // Auto-stop after 3 seconds
+    setTimeout(() => {
+      if (audioRef.current === audio) {
+        audio.pause();
+        audioRef.current = null;
+        setPlayingId(null);
+      }
+    }, 3000);
+  };
+
+  const handleUpload = (type: "callerTune" | "ringtone") => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "audio/*";
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      const url = URL.createObjectURL(file);
+      const entry = { id: url, name: file.name.replace(/\.[^.]+$/, "") };
+      if (type === "callerTune") {
+        setCustomCallerTunes((prev) => [...prev, entry]);
+        setSettings({ callerTune: url });
+      } else {
+        setCustomRingtones((prev) => [...prev, entry]);
+        setSettings({ ringtone: url });
+      }
+    };
+    input.click();
+  };
 
   const handleForwardingChange = (type: "busy" | "noAnswer" | "unavailable", value: string) => {
     const target = value || undefined;
@@ -93,37 +151,76 @@ export function SettingsScreen() {
                 <Label className="text-xs text-muted-foreground flex items-center gap-1">
                   <Music className="h-3 w-3" /> Caller Tune
                 </Label>
-                <Select
-                  value={settings.callerTune}
-                  onValueChange={(v) => v && setSettings({ callerTune: v })}
-                >
-                  <SelectTrigger className="bg-muted/50">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CALLER_TUNES.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={settings.callerTune}
+                    onValueChange={(v) => v && setSettings({ callerTune: v })}
+                  >
+                    <SelectTrigger className="bg-muted/50 flex-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[...CALLER_TUNES, ...customCallerTunes].map((t) => (
+                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => playPreview(settings.callerTune)}
+                    disabled={settings.callerTune === "none"}
+                  >
+                    {playingId === settings.callerTune ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => handleUpload("callerTune")}
+                    title="Upload custom tune"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground flex items-center gap-1">
                   <Radio className="h-3 w-3" /> Ringtone
                 </Label>
-                <Select
-                  value={settings.ringtone}
-                  onValueChange={(v) => v && setSettings({ ringtone: v })}
-                >
-                  <SelectTrigger className="bg-muted/50">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {RINGTONES.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={settings.ringtone}
+                    onValueChange={(v) => v && setSettings({ ringtone: v })}
+                  >
+                    <SelectTrigger className="bg-muted/50 flex-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[...RINGTONES, ...customRingtones].map((t) => (
+                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => playPreview(settings.ringtone)}
+                  >
+                    {playingId === settings.ringtone ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => handleUpload("ringtone")}
+                    title="Upload custom ringtone"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -283,16 +380,43 @@ export function SettingsScreen() {
 
           <Separator />
 
-          {/* Logout */}
+          {/* Delete Account */}
           <Button
-            variant="destructive"
-            className="w-full"
-            onClick={logout}
+            variant="outline"
+            className="w-full border-destructive/50 text-destructive hover:bg-destructive/10"
+            onClick={() => setShowDeleteDialog(true)}
           >
-            <LogOut className="h-4 w-4 mr-2" /> Sign Out
+            <Trash2 className="h-4 w-4 mr-2" /> Delete Account
           </Button>
+
+          {/* Sign out (mobile only — desktop uses sidebar) */}
+          <div className="lg:hidden">
+            <Button
+              variant="destructive"
+              className="w-full"
+              onClick={logout}
+            >
+              <LogOut className="h-4 w-4 mr-2" /> Sign Out
+            </Button>
+          </div>
         </div>
       </ScrollArea>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent className="max-w-xs">
+          <DialogHeader>
+            <DialogTitle>Delete Account</DialogTitle>
+            <DialogDescription>
+              This will permanently delete your account ({user?.extension}). This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2 justify-end mt-2">
+            <Button variant="secondary" size="sm" onClick={() => setShowDeleteDialog(false)}>Cancel</Button>
+            <Button variant="destructive" size="sm" onClick={handleDeleteAccount}>Delete</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

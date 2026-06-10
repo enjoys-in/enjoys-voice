@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Phone, Delete } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -22,10 +22,51 @@ const SUB_LABELS: Record<string, string> = {
   "0": "+",
 };
 
+// DTMF dual-tone frequencies
+const DTMF_FREQS: Record<string, [number, number]> = {
+  "1": [697, 1209], "2": [697, 1336], "3": [697, 1477],
+  "4": [770, 1209], "5": [770, 1336], "6": [770, 1477],
+  "7": [852, 1209], "8": [852, 1336], "9": [852, 1477],
+  "*": [941, 1209], "0": [941, 1336], "#": [941, 1477],
+};
+
+const VALID_KEYS = new Set(Object.keys(DTMF_FREQS));
+
+function playDtmfTone(key: string) {
+  const freqs = DTMF_FREQS[key];
+  if (!freqs) return;
+  const ctx = new AudioContext();
+  const gain = ctx.createGain();
+  gain.gain.value = 0.15;
+  gain.connect(ctx.destination);
+
+  const osc1 = ctx.createOscillator();
+  osc1.frequency.value = freqs[0];
+  osc1.type = "sine";
+  osc1.connect(gain);
+
+  const osc2 = ctx.createOscillator();
+  osc2.frequency.value = freqs[1];
+  osc2.type = "sine";
+  osc2.connect(gain);
+
+  osc1.start();
+  osc2.start();
+
+  const duration = 0.12;
+  gain.gain.setValueAtTime(0.15, ctx.currentTime + duration);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration + 0.05);
+  osc1.stop(ctx.currentTime + duration + 0.05);
+  osc2.stop(ctx.currentTime + duration + 0.05);
+  setTimeout(() => ctx.close(), 200);
+}
+
 export function KeypadScreen({ onCall }: KeypadScreenProps) {
   const [number, setNumber] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const handleKey = useCallback((key: string) => {
+    playDtmfTone(key);
     setNumber((prev) => prev + key);
   }, []);
 
@@ -40,8 +81,30 @@ export function KeypadScreen({ onCall }: KeypadScreenProps) {
     }
   }, [number, onCall]);
 
+  // Keyboard / numpad support
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input elsewhere
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      const key = e.key;
+      if (VALID_KEYS.has(key)) {
+        e.preventDefault();
+        handleKey(key);
+      } else if (key === "Backspace") {
+        e.preventDefault();
+        handleDelete();
+      } else if (key === "Enter" && number.trim()) {
+        e.preventDefault();
+        handleCall();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleKey, handleDelete, handleCall, number]);
+
   return (
-    <div className="flex flex-col h-full items-center justify-center px-4 max-w-xs mx-auto">
+    <div ref={containerRef} className="flex flex-col h-full items-center justify-center px-4 max-w-xs mx-auto">
       {/* Number display */}
       <div className="w-full mb-8 text-center min-h-[3rem]">
         <p className="text-3xl font-light tracking-wider truncate">

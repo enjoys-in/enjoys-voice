@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Phone } from "lucide-react";
 import { useAuthStore, useCallStore } from "../stores";
 import { BottomNav, type TabId } from "./layout/BottomNav";
 import { Sidebar } from "./layout/Sidebar";
@@ -62,12 +63,22 @@ export function AppShell() {
         <IncomingCallSheet onAnswer={answer} onDecline={hangUp} />
 
         {/* Screen content */}
-        <main className="flex-1 overflow-hidden pb-16 lg:pb-0">
+        <main className="flex-1 overflow-y-auto pb-16 lg:pb-0">
           {activeTab === "calls" && <CallsScreen onCall={makeCall} />}
           {activeTab === "contacts" && <ContactsScreen onCall={makeCall} />}
           {activeTab === "keypad" && <KeypadScreen onCall={makeCall} />}
           {activeTab === "settings" && <SettingsScreen />}
         </main>
+
+        {/* Floating dial button */}
+        {activeTab !== "keypad" && (
+          <button
+            onClick={() => setActiveTab("keypad")}
+            className="fixed right-5 bottom-20 lg:bottom-6 z-40 h-14 w-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/30 flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
+          >
+            <Phone className="h-6 w-6" />
+          </button>
+        )}
 
         {/* Bottom navigation (mobile only) */}
         <div className="lg:hidden">

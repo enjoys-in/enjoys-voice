@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Phone, Search, ShieldBan } from "lucide-react";
+import { Phone, Search, ShieldBan, Plus, Pencil, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { EmptyState } from "../ui/EmptyState";
 import { ListItem } from "../ui/ListItem";
@@ -17,10 +18,13 @@ interface ContactsScreenProps {
 }
 
 export function ContactsScreen({ onCall }: ContactsScreenProps) {
-  const { searchQuery, setSearch, filteredContacts } = useContactStore();
+  const { searchQuery, setSearch, filteredContacts, addContact, updateContact, removeContact } = useContactStore();
   const { addBlockedNumber, settings } = useSettingsStore();
   const contacts = filteredContacts();
   const [blockTarget, setBlockTarget] = useState<{ ext: string; name: string } | null>(null);
+  const [editContact, setEditContact] = useState<{ extension: string; name: string } | null>(null);
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ ext: string; name: string } | null>(null);
 
   const handleBlock = useCallback(() => {
     if (blockTarget) {
@@ -29,11 +33,43 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
     }
   }, [blockTarget, addBlockedNumber]);
 
+  const handleAdd = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const name = (form.elements.namedItem("name") as HTMLInputElement).value.trim();
+    const ext = (form.elements.namedItem("extension") as HTMLInputElement).value.trim();
+    if (!name || !ext) return;
+    addContact({ extension: ext, name, username: ext, online: false, registered: false });
+    setShowAddDialog(false);
+  };
+
+  const handleEdit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editContact) return;
+    const form = e.currentTarget;
+    const name = (form.elements.namedItem("name") as HTMLInputElement).value.trim();
+    if (!name) return;
+    updateContact(editContact.extension, { name });
+    setEditContact(null);
+  };
+
+  const handleDelete = () => {
+    if (deleteTarget) {
+      removeContact(deleteTarget.ext);
+      setDeleteTarget(null);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="px-4 pt-6 pb-3 space-y-3">
-        <h1 className="text-2xl font-bold">Contacts</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">Contacts</h1>
+          <Button size="sm" variant="outline" onClick={() => setShowAddDialog(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Add
+          </Button>
+        </div>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -74,18 +110,36 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
                 title={contact.name}
                 subtitle={`ext. ${contact.extension}${settings.blockedNumbers.includes(contact.extension) ? " · blocked" : ""}`}
                 trailing={
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
                     <Badge variant={contact.online ? "default" : "secondary"} className="text-[10px] px-1.5 py-0">
                       {contact.online ? "online" : "offline"}
                     </Badge>
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="h-7 w-7"
+                      onClick={(e) => { e.stopPropagation(); setEditContact({ extension: contact.extension, name: contact.name }); }}
+                      title="Edit"
+                    >
+                      <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget({ ext: contact.extension, name: contact.name }); }}
+                      title="Delete"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
                       onClick={(e) => { e.stopPropagation(); onCall(contact.extension, contact.name); }}
                       disabled={!contact.online}
                     >
-                      <Phone className="h-4 w-4 text-emerald-500" />
+                      <Phone className="h-3.5 w-3.5 text-emerald-500" />
                     </Button>
                   </div>
                 }
@@ -94,6 +148,65 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
           )}
         </div>
       </ScrollArea>
+
+      {/* Add Contact dialog */}
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent className="max-w-xs">
+          <DialogHeader>
+            <DialogTitle>Add Contact</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleAdd} className="space-y-3 mt-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Name</Label>
+              <Input name="name" placeholder="Contact name" required />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Extension</Label>
+              <Input name="extension" placeholder="e.g. 1001" required />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button type="button" variant="secondary" size="sm" onClick={() => setShowAddDialog(false)}>Cancel</Button>
+              <Button type="submit" size="sm">Add</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Contact dialog */}
+      <Dialog open={!!editContact} onOpenChange={() => setEditContact(null)}>
+        <DialogContent className="max-w-xs">
+          <DialogHeader>
+            <DialogTitle>Edit Contact</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleEdit} className="space-y-3 mt-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Name</Label>
+              <Input name="name" defaultValue={editContact?.name || ""} required />
+            </div>
+            <p className="text-xs text-muted-foreground">Extension: {editContact?.extension}</p>
+            <div className="flex gap-2 justify-end">
+              <Button type="button" variant="secondary" size="sm" onClick={() => setEditContact(null)}>Cancel</Button>
+              <Button type="submit" size="sm">Save</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+        <DialogContent className="max-w-xs">
+          <DialogHeader>
+            <DialogTitle>Delete Contact</DialogTitle>
+            <DialogDescription>
+              Remove <strong>{deleteTarget?.name}</strong> ({deleteTarget?.ext}) from your contacts?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2 justify-end mt-2">
+            <Button variant="secondary" size="sm" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="destructive" size="sm" onClick={handleDelete}>Delete</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Block confirmation dialog */}
       <Dialog open={!!blockTarget} onOpenChange={() => setBlockTarget(null)}>
