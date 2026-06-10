@@ -272,20 +272,13 @@ export class SipServer {
       timeout: 15000,
     };
 
-    // For WebSocket clients with .invalid Contact URIs:
-    // drachtio-server tracks the WS connection from REGISTER and can route
-    // to the .invalid URI via the stored connection. Use the Contact URI as-is.
-    // If that fails, fall back to using the source address with transport=ws.
-    let routeUri = contactUri;
-    if (contactUri.includes('.invalid') && reg?.source) {
-      // Use source address as outbound proxy — drachtio matches to existing WS conn
-      b2bOpts.proxy = `sip:${reg.source.address}:${reg.source.port};transport=ws`;
-      console.log(`   Proxy: sip:${reg.source.address}:${reg.source.port};transport=ws`);
-    }
+    // drachtio-server internally maps .invalid Contact URIs to the WebSocket
+    // connection established during REGISTER. Pass Contact URI directly.
+    console.log(`   Sending INVITE to: ${contactUri}`);
 
     try {
       // Create B2BUA with a 15s no-answer timeout
-      const { uas, uac } = await this.srf.createB2BUA(req, res, routeUri, b2bOpts);
+      const { uas, uac } = await this.srf.createB2BUA(req, res, contactUri, b2bOpts);
 
       console.log(`✅ Call connected: ${callingNumber} → ${calledExt} via B2BUA`);
       this.notifyFn?.(callingNumber, 'answered', { target: calledExt, callId });
@@ -381,10 +374,6 @@ export class SipServer {
       proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
       proxyResponseHeaders: ['contact', 'allow', 'supported'],
     };
-
-    if (contactUri.includes('.invalid') && reg.source) {
-      fwdOpts.proxy = `sip:${reg.source.address}:${reg.source.port};transport=ws`;
-    }
 
     try {
       const { uas, uac } = await this.srf.createB2BUA(req, res, contactUri, fwdOpts);
