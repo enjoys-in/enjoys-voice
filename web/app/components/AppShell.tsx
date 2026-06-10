@@ -19,6 +19,7 @@ import { useSettingsSync } from "../hooks/useSettingsSync";
 
 export function AppShell() {
   const [activeTab, setActiveTab] = useState<TabId>("calls");
+  const [hydrated, setHydrated] = useState(false);
   const { isAuthenticated, user, sipConfig } = useAuthStore();
   const { activeCall } = useCallStore();
 
@@ -26,9 +27,15 @@ export function AppShell() {
   const { connect, disconnect } = useWebSocket();
   const settingsSync = useSettingsSync();
 
+  // Wait for zustand persist hydration
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+
   // Connect WS + register SIP on auth
   useEffect(() => {
     if (isAuthenticated && user && sipConfig) {
+      console.log(`🔌 Auto-connecting: SIP + WS for ${user.extension}`);
       connect(user.extension);
       register(user.extension, user.extension, sipConfig.sipWsUrl, sipConfig.domain);
     }
@@ -36,7 +43,10 @@ export function AppShell() {
       disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated]);
+  }, [isAuthenticated, user?.extension]);
+
+  // Don't render until hydration completes (avoids SSR mismatch flash)
+  if (!hydrated) return null;
 
   if (!isAuthenticated) {
     return <LoginScreen />;

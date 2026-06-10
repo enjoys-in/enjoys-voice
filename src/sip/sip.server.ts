@@ -265,7 +265,14 @@ export class SipServer {
     // Notify caller that the call is ringing (UI plays caller tune)
     this.notifyFn?.(callingNumber, 'ringing', { target: calledExt, callId });
 
-    // For WebSocket clients with .invalid domain, route via stored source connection
+    // For WebSocket clients with .invalid domain, rewrite to localhost
+    // drachtio-server matches the request to the existing WS connection
+    let routeUri = contactUri;
+    if (contactUri.includes('.invalid')) {
+      routeUri = contactUri.replace(/[^@]+\.invalid/, 'localhost');
+      console.log(`   Rewritten URI: ${routeUri} (replaced .invalid with localhost)`);
+    }
+
     const b2bOpts: any = {
       proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
       proxyResponseHeaders: ['contact', 'allow', 'supported'],
@@ -273,15 +280,9 @@ export class SipServer {
       timeout: 15000,
     };
 
-    if (contactUri.includes('.invalid') && reg?.source) {
-      // Route through the actual WebSocket connection using source address
-      b2bOpts.proxy = `sip:${reg.source.address}:${reg.source.port};transport=${reg.source.protocol}`;
-      console.log(`   Proxy: ${b2bOpts.proxy} (WS client with .invalid domain)`);
-    }
-
     try {
       // Create B2BUA with a 15s no-answer timeout
-      const { uas, uac } = await this.srf.createB2BUA(req, res, contactUri, b2bOpts);
+      const { uas, uac } = await this.srf.createB2BUA(req, res, routeUri, b2bOpts);
 
       console.log(`✅ Call connected: ${callingNumber} → ${calledExt} via B2BUA`);
       this.notifyFn?.(callingNumber, 'answered', { target: calledExt, callId });
@@ -377,12 +378,14 @@ export class SipServer {
       proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
       proxyResponseHeaders: ['contact', 'allow', 'supported'],
     };
-    if (contactUri.includes('.invalid') && reg.source) {
-      fwdOpts.proxy = `sip:${reg.source.address}:${reg.source.port};transport=${reg.source.protocol}`;
+    // Rewrite .invalid domain to localhost for WS clients
+    let fwdRouteUri = contactUri;
+    if (contactUri.includes('.invalid')) {
+      fwdRouteUri = contactUri.replace(/[^@]+\.invalid/, 'localhost');
     }
 
     try {
-      const { uas, uac } = await this.srf.createB2BUA(req, res, contactUri, fwdOpts);
+      const { uas, uac } = await this.srf.createB2BUA(req, res, fwdRouteUri, fwdOpts);
 
       console.log(`✅ Call forwarded: ${callingNumber} → ${target}`);
       this.notifyFn?.(callingNumber, 'answered', { target, callId });

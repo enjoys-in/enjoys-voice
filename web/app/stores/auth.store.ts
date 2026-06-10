@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type { User, SipConfig } from "../types";
 
 interface AuthState {
@@ -10,17 +11,24 @@ interface AuthState {
   logout: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  token: null,
-  sipConfig: null,
-  isAuthenticated: false,
-  login: (user, token, sipConfig) =>
-    set({ user, token, sipConfig, isAuthenticated: true }),
-  logout: () => {
-    // Lazy imports to avoid circular deps (hooks import from stores)
-    import("../hooks/useCallHistory").then((m) => m.resetCallHistoryCache());
-    import("../hooks/useSettingsSync").then((m) => m.resetSettingsCache());
-    set({ user: null, token: null, sipConfig: null, isAuthenticated: false });
-  },
-}));
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      user: null,
+      token: null,
+      sipConfig: null,
+      isAuthenticated: false,
+      login: (user, token, sipConfig) =>
+        set({ user, token, sipConfig, isAuthenticated: true }),
+      logout: () => {
+        // Lazy imports to avoid circular deps (hooks import from stores)
+        import("../hooks/useCallHistory").then((m) => m.resetCallHistoryCache());
+        import("../hooks/useSettingsSync").then((m) => m.resetSettingsCache());
+        set({ user: null, token: null, sipConfig: null, isAuthenticated: false });
+      },
+    }),
+    {
+      name: "callnet-auth",
+    }
+  )
+);
