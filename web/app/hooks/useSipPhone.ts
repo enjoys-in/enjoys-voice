@@ -1,29 +1,14 @@
 "use client";
+
 import { useCallback, useRef, useState } from "react";
 import { UserAgent, Registerer, Inviter, SessionState, Session } from "sip.js";
-import type { IncomingInviteRequest } from "sip.js/lib/core";
-
-export interface CallState {
-  callId: string;
-  peerExtension: string;
-  peerName: string;
-  direction: "outbound" | "inbound";
-  status: "ringing" | "connected" | "ended" | "declined" | "no_answer" | "blocked";
-  startTime: number;
-}
-
-interface SipConfig {
-  wsUrl: string;
-  domain: string;
-  extension: string;
-  username: string;
-  password: string;
-}
+import { useCallStore } from "../stores";
 
 export function useSipPhone() {
-  const [callState, setCallState] = useState<CallState | null>(null);
   const [registered, setRegistered] = useState(false);
   const [sipConnected, setSipConnected] = useState(false);
+
+  const { startCall, updateCall, endCall, setTone } = useCallStore();
 
   const uaRef = useRef<UserAgent | null>(null);
   const registererRef = useRef<Registerer | null>(null);
@@ -48,9 +33,9 @@ export function useSipPhone() {
       toneAudioRef.current.currentTime = 0;
       toneAudioRef.current = null;
     }
-  }, []);
+    setTone(null);
+  }, [setTone]);
 
-  // Get or create audio element for remote audio playback
   const getAudioElement = useCallback(() => {
     if (!remoteAudioRef.current) {
       remoteAudioRef.current = new Audio();
@@ -60,14 +45,11 @@ export function useSipPhone() {
     return remoteAudioRef.current;
   }, []);
 
-  // Attach remote audio stream to audio element
   const setupRemoteMedia = useCallback((session: Session) => {
-    const sessionDescriptionHandler = session.sessionDescriptionHandler as any;
-    if (!sessionDescriptionHandler) return;
-
-    const pc: RTCPeerConnection = sessionDescriptionHandler.peerConnection;
+    const sdh = session.sessionDescriptionHandler as any;
+    if (!sdh) return;
+    const pc: RTCPeerConnection = sdh.peerConnection;
     if (!pc) return;
-
     pc.ontrack = (event) => {
       const audio = getAudioElement();
       audio.srcObject = event.streams[0];
@@ -75,33 +57,27 @@ export function useSipPhone() {
     };
   }, [getAudioElement]);
 
-  // Initialize SIP User Agent
-  const connect = useCallback(async (config: SipConfig) => {
+  // Register to SIP server
+  const register = useCallback(async (extension: string, password: string, wsUrl: string, domain: string) => {
     if (uaRef.current) return;
 
-    const uri = UserAgent.makeURI(`sip:${config.extension}@${config.domain}`);
-    if (!uri) {
-      console.error("Failed to create SIP URI");
-      return;
-    }
+    const uri = UserAgent.makeURI(`sip:${extension}@${domain}`);
+    if (!uri) return;
 
     const ua = new UserAgent({
       uri,
-      transportOptions: {
-        server: config.wsUrl,
-      },
-      authorizationUsername: config.username,
-      authorizationPassword: config.password,
-      displayName: config.extension,
+      transportOptions: { server: wsUrl },
+      authorizationUsername: extension,
+      authorizationPassword: password,
+      displayName: extension,
       delegate: {
         onInvite: (invitation: any) => {
-          // Incoming call
           sessionRef.current = invitation;
           const fromUri = invitation.remoteIdentity?.uri?.user || "unknown";
           const fromName = invitation.remoteIdentity?.displayName || fromUri;
           const callId = invitation.request?.callId || crypto.randomUUID();
 
-          setCallState({
+          startCall({
             callId,
             peerExtension: fromUri,
             peerName: fromName,
@@ -109,23 +85,19 @@ export function useSipPhone() {
             status: "ringing",
             startTime: Date.now(),
           });
-
-          // Play ringtone for incoming call
+          setTone("ringtone");
           playTone("/sounds/ringtone.wav", true);
 
-          // Auto-setup state change listener
           invitation.stateChange.addListener((state: SessionState) => {
             switch (state) {
               case SessionState.Established:
                 stopTone();
                 setupRemoteMedia(invitation);
-                setCallState((prev) =>
-                  prev ? { ...prev, status: "connected", startTime: Date.now() } : null
-                );
+                updateCall({ status: "connected", startTime: Date.now() });
                 break;
               case SessionState.Terminated:
                 stopTone();
-                setCallState(null);
+                endCall();
                 sessionRef.current = null;
                 break;
             }
@@ -139,22 +111,18 @@ export function useSipPhone() {
       uaRef.current = ua;
       setSipConnected(true);
 
-      // Register
       const registerer = new Registerer(ua);
       registererRef.current = registerer;
-
       registerer.stateChange.addListener((state) => {
         setRegistered(state === "Registered");
       });
-
       await registerer.register();
     } catch (err) {
       console.error("SIP connect failed:", err);
       setSipConnected(false);
     }
-  }, [setupRemoteMedia]);
+  }, [setupRemoteMedia, startCall, updateCall, endCall, setTone, playTone, stopTone]);
 
-  // Disconnect
   const disconnect = useCallback(async () => {
     if (registererRef.current) {
       try { await registererRef.current.unregister(); } catch {}
@@ -167,7 +135,6 @@ export function useSipPhone() {
     setRegistered(false);
   }, []);
 
-  // Make outbound call
   const makeCall = useCallback(async (target: string, targetName?: string) => {
     const ua = uaRef.current;
     if (!ua) return;
@@ -184,39 +151,39 @@ export function useSipPhone() {
     sessionRef.current = inviter;
     const callId = crypto.randomUUID();
 
-    setCallState({
+    startCall({
       callId,
       peerExtension: target,
       peerName: targetName || target,
       direction: "outbound",
-      status: "ringing",
+      status: "dialing",
       startTime: Date.now(),
     });
+    setTone("dialing");
 
     inviter.stateChange.addListener((state: SessionState) => {
       switch (state) {
+        case SessionState.Establishing:
+          updateCall({ status: "ringing" });
+          setTone("ringback");
+          playTone("/sounds/caller_tune.wav", true);
+          break;
         case SessionState.Established:
           stopTone();
           setupRemoteMedia(inviter);
-          setCallState((prev) =>
-            prev ? { ...prev, status: "connected", startTime: Date.now() } : null
-          );
+          updateCall({ status: "connected", startTime: Date.now() });
           break;
         case SessionState.Terminated:
           stopTone();
-          // Show declined state briefly, then clear
-          setCallState((prev) => {
-            if (prev && prev.status === "ringing") {
-              // Call was never answered — show declined
-              playTone("/sounds/busy_tone.wav");
-              setTimeout(() => {
-                stopTone();
-                setCallState(null);
-              }, 3000);
-              return { ...prev, status: "declined" };
-            }
-            return null;
-          });
+          const currentCall = useCallStore.getState().activeCall;
+          if (currentCall && currentCall.status !== "connected") {
+            updateCall({ status: "declined" });
+            setTone("busy");
+            playTone("/sounds/busy_tone.wav");
+            setTimeout(() => { stopTone(); endCall(); }, 3000);
+          } else {
+            endCall();
+          }
           sessionRef.current = null;
           break;
       }
@@ -224,23 +191,20 @@ export function useSipPhone() {
 
     try {
       await inviter.invite();
-      // Play caller tune while waiting for answer
-      playTone("/sounds/caller_tune.wav", true);
     } catch (err) {
       console.error("Call failed:", err);
       stopTone();
       playTone("/sounds/busy_tone.wav");
-      setTimeout(stopTone, 5000);
-      setCallState(null);
+      setTone("busy");
+      setTimeout(() => { stopTone(); endCall(); }, 3000);
       sessionRef.current = null;
     }
-  }, [setupRemoteMedia]);
+  }, [setupRemoteMedia, startCall, updateCall, endCall, setTone, playTone, stopTone]);
 
-  // Answer incoming call
-  const answerCall = useCallback(async () => {
+  const answer = useCallback(async () => {
     const session = sessionRef.current;
     if (!session || session.state !== SessionState.Initial) return;
-
+    stopTone();
     try {
       await (session as any).accept({
         sessionDescriptionHandlerOptions: {
@@ -250,26 +214,19 @@ export function useSipPhone() {
     } catch (err) {
       console.error("Answer failed:", err);
     }
-  }, []);
+  }, [stopTone]);
 
-  // Hang up / reject
   const hangUp = useCallback(async () => {
     stopTone();
     const session = sessionRef.current;
-    if (!session) {
-      setCallState(null);
-      return;
-    }
+    if (!session) { endCall(); return; }
 
     try {
       switch (session.state) {
         case SessionState.Initial:
         case SessionState.Establishing:
-          if ((session as any).reject) {
-            await (session as any).reject();
-          } else if ((session as any).cancel) {
-            await (session as any).cancel();
-          }
+          if ((session as any).reject) await (session as any).reject();
+          else if ((session as any).cancel) await (session as any).cancel();
           break;
         case SessionState.Established:
           await session.bye();
@@ -278,17 +235,14 @@ export function useSipPhone() {
     } catch (err) {
       console.error("Hangup failed:", err);
     }
-
-    setCallState(null);
+    endCall();
     sessionRef.current = null;
-  }, []);
+  }, [stopTone, endCall]);
 
-  // Send DTMF
   const sendDtmf = useCallback((digit: string) => {
     const session = sessionRef.current;
     if (session && session.state === SessionState.Established) {
       (session as any).sessionDescriptionHandler?.sendDtmf?.(digit);
-      // Fallback: send INFO
       try {
         const body = { contentDisposition: "render", contentType: "application/dtmf-relay", content: `Signal=${digit}\r\nDuration=160\r\n` };
         session.info({ requestOptions: { body } });
@@ -297,13 +251,12 @@ export function useSipPhone() {
   }, []);
 
   return {
-    callState,
     registered,
     sipConnected,
-    connect,
+    register,
     disconnect,
     makeCall,
-    answerCall,
+    answer,
     hangUp,
     sendDtmf,
     stopTone,

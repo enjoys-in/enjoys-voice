@@ -1,0 +1,151 @@
+# Enjoys Voice — Architecture
+
+## System Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Browser (Web UI)                             │
+│  ┌──────────┐  ┌───────────┐  ┌──────────────┐  ┌──────────────┐  │
+│  │ SIP.js   │  │ WebSocket │  │  HTTP/REST   │  │  Web Audio   │  │
+│  │ (calls)  │  │ (presence)│  │  (API calls) │  │  (tones)     │  │
+│  └────┬─────┘  └─────┬─────┘  └──────┬───────┘  └──────────────┘  │
+└───────┼───────────────┼───────────────┼────────────────────────────┘
+        │ WS:5065       │ WS:3002       │ HTTP:3001
+        ▼               ▼               ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                      Backend (Bun + TypeScript)                       │
+│                                                                       │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────────────┐ │
+│  │  SIP Server    │  │  Signaling WS  │  │  HTTP API Server       │ │
+│  │  (sip.server)  │  │  (signaling)   │  │  (express)             │ │
+│  └───────┬────────┘  └────────────────┘  └────────────────────────┘ │
+│          │                                                            │
+│  ┌───────┴────────────────────────────────────────────────────────┐  │
+│  │                     Services Layer                              │  │
+│  │  ┌──────────┐ ┌──────────────┐ ┌───────┐ ┌──────────────────┐ │  │
+│  │  │ Database │ │ Registration │ │ Trunk │ │    IVR System    │ │  │
+│  │  │ Service  │ │    Store     │ │Service│ │                  │ │  │
+│  │  └──────────┘ └──────┬───────┘ └───────┘ └──────────────────┘ │  │
+│  │                       │ (adapter)                               │  │
+│  │              ┌────────┴────────┐                                │  │
+│  │              │ Memory │ Redis  │                                │  │
+│  │              └─────────────────┘                                │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────┬───────────────────────────────────────┘
+                               │ TCP:9022 (control)
+                               ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                     Docker Infrastructure                             │
+│                                                                       │
+│  ┌─────────────────┐          ┌─────────────────────────────────┐   │
+│  │ Drachtio Server │◄────────►│   FreeSWITCH (drachtio-mrf)    │   │
+│  │  SIP Proxy/B2B  │          │   Media/IVR/Tones/Recording    │   │
+│  │  Port: 5060/5065│          │   Port: 8021 (ESL)             │   │
+│  └─────────────────┘          └─────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## Call Flow: Outbound (Alice → Bob)
+
+```
+Alice Browser          Backend (SipServer)         Drachtio        Bob Browser
+     │                        │                       │                  │
+     │  1. SIP INVITE        │                       │                  │
+     │  (via WS:5065)        │                       │                  │
+     │───────────────────────►│                       │                  │
+     │                        │  2. handleInvite()    │                  │
+     │                        │  - parse caller/callee│                  │
+     │                        │  - check block list   │                  │
+     │                        │  - log call           │                  │
+     │                        │                       │                  │
+     │                        │  3. routeToExtension()│                  │
+     │                        │  - lookup registration│                  │
+     │                        │  - extract contact URI│                  │
+     │                        │                       │                  │
+     │  ◄── WS notify ───────│  4. notify('ringing') │                  │
+     │  (UI plays caller tune)│                       │                  │
+     │                        │                       │                  │
+     │                        │  5. createB2BUA()     │                  │
+     │                        │──────────────────────►│                  │
+     │                        │                       │  6. INVITE       │
+     │                        │                       │  (via WS conn)   │
+     │                        │                       │─────────────────►│
+     │                        │                       │                  │
+     │                        │                       │  7. 180 Ringing  │
+     │                        │                       │◄─────────────────│
+     │                        │                       │                  │
+     │                        │                       │                  │ (UI plays ringtone)
+     │                        │                       │                  │
+     │                        │                       │  8a. 200 OK      │
+     │                        │                       │◄─────────────────│ (Bob answers)
+     │                        │  9. B2BUA bridges     │                  │
+     │  ◄── WS notify ───────│  notify('answered')   │                  │
+     │  (stops caller tune)   │                       │                  │
+     │                        │                       │                  │
+     │◄═══════════════════════╪═══ RTP MEDIA (audio) ═╪═════════════════►│
+     │                        │                       │                  │
+     │                        │       ── OR ──        │                  │
+     │                        │                       │                  │
+     │                        │                       │  8b. 486/603     │
+     │                        │                       │◄─────────────────│ (Bob declines)
+     │                        │  catch: status=486    │                  │
+     │                        │  - check forwarding   │                  │
+     │  ◄── WS notify ───────│  notify('declined')   │                  │
+     │  (plays busy tone)     │                       │                  │
+     │                        │                       │                  │
+     │                        │       ── OR ──        │                  │
+     │                        │                       │                  │
+     │                        │  8c. timeout (15s)    │                  │
+     │                        │  catch: status=408    │                  │
+     │                        │  - check forwarding   │                  │
+     │  ◄── WS notify ───────│  notify('no_answer')  │                  │
+     │  (plays busy tone)     │                       │                  │
+```
+
+## File → Function → Flow
+
+### Making a Call
+
+| Step | File | Function | What Happens |
+|------|------|----------|--------------|
+| 1 | `web/app/hooks/useSipPhone.ts` | `makeCall()` | Creates SIP.js `Inviter`, sends INVITE over WS |
+| 2 | `src/sip/sip.server.ts` | `handleInvite()` | Receives INVITE via drachtio-srf |
+| 3 | `src/sip/sip.server.ts` | `routeToExtension()` | Checks block list, builds route, calls B2BUA |
+| 4 | `src/sip/sip.server.ts` | `srf.createB2BUA()` | Bridges A-leg (caller) to B-leg (callee) |
+| 5 | `web/app/hooks/useSipPhone.ts` | `onInvite` delegate | Callee's browser receives incoming INVITE |
+| 6 | `web/app/hooks/useSipPhone.ts` | `answerCall()` | Callee accepts → `session.accept()` |
+| 7 | `web/app/hooks/useSipPhone.ts` | `hangUp()` | Either side hangs up → `session.bye()` |
+
+### Registration
+
+| Step | File | Function | What Happens |
+|------|------|----------|--------------|
+| 1 | `web/app/hooks/useSipPhone.ts` | `connect()` | Creates UserAgent + Registerer |
+| 2 | `src/sip/sip.server.ts` | `handleRegister()` | Validates user, stores in registration store |
+| 3 | `src/services/registration/` | `store.register()` | Persists contact + source (memory or redis) |
+| 4 | `src/websocket/signaling.server.ts` | `broadcastPresence()` | Notifies all online users |
+
+### Block / Forward / Timeout
+
+| Feature | Backend File | Function | API |
+|---------|-------------|----------|-----|
+| Block | `sip.server.ts` | `routeToExtension()` | `POST /api/block/:ext` |
+| Forward on busy | `sip.server.ts` | `forwardCall()` | `POST /api/forwarding/:ext` |
+| Forward on no-answer | `sip.server.ts` | `forwardCall()` | `POST /api/forwarding/:ext` |
+| 15s timeout | `sip.server.ts` | `createB2BUA({timeout})` | automatic |
+
+## Key Config (env vars)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `DRACHTIO_HOST` | `127.0.0.1` | Drachtio server address |
+| `DRACHTIO_PORT` | `9022` | Drachtio control port |
+| `DRACHTIO_SECRET` | `siprocks` | Drachtio auth secret |
+| `FREESWITCH_HOST` | `127.0.0.1` | FreeSWITCH ESL host |
+| `FREESWITCH_PORT` | `8021` | FreeSWITCH ESL port |
+| `FREESWITCH_SECRET` | `JambonzR0ck$` | FreeSWITCH ESL password |
+| `REDIS_URL` | — | Set for Redis registration store |
+| `SIP_DOMAIN` | `localhost` | SIP domain (e.g. enjoys.in) |
+| `HTTP_PORT` | `3001` | REST API port |
+| `WS_PORT` | `3002` | WebSocket signaling port |
+| `SIP_WS_PORT` | `5065` | SIP WebSocket port (via drachtio) |

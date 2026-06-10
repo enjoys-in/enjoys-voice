@@ -1,5 +1,8 @@
 "use client";
+
 import { useEffect, useRef, useCallback, useState } from "react";
+import { useContactStore } from "../stores";
+import type { Contact } from "../types";
 
 export type WSMessage =
   | { type: "registered"; user: { extension: string; name: string } }
@@ -16,30 +19,79 @@ export type WSMessage =
   | { type: "hangup"; callId: string; from: string }
   | { type: "dtmf_sent"; callId: string; digit: string };
 
-export function useWebSocket(url: string) {
+export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
   const handlersRef = useRef<((msg: WSMessage) => void)[]>([]);
   const [connected, setConnected] = useState(false);
+  const extensionRef = useRef<string>("");
+  const { setContacts } = useContactStore();
 
-  const connect = useCallback(() => {
+  const connect = useCallback((extension: string) => {
+    extensionRef.current = extension;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const host = window.location.hostname;
+    const url = `${protocol}//${host}:3001`;
 
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
-    ws.onopen = () => setConnected(true);
+    ws.onopen = () => {
+      setConnected(true);
+      ws.send(JSON.stringify({ type: "register", extension }));
+    };
     ws.onclose = () => {
       setConnected(false);
-      // Reconnect after 3s
-      setTimeout(connect, 3000);
+      setTimeout(() => connect(extension), 3000);
     };
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data) as WSMessage;
+
+        // Update contacts store from presence
+        if (msg.type === "online_users") {
+          const contacts: Contact[] = msg.users.map((u) => ({
+            extension: u.extension,
+            name: u.name,
+            username: u.username,
+            online: u.online,
+            registered: u.online,
+          }));
+          setContacts(contacts);
+        } else if (msg.type === "user_online") {
+          const store = useContactStore.getState();
+          const existing = store.contacts.find((c) => c.extension === msg.extension);
+          if (existing) {
+            setContacts(
+              store.contacts.map((c) =>
+                c.extension === msg.extension ? { ...c, online: true, registered: true } : c
+              )
+            );
+          } else {
+            setContacts([
+              ...store.contacts,
+              { extension: msg.extension, name: msg.name, username: msg.extension, online: true, registered: true },
+            ]);
+          }
+        } else if (msg.type === "user_offline") {
+          const store = useContactStore.getState();
+          setContacts(
+            store.contacts.map((c) =>
+              c.extension === msg.extension ? { ...c, online: false, registered: false } : c
+            )
+          );
+        }
+
         for (const h of handlersRef.current) h(msg);
-      } catch { /* ignore parse errors */ }
+      } catch {}
     };
-  }, [url]);
+  }, [setContacts]);
+
+  const disconnect = useCallback(() => {
+    wsRef.current?.close();
+    wsRef.current = null;
+  }, []);
 
   const send = useCallback((data: Record<string, unknown>) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -54,10 +106,5 @@ export function useWebSocket(url: string) {
     };
   }, []);
 
-  useEffect(() => {
-    connect();
-    return () => { wsRef.current?.close(); };
-  }, [connect]);
-
-  return { send, onMessage, connected };
+  return { connect, disconnect, send, onMessage, connected };
 }
