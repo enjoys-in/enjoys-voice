@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { useAuthStore, useCallStore } from "../stores";
 import { BottomNav, type TabId } from "./layout/BottomNav";
+import { Sidebar } from "./layout/Sidebar";
+import { AppHeader } from "./layout/AppHeader";
 import { LoginScreen } from "./screens/LoginScreen";
 import { CallsScreen } from "./screens/CallsScreen";
 import { ContactsScreen } from "./screens/ContactsScreen";
@@ -47,20 +49,31 @@ export function AppShell() {
   }
 
   return (
-    <div className="flex flex-col h-dvh bg-background">
-      {/* Incoming call toast/sheet */}
-      <IncomingCallSheet onAnswer={answer} onDecline={hangUp} />
+    <div className="flex h-dvh bg-background">
+      {/* Desktop sidebar */}
+      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
 
-      {/* Screen content */}
-      <main className="flex-1 overflow-hidden pb-16">
-        {activeTab === "calls" && <CallsScreen onCall={makeCall} />}
-        {activeTab === "contacts" && <ContactsScreen onCall={makeCall} />}
-        {activeTab === "keypad" && <KeypadScreen onCall={makeCall} />}
-        {activeTab === "settings" && <SettingsScreen />}
-      </main>
+      {/* Main area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <AppHeader />
 
-      {/* Bottom navigation */}
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+        {/* Incoming call toast/sheet */}
+        <IncomingCallSheet onAnswer={answer} onDecline={hangUp} />
+
+        {/* Screen content */}
+        <main className="flex-1 overflow-hidden pb-16 lg:pb-0">
+          {activeTab === "calls" && <CallsScreen onCall={makeCall} />}
+          {activeTab === "contacts" && <ContactsScreen onCall={makeCall} />}
+          {activeTab === "keypad" && <KeypadScreen onCall={makeCall} />}
+          {activeTab === "settings" && <SettingsScreen />}
+        </main>
+
+        {/* Bottom navigation (mobile only) */}
+        <div className="lg:hidden">
+          <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+        </div>
+      </div>
     </div>
   );
 }

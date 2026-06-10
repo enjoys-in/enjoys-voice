@@ -8,19 +8,32 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAuthStore } from "../../stores";
 import { api, ApiError } from "../../lib/api";
+import { loginSchema } from "../../lib/validations";
 
 export function LoginScreen() {
   const [extension, setExtension] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const { login } = useAuthStore();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    setLoading(true);
+    setFieldErrors({});
 
+    const result = loginSchema.safeParse({ username: extension, password });
+    if (!result.success) {
+      const errs: Record<string, string> = {};
+      for (const issue of result.error.issues) {
+        errs[issue.path[0] as string] = issue.message;
+      }
+      setFieldErrors(errs);
+      return;
+    }
+
+    setLoading(true);
     try {
       const data = await api.login({ username: extension, password });
       login(
@@ -67,9 +80,9 @@ export function LoginScreen() {
                 placeholder="1001 or 9876543210"
                 value={extension}
                 onChange={(e) => setExtension(e.target.value)}
-                required
                 autoComplete="username"
               />
+              {fieldErrors.username && <p className="text-xs text-destructive">{fieldErrors.username}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
@@ -79,9 +92,9 @@ export function LoginScreen() {
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                required
                 autoComplete="current-password"
               />
+              {fieldErrors.password && <p className="text-xs text-destructive">{fieldErrors.password}</p>}
             </div>
             {error && (
               <p className="text-sm text-destructive">{error}</p>

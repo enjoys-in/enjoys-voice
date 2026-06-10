@@ -42,3 +42,23 @@
 - [ ] TLS for SIP (port 5061)
 - [ ] SRTP for media encryption
 - [ ] Horizontal scaling: multiple drachtio instances behind load balancer
+
+## Go Voice Core (sipgo)
+- [ ] Separate Go service for SIP trunk management and CRUD API
+- [ ] Use `sipgo` library for SIP stack (REGISTER, INVITE, BYE handling)
+- [ ] SIP Trunk CRUD: Create, Read, Update, Delete trunk configurations
+- [ ] Trunk model: `{ id, name, host, port, transport, username, password, callerNumber, prefix, codecs, enabled }`
+- [ ] REST API endpoints:
+  - `GET /api/trunks` — list all trunks
+  - `POST /api/trunks` — create trunk
+  - `GET /api/trunks/:id` — get trunk details
+  - `PUT /api/trunks/:id` — update trunk
+  - `DELETE /api/trunks/:id` — delete trunk
+  - `POST /api/trunks/:id/test` — test trunk connectivity (OPTIONS ping)
+- [ ] Trunk registration: periodic REGISTER to upstream providers
+- [ ] Outbound routing: Go handles PSTN/external calls via configured trunks
+- [ ] Inbound routing: receive calls from trunks, forward to Node SIP server
+- [ ] Health checks: monitor trunk status (registered/failed/retrying)
+- [ ] Database: PostgreSQL for trunk persistence
+- [ ] Config hot-reload: update trunk config without restart
+- [ ] Integrate with Node server: Go handles trunks, Node handles WebRTC/WS clients
