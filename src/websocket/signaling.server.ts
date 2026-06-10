@@ -104,25 +104,27 @@ export class SignalingServer {
   }
 
   private handlePresence(client: WsClient): void {
-    const users = this.db.getUsers().map(u => ({
-      extension: u.extension, name: u.name, username: u.username,
-      online: this.clients.has(u.extension),
-      registered: u.registered,
-    }));
+    const users = this.db.getUsers()
+      .filter(u => u.extension !== client.extension)
+      .map(u => ({
+        extension: u.extension, name: u.name, username: u.username,
+        online: this.clients.has(u.extension),
+        registered: u.registered,
+      }));
     this.send(client.ws, { type: 'online_users', users });
   }
 
   private broadcastPresence(): void {
-    const users = this.db.getUsers().map(u => ({
-      extension: u.extension, name: u.name, username: u.username,
-      online: this.clients.has(u.extension),
-      registered: u.registered,
-    }));
-
-    const msg = JSON.stringify({ type: 'online_users', users });
     for (const [, c] of this.clients) {
       if (c.authenticated && c.ws.readyState === WebSocket.OPEN) {
-        c.ws.send(msg);
+        const users = this.db.getUsers()
+          .filter(u => u.extension !== c.extension)
+          .map(u => ({
+            extension: u.extension, name: u.name, username: u.username,
+            online: this.clients.has(u.extension),
+            registered: u.registered,
+          }));
+        c.ws.send(JSON.stringify({ type: 'online_users', users }));
       }
     }
   }

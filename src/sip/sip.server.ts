@@ -164,16 +164,14 @@ export class SipServer {
 
   private async routeToExtension(req: any, res: any, contact: string, callId: string): Promise<void> {
     try {
-      // Use B2BUA to bridge caller to callee through drachtio
-      // This handles WebSocket contacts properly by routing through existing connections
+      console.log(`📞 Routing call via B2BUA to contact: ${contact}`);
+      console.log(`📞 Caller SDP length: ${req.body?.length || 0}`);
+      console.log(`📞 Request URI: ${req.uri}`);
+
+      // Use B2BUA to bridge — drachtio routes INVITE through callee's existing WS connection
       const { uas, uac } = await this.srf.createB2BUA(req, res, contact, {
-        headers: {
-          'From': req.get('From'),
-          'To': `<${contact}>`,
-        },
-        proxyRequestHeaders: ['Via', 'Authorization', 'Proxy-Authorization'],
-        proxyResponseHeaders: ['WWW-Authenticate', 'Proxy-Authenticate'],
-        localSdpB: req.body,
+        proxyRequestHeaders: ['to', 'from', 'call-id', 'cseq', 'max-forwards', 'content-type'],
+        proxyResponseHeaders: ['contact', 'allow', 'supported'],
       });
 
       console.log(`✅ Call connected: ${req.callingNumber} → bridged via B2BUA`);
@@ -187,6 +185,8 @@ export class SipServer {
       this.db.updateCall(callId, { status: 'answered' });
     } catch (err: any) {
       console.error('❌ Call routing failed:', err.message);
+      console.error('❌ Full error:', JSON.stringify(err, null, 2));
+      if (err.status) console.error(`❌ SIP response status: ${err.status}`);
       if (!res.finalResponseSent) res.send(503);
       this.db.updateCall(callId, { status: 'failed' });
     }
