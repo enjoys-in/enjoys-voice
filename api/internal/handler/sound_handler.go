@@ -20,7 +20,11 @@ func NewSoundHandler(ss service.SoundService, uploadDir string) *SoundHandler {
 }
 
 func (h *SoundHandler) Upload(c *gin.Context) {
-	ext := c.Param("ext")
+	ext := c.PostForm("extension")
+	if ext == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "extension is required"})
+		return
+	}
 	soundType := c.PostForm("type") // caller_tune or ringtone
 	if soundType != "caller_tune" && soundType != "ringtone" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "type must be 'caller_tune' or 'ringtone'"})
@@ -40,9 +44,9 @@ func (h *SoundHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	// Max 5MB
-	if file.Size > 5*1024*1024 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "File too large (max 5MB)"})
+	// Max 250KB
+	if file.Size > 250*1024 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File too large (max 250KB)"})
 		return
 	}
 

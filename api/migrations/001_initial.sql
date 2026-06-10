@@ -2,14 +2,17 @@
 
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
-    extension VARCHAR(20) UNIQUE NOT NULL,
+    extension VARCHAR(20) NOT NULL,
     username VARCHAR(100) UNIQUE NOT NULL,
     name VARCHAR(200) NOT NULL,
-    mobile VARCHAR(20) UNIQUE NOT NULL,
+    mobile VARCHAR(200) NOT NULL,
     password VARCHAR(200) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_users_extension ON users(extension);
+CREATE INDEX IF NOT EXISTS idx_users_mobile ON users(mobile);
 
 CREATE TABLE IF NOT EXISTS user_settings (
     id SERIAL PRIMARY KEY,

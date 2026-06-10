@@ -58,7 +58,7 @@ func Setup(r *gin.Engine, h *Handlers, jwtSecret string) {
 			protected.POST("/forwarding/:ext", h.Forwarding.Set)
 
 			// Sounds (upload)
-			protected.POST("/sounds/:ext/upload", h.Sound.Upload)
+			protected.POST("/sounds/upload", h.Sound.Upload)
 			protected.GET("/sounds/:ext", h.Sound.GetByExtension)
 		}
 	}
