@@ -1,0 +1,25 @@
+<profile name="sipjs">
+  <gateways/>
+  <aliases/>
+  <domains/>
+  <settings>
+    <param name="sip-port" value="5066"/>
+    <param name="ws-binding" value=":7443"/>
+    <param name="wss-binding" value=":7443"/>
+    <param name="wss-cert" value="$${certs_dir}/wss.pem"/>
+    <param name="wss-key" value="$${certs_dir}/wss.key"/>
+    <param name="wss-passphrase" value=""/>
+
+    <param name="rtp-ip" value="$${local_ip_v4}"/>
+    <param name="sip-ip" value="$${local_ip_v4}"/>
+    <param name="ext-rtp-ip" value="auto-nat"/>
+    <param name="ext-sip-ip" value="auto-nat"/>
+
+    <param name="tls" value="true"/>
+    <param name="tls-only" value="false"/>
+    <param name="tls-bind-params" value="transport=tls"/>
+
+    <param name="ws-client" value="true"/>
+    <param name="wss-client" value="true"/>
+  </settings>
+</profile>

@@ -1,0 +1,92 @@
+<include>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- CallNet IVR System - Welcome & Language Selection          -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+
+  <!-- Main Welcome - Language Selection Menu -->
+  <menu name="callnet_welcome"
+      greet-long="ivr/callnet_welcome.wav"
+      greet-short="ivr/callnet_welcome_short.wav"
+      invalid-sound="ivr/ivr-that_was_an_invalid_entry.wav"
+      exit-sound="voicemail/vm-goodbye.wav"
+      timeout="10000"
+      inter-digit-timeout="2000"
+      max-failures="3"
+      max-timeouts="3"
+      digit-len="1">
+
+    <!-- Welcome message plays: "Welcome to CallNet. For English press 1. Hindi ke liye 2 dabayein." -->
+    <entry action="menu-sub" digits="1" param="callnet_english_menu"/>
+    <entry action="menu-sub" digits="2" param="callnet_hindi_menu"/>
+    <entry action="menu-top" digits="*"/>
+  </menu>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- English Language Menu                                       -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+
+  <menu name="callnet_english_menu"
+      greet-long="ivr/callnet_english_menu.wav"
+      greet-short="ivr/callnet_english_menu_short.wav"
+      invalid-sound="ivr/ivr-that_was_an_invalid_entry.wav"
+      exit-sound="voicemail/vm-goodbye.wav"
+      timeout="10000"
+      inter-digit-timeout="2000"
+      max-failures="3"
+      max-timeouts="3"
+      digit-len="1">
+
+    <!-- "Press 1 for Sales, Press 2 for Support, Press 9 for Customer Care, Press 0 for Operator" -->
+    <entry action="menu-exec-app" digits="1" param="transfer 7001 XML callnet_ivr"/>
+    <entry action="menu-exec-app" digits="2" param="transfer 7002 XML callnet_ivr"/>
+    <entry action="menu-exec-app" digits="3" param="transfer 7003 XML callnet_ivr"/>
+    <entry action="menu-exec-app" digits="9" param="transfer 7009 XML callnet_ivr"/>
+    <entry action="menu-exec-app" digits="0" param="transfer 7000 XML callnet_ivr"/>
+    <entry action="menu-top" digits="*"/>
+  </menu>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- Hindi Language Menu                                         -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+
+  <menu name="callnet_hindi_menu"
+      greet-long="ivr/callnet_hindi_menu.wav"
+      greet-short="ivr/callnet_hindi_menu_short.wav"
+      invalid-sound="ivr/ivr-that_was_an_invalid_entry.wav"
+      exit-sound="voicemail/vm-goodbye.wav"
+      timeout="10000"
+      inter-digit-timeout="2000"
+      max-failures="3"
+      max-timeouts="3"
+      digit-len="1">
+
+    <!-- "Sales ke liye 1, Support ke liye 2, Customer Care ke liye 9, Operator ke liye 0 dabayein" -->
+    <entry action="menu-exec-app" digits="1" param="transfer 8001 XML callnet_ivr"/>
+    <entry action="menu-exec-app" digits="2" param="transfer 8002 XML callnet_ivr"/>
+    <entry action="menu-exec-app" digits="3" param="transfer 8003 XML callnet_ivr"/>
+    <entry action="menu-exec-app" digits="9" param="transfer 8009 XML callnet_ivr"/>
+    <entry action="menu-exec-app" digits="0" param="transfer 8000 XML callnet_ivr"/>
+    <entry action="menu-top" digits="*"/>
+  </menu>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- After Hours / Voicemail Menu                                -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+
+  <menu name="callnet_afterhours"
+      greet-long="ivr/callnet_afterhours.wav"
+      greet-short="ivr/callnet_afterhours.wav"
+      invalid-sound="ivr/ivr-that_was_an_invalid_entry.wav"
+      exit-sound="voicemail/vm-goodbye.wav"
+      timeout="10000"
+      max-failures="2"
+      max-timeouts="2"
+      digit-len="1">
+
+    <!-- "We are currently closed. Press 1 to leave a voicemail, or call back during business hours." -->
+    <entry action="menu-exec-app" digits="1" param="transfer 7099 XML callnet_ivr"/>
+    <entry action="menu-top" digits="*"/>
+  </menu>
+
+</include>

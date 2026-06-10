@@ -1,0 +1,3 @@
+<param name="listen-ip" value="0.0.0.0"/>
+<param name="listen-port" value="8021"/>
+<param name="password" value="ClueCon"/>

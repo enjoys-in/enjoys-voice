@@ -1,0 +1,121 @@
+version: '3.8'
+name: voip-stack
+
+services:
+  drachtio-server:
+    image: drachtio/drachtio-server
+    container_name: drachtio-server
+    ports:
+      - "9022:9022" # Drachtio control socket
+      - "5060:5060/udp" # SIP UDP
+      - "5060:5060/tcp" # SIP TCP
+      - "5065:5065/tcp" # SIP WebSocket (for browser SIP.js)
+    environment:
+      - DRACHTIO_SECRET=siprocks
+      - DRACHTIO_LISTEN=tcp,udp
+      - DRACHTIO_PORT=9022
+      - DRACHTIO_EXTERNAL_IP=auto
+    restart: unless-stopped
+    networks:
+      - voipnet
+    volumes:
+      - ./drachtio-server/config/drachtio.conf.xml:/etc/drachtio.conf.xml
+  drachtio-freeswitch:
+    image: drachtio/drachtio-freeswitch-mrf
+    container_name: drachtio-freeswitch
+    ports:
+      - "8021:8021" # ESL Port (for drachtio-fsmrf)
+    environment:
+      - FREESWITCH_EVENT_SOCKET_PASSWORD=ClueCon
+    volumes:
+      - ./drachtio/drachtio-freeswitch-mrf/config:/etc/freeswitch
+    networks:
+      - voipnet
+
+  # freeswitch:
+  #   image: ghcr.io/patrickbaus/freeswitch-docker
+  #   container_name: freeswitch
+  #   restart: always
+  #   ports:
+  #     - "5070:5060/udp" # SIP UDP
+  #     - "5080:5080/tcp" # SIP TCP (optional)
+  #     - "8022:8021" # ESL (Event Socket)
+  #     - "16384-32768:16384-32768/udp" # RTP ports
+  #   cap_add:
+  #     # Enable RT features
+  #     - SYS_NICE
+  #   networks:
+  #     - voipnet
+  #   volumes:
+  #     - ./freeswitch/configs:/etc/freeswitch
+  #     - ./freeswitch/logs/:/var/log/freeswitch/
+  #     - ./freeswitch_sounds:/usr/share/freeswitch/sounds
+  asterisk:
+    image: andrius/asterisk:latest
+    ports:
+      - "5060:5060/udp"
+      - "10000-20000:10000-20000/udp"
+    volumes:
+      - ./asterisk/config:/etc/asterisk
+      - ./asterisk:/var/lib/asterisk
+    restart: unless-stopped
+
+  freeswitch:
+    image: safarov/freeswitch
+    container_name: freeswitch
+    network_mode: host
+    environment:
+      SOUND_RATES: "8000:16000"
+      SOUND_TYPES: "music:en-us-callie"
+    volumes:
+      - ./freeswitch_sounds:/usr/share/freeswitch/sounds
+      - ./freeswitch_configs:/etc/freeswitch
+      - freeswitch-recordings:/usr/local/freeswitch/recordings
+    restart: unless-stopped
+  tele:
+    image: mlan/asterisk
+    network_mode: bridge                    # Only here to help testing
+    cap_add:
+      - sys_ptrace                          # Only here to help testing
+      - net_admin                           # Allow NFT, used by AutoBan
+      - net_raw                             # Allow NFT, used by AutoBan
+    ports:
+      - "${SMS_PORT-8080}:${WEBSMSD_PORT:-80}" # WEBSMSD port mapping
+      - "5060:5060/udp"                     # SIP UDP port
+      - "5060:5060"                         # SIP TCP port
+      - "5061:5061"                         # SIP TLS port
+      - "10000-10099:10000-10099/udp"       # RTP ports
+    environment:
+      - SYSLOG_LEVEL=${SYSLOG_LEVEL-4}      # Logging
+      - HOSTNAME=${TELE_SRV-tele}.${DOMAIN-docker.localhost}
+      - PULSE_SERVER=unix:/run/pulse/socket # Use host audio
+      - PULSE_COOKIE=/run/pulse/cookie      # Use host audio
+      - WEBSMSD_PORT=${WEBSMSD_PORT-80}     # WEBSMSD internal port
+    volumes:
+      - tele-conf:/srv                      # Persistent storage
+      - ./pulse:/run/pulse:rshared          # Use host audio
+      - /etc/localtime:/etc/localtime:ro    # Use host timezone
+   
+  rtpengine:
+    image: drachtio/rtpengine
+    container_name: rtpengine_from_drachtio
+    privileged: true
+    network_mode: host
+    restart: always
+    environment:
+      - RTPENGINE_TABLE=0
+      - RTPENGINE_INTERFACE=internal=eth0
+      - RTPENGINE_NO_FALLBACK=true
+      - RTPENGINE_LOG_LEVEL=7
+      - RTPENGINE_PORT_MIN=30000
+      - RTPENGINE_PORT_MAX=40000
+      - RTPENGINE_LISTEN_NG=0.0.0.0:22222
+
+networks:
+  voipnet:
+    driver: bridge
+
+volumes:
+  freeswitch-sounds:
+  freeswitch-recordings:
+  tele-conf: 

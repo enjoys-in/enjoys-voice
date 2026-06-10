@@ -1,0 +1,293 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  CallNet IVR Dialplan
+  Handles: Toll-free entry → Language Menu → Department Routing → Agent Queue → Transfer → Voicemail
+-->
+<include>
+  <context name="callnet_ivr">
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- IVR Entry Point - Toll-Free / DID Numbers          -->
+    <!-- Any inbound call to these numbers hits the IVR     -->
+    <!-- ═══════════════════════════════════════════════════ -->
+
+    <!-- Main IVR Entry: Dial any toll-free or DID number -->
+    <extension name="callnet-ivr-entry">
+      <condition field="destination_number" expression="^(18[0-9]{8}|1800\d+|800\d+|888\d+|877\d+|866\d+|855\d+|844\d+|833\d+|5555\d*)$">
+        <action application="answer"/>
+        <action application="sleep" data="500"/>
+        <action application="set" data="ivr_language=en"/>
+        <action application="set" data="call_direction=inbound"/>
+        <action application="set" data="ivr_entry_time=${strftime(%Y-%m-%d %H:%M:%S)}"/>
+        <action application="log" data="INFO CallNet IVR: Incoming call from ${caller_id_number} to ${destination_number}"/>
+        <!-- Check business hours (Mon-Fri 9AM-6PM) -->
+        <action application="set" data="current_hour=${strftime(%H)}"/>
+        <action application="set" data="current_dow=${strftime(%u)}"/>
+        <action application="ivr" data="callnet_welcome"/>
+      </condition>
+    </extension>
+
+    <!-- Internal IVR access: dial 5000 from any extension -->
+    <extension name="callnet-ivr-internal">
+      <condition field="destination_number" expression="^5000$">
+        <action application="answer"/>
+        <action application="sleep" data="300"/>
+        <action application="set" data="ivr_language=en"/>
+        <action application="set" data="call_direction=internal"/>
+        <action application="ivr" data="callnet_welcome"/>
+      </condition>
+    </extension>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- ENGLISH Department Routing (7xxx extensions)        -->
+    <!-- ═══════════════════════════════════════════════════ -->
+
+    <!-- 7001: Sales Department (English) -->
+    <extension name="en-sales">
+      <condition field="destination_number" expression="^7001$">
+        <action application="set" data="ivr_department=sales"/>
+        <action application="set" data="ivr_language=en"/>
+        <action application="playback" data="ivr/callnet_en_transferring_sales.wav"/>
+        <action application="set" data="fifo_music=local_stream://moh"/>
+        <action application="fifo" data="sales_queue in /tmp/fifo.wav /tmp/fifo.wav 120"/>
+        <!-- If queue times out, go to voicemail -->
+        <action application="transfer" data="7099 XML callnet_ivr"/>
+      </condition>
+    </extension>
+
+    <!-- 7002: Technical Support (English) -->
+    <extension name="en-support">
+      <condition field="destination_number" expression="^7002$">
+        <action application="set" data="ivr_department=support"/>
+        <action application="set" data="ivr_language=en"/>
+        <action application="playback" data="ivr/callnet_en_transferring_support.wav"/>
+        <action application="set" data="fifo_music=local_stream://moh"/>
+        <action application="fifo" data="support_queue in /tmp/fifo.wav /tmp/fifo.wav 120"/>
+        <action application="transfer" data="7099 XML callnet_ivr"/>
+      </condition>
+    </extension>
+
+    <!-- 7003: Billing (English) -->
+    <extension name="en-billing">
+      <condition field="destination_number" expression="^7003$">
+        <action application="set" data="ivr_department=billing"/>
+        <action application="set" data="ivr_language=en"/>
+        <action application="playback" data="ivr/callnet_en_transferring_billing.wav"/>
+        <action application="set" data="fifo_music=local_stream://moh"/>
+        <action application="fifo" data="billing_queue in /tmp/fifo.wav /tmp/fifo.wav 120"/>
+        <action application="transfer" data="7099 XML callnet_ivr"/>
+      </condition>
+    </extension>
+
+    <!-- 7009: Customer Care (English) - Priority Queue -->
+    <extension name="en-customer-care">
+      <condition field="destination_number" expression="^7009$">
+        <action application="set" data="ivr_department=customer_care"/>
+        <action application="set" data="ivr_language=en"/>
+        <action application="playback" data="ivr/callnet_en_transferring_care.wav"/>
+        <!-- Try direct transfer to customer care agents first -->
+        <action application="set" data="call_timeout=20"/>
+        <action application="set" data="continue_on_fail=true"/>
+        <action application="set" data="hangup_after_bridge=false"/>
+        <!-- Ring customer care agents: 1001, 1002, 1003 -->
+        <action application="bridge" data="user/1001@${domain_name},user/1002@${domain_name},user/1003@${domain_name}"/>
+        <!-- If no agent answers, queue it -->
+        <action application="playback" data="ivr/callnet_en_hold_music_intro.wav"/>
+        <action application="set" data="fifo_music=local_stream://moh"/>
+        <action application="fifo" data="care_queue in /tmp/fifo.wav /tmp/fifo.wav 180"/>
+        <action application="transfer" data="7099 XML callnet_ivr"/>
+      </condition>
+    </extension>
+
+    <!-- 7000: Operator (English) -->
+    <extension name="en-operator">
+      <condition field="destination_number" expression="^7000$">
+        <action application="set" data="ivr_department=operator"/>
+        <action application="set" data="ivr_language=en"/>
+        <action application="playback" data="ivr/callnet_en_transferring_operator.wav"/>
+        <action application="set" data="call_timeout=30"/>
+        <action application="set" data="continue_on_fail=true"/>
+        <action application="set" data="hangup_after_bridge=false"/>
+        <action application="bridge" data="user/1001@${domain_name}"/>
+        <action application="playback" data="ivr/callnet_en_operator_unavailable.wav"/>
+        <action application="transfer" data="7099 XML callnet_ivr"/>
+      </condition>
+    </extension>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- HINDI Department Routing (8xxx extensions)          -->
+    <!-- ═══════════════════════════════════════════════════ -->
+
+    <!-- 8001: Sales (Hindi) -->
+    <extension name="hi-sales">
+      <condition field="destination_number" expression="^8001$">
+        <action application="set" data="ivr_department=sales"/>
+        <action application="set" data="ivr_language=hi"/>
+        <action application="playback" data="ivr/callnet_hi_transferring_sales.wav"/>
+        <action application="set" data="fifo_music=local_stream://moh"/>
+        <action application="fifo" data="sales_queue in /tmp/fifo.wav /tmp/fifo.wav 120"/>
+        <action application="transfer" data="8099 XML callnet_ivr"/>
+      </condition>
+    </extension>
+
+    <!-- 8002: Technical Support (Hindi) -->
+    <extension name="hi-support">
+      <condition field="destination_number" expression="^8002$">
+        <action application="set" data="ivr_department=support"/>
+        <action application="set" data="ivr_language=hi"/>
+        <action application="playback" data="ivr/callnet_hi_transferring_support.wav"/>
+        <action application="set" data="fifo_music=local_stream://moh"/>
+        <action application="fifo" data="support_queue in /tmp/fifo.wav /tmp/fifo.wav 120"/>
+        <action application="transfer" data="8099 XML callnet_ivr"/>
+      </condition>
+    </extension>
+
+    <!-- 8003: Billing (Hindi) -->
+    <extension name="hi-billing">
+      <condition field="destination_number" expression="^8003$">
+        <action application="set" data="ivr_department=billing"/>
+        <action application="set" data="ivr_language=hi"/>
+        <action application="playback" data="ivr/callnet_hi_transferring_billing.wav"/>
+        <action application="set" data="fifo_music=local_stream://moh"/>
+        <action application="fifo" data="billing_queue in /tmp/fifo.wav /tmp/fifo.wav 120"/>
+        <action application="transfer" data="8099 XML callnet_ivr"/>
+      </condition>
+    </extension>
+
+    <!-- 8009: Customer Care (Hindi) -->
+    <extension name="hi-customer-care">
+      <condition field="destination_number" expression="^8009$">
+        <action application="set" data="ivr_department=customer_care"/>
+        <action application="set" data="ivr_language=hi"/>
+        <action application="playback" data="ivr/callnet_hi_transferring_care.wav"/>
+        <action application="set" data="call_timeout=20"/>
+        <action application="set" data="continue_on_fail=true"/>
+        <action application="set" data="hangup_after_bridge=false"/>
+        <action application="bridge" data="user/1001@${domain_name},user/1002@${domain_name},user/1003@${domain_name}"/>
+        <action application="playback" data="ivr/callnet_hi_hold_music_intro.wav"/>
+        <action application="set" data="fifo_music=local_stream://moh"/>
+        <action application="fifo" data="care_queue in /tmp/fifo.wav /tmp/fifo.wav 180"/>
+        <action application="transfer" data="8099 XML callnet_ivr"/>
+      </condition>
+    </extension>
+
+    <!-- 8000: Operator (Hindi) -->
+    <extension name="hi-operator">
+      <condition field="destination_number" expression="^8000$">
+        <action application="set" data="ivr_department=operator"/>
+        <action application="set" data="ivr_language=hi"/>
+        <action application="playback" data="ivr/callnet_hi_transferring_operator.wav"/>
+        <action application="set" data="call_timeout=30"/>
+        <action application="set" data="continue_on_fail=true"/>
+        <action application="set" data="hangup_after_bridge=false"/>
+        <action application="bridge" data="user/1001@${domain_name}"/>
+        <action application="playback" data="ivr/callnet_hi_operator_unavailable.wav"/>
+        <action application="transfer" data="8099 XML callnet_ivr"/>
+      </condition>
+    </extension>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- Voicemail Extensions                                -->
+    <!-- ═══════════════════════════════════════════════════ -->
+
+    <extension name="en-voicemail">
+      <condition field="destination_number" expression="^7099$">
+        <action application="playback" data="ivr/callnet_en_voicemail_prompt.wav"/>
+        <action application="set" data="playback_terminators=#"/>
+        <action application="record" data="/usr/local/freeswitch/recordings/vm-${caller_id_number}-${strftime(%Y%m%d_%H%M%S)}.wav 180 5"/>
+        <action application="playback" data="ivr/callnet_en_voicemail_saved.wav"/>
+        <action application="hangup"/>
+      </condition>
+    </extension>
+
+    <extension name="hi-voicemail">
+      <condition field="destination_number" expression="^8099$">
+        <action application="playback" data="ivr/callnet_hi_voicemail_prompt.wav"/>
+        <action application="set" data="playback_terminators=#"/>
+        <action application="record" data="/usr/local/freeswitch/recordings/vm-${caller_id_number}-${strftime(%Y%m%d_%H%M%S)}.wav 180 5"/>
+        <action application="playback" data="ivr/callnet_hi_voicemail_saved.wav"/>
+        <action application="hangup"/>
+      </condition>
+    </extension>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- Call Transfer: Blind & Attended                      -->
+    <!-- ═══════════════════════════════════════════════════ -->
+
+    <!-- Blind transfer: *1 + extension -->
+    <extension name="blind-transfer">
+      <condition field="destination_number" expression="^\*1(\d+)$">
+        <action application="set" data="transfer_target=$1"/>
+        <action application="log" data="INFO CallNet: Blind transfer to ${transfer_target}"/>
+        <action application="transfer" data="${transfer_target} XML default"/>
+      </condition>
+    </extension>
+
+    <!-- Attended transfer: *2 + extension -->
+    <extension name="attended-transfer">
+      <condition field="destination_number" expression="^\*2(\d+)$">
+        <action application="set" data="transfer_target=$1"/>
+        <action application="log" data="INFO CallNet: Attended transfer to ${transfer_target}"/>
+        <action application="att_xfer" data="user/${transfer_target}@${domain_name}"/>
+      </condition>
+    </extension>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- Queue Agent Login/Logout                            -->
+    <!-- ═══════════════════════════════════════════════════ -->
+
+    <!-- Agent login to queue: *71 + queue_name_code -->
+    <extension name="agent-login-sales">
+      <condition field="destination_number" expression="^\*7101$">
+        <action application="answer"/>
+        <action application="fifo" data="sales_queue out nowait"/>
+      </condition>
+    </extension>
+
+    <extension name="agent-login-support">
+      <condition field="destination_number" expression="^\*7102$">
+        <action application="answer"/>
+        <action application="fifo" data="support_queue out nowait"/>
+      </condition>
+    </extension>
+
+    <extension name="agent-login-billing">
+      <condition field="destination_number" expression="^\*7103$">
+        <action application="answer"/>
+        <action application="fifo" data="billing_queue out nowait"/>
+      </condition>
+    </extension>
+
+    <extension name="agent-login-care">
+      <condition field="destination_number" expression="^\*7109$">
+        <action application="answer"/>
+        <action application="fifo" data="care_queue out nowait"/>
+      </condition>
+    </extension>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- Outbound via SIP Trunk (any provider)               -->
+    <!-- ═══════════════════════════════════════════════════ -->
+
+    <!-- Outbound: dial 9 + number for external calls via trunk -->
+    <extension name="outbound-trunk">
+      <condition field="destination_number" expression="^9(\d{7,15})$">
+        <action application="set" data="effective_caller_id_number=${outbound_caller_id_number}"/>
+        <action application="set" data="effective_caller_id_name=${outbound_caller_id_name}"/>
+        <action application="log" data="INFO CallNet: Outbound trunk call to $1"/>
+        <action application="bridge" data="sofia/gateway/${default_gateway}/$1"/>
+      </condition>
+    </extension>
+
+    <!-- Direct internal extension dialing within IVR context -->
+    <extension name="internal-ext">
+      <condition field="destination_number" expression="^(10[0-1][0-9])$">
+        <action application="set" data="call_timeout=30"/>
+        <action application="set" data="continue_on_fail=true"/>
+        <action application="bridge" data="user/$1@${domain_name}"/>
+        <action application="transfer" data="7099 XML callnet_ivr"/>
+      </condition>
+    </extension>
+
+  </context>
+</include>

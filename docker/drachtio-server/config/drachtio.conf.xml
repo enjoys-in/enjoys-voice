@@ -1,0 +1,28 @@
+<drachtio>
+  <logging>
+    <console/>
+    <loglevel>info</loglevel>
+    <sofia-loglevel>3</sofia-loglevel>
+  </logging>
+
+  <sip>
+    <contacts>
+      <contact>sip:*@0.0.0.0:5060;transport=udp,tcp</contact>
+      <contact>sip:*@0.0.0.0:5065;transport=ws</contact>
+    </contacts>
+  </sip>
+
+  <admin port="9022" secret="siprocks">0.0.0.0</admin>
+
+  <request-handlers>
+    <request-handler sip-method="INVITE">
+      <action>route</action>
+    </request-handler>
+    <request-handler sip-method="REGISTER">
+      <action>route</action>
+    </request-handler>
+    <request-handler sip-method="OPTIONS">
+      <action>route</action>
+    </request-handler>
+  </request-handlers>
+</drachtio>

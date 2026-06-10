@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.git/
+.env
+.env.*
+*.log
+web/.next/
+web/node_modules/
+ws-relay/node_modules/
+bun.lockb
+.vscode/
+.idea/

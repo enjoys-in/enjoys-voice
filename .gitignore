@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+.bun/
+
+# Build output
+dist/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Lockfiles (bun binary lockfile)
+bun.lockb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Docker volumes
+docker/freeswitch_sounds/
+docker/pulse/
+
+# Next.js (web/)
+web/.next/
+web/node_modules/
+web/out/
+
+# ws-relay
+ws-relay/node_modules/

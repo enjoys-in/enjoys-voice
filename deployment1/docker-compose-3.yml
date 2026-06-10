@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # Drachtio SIP Signaling Server
+  drachtio:
+    image: drachtio/drachtio-server:latest
+    container_name: drachtio-server
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./drachtio/drachtio.conf.xml:/etc/drachtio.conf.xml
+      - ./ssl:/etc/letsencrypt/live/${DOMAIN}
+    environment:
+      - DRACHTIO_LOGLEVEL=info
+      - SOFIA_LOGLEVEL=3
+    command: drachtio --contact "sip:*:5060;transport=udp" --contact "sips:*:8443;transport=wss" --external-ip ${PUBLIC_IP}
+
+  # RTPEngine - Media/RTP Proxy
+  rtpengine:
+    image: drachtio/rtpengine:latest
+    container_name: rtpengine
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./rtpengine:/etc/rtpengine
+    environment:
+      - INTERFACES=public/${PUBLIC_IP}
+      - PORT_MIN=10000
+      - PORT_MAX=20000
+    command: >
+      rtpengine
+      --interface=public/${PUBLIC_IP}
+      --listen-ng=127.0.0.1:22222
+      --port-min=10000
+      --port-max=20000
+      --log-level=6
+      --log-facility=local1
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+
+  # FreeSWITCH - Media Server for IVR
+  freeswitch:
+    image: drachtio/drachtio-freeswitch-mrf:latest
+    container_name: freeswitch
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./freeswitch/conf:/usr/local/freeswitch/conf
+      - ./freeswitch/sounds:/usr/local/freeswitch/sounds
+      - ./freeswitch/recordings:/usr/local/freeswitch/recordings
+    environment:
+      - MOD_AUDIO_FORK=true
+
+  # Application Server - Node.js app controlling everything
+  app:
+    build: ./app
+    container_name: webrtc-app
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - drachtio
+      - rtpengine
+      - freeswitch
+    volumes:
+      - ./app:/app
+      - /app/node_modules
+    environment:
+      - DRACHTIO_HOST=127.0.0.1
+      - DRACHTIO_PORT=9022
+      - DRACHTIO_SECRET=${DRACHTIO_SECRET}
+      - RTPENGINE_HOST=127.0.0.1
+      - RTPENGINE_PORT=22222
+      - FREESWITCH_HOST=127.0.0.1
+      - FREESWITCH_PORT=8021
+      - FREESWITCH_SECRET=${FREESWITCH_SECRET}
+      - DOMAIN=${DOMAIN}
+      - PUBLIC_IP=${PUBLIC_IP}
+      - SIP_TRUNK_HOST=${SIP_TRUNK_HOST}
+      - SIP_TRUNK_USER=${SIP_TRUNK_USER}
+      - SIP_TRUNK_PASSWORD=${SIP_TRUNK_PASSWORD}
+    command: npm start
+
+  # Redis for session management (optional but recommended)
+  redis:
+    image: redis:alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+volumes:
+  redis-data:

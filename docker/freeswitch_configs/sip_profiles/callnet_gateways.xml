@@ -1,0 +1,131 @@
+<!--
+  CallNet SIP Trunk Gateways
+  Uncomment and configure the provider you want to use.
+  Only ONE gateway should be set as the default_gateway in vars.xml
+-->
+
+<include>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- Telnyx - Best Free Tier ($1 credit, cheapest rates)     -->
+  <!-- Sign up: https://portal.telnyx.com                      -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!--
+  <gateway name="telnyx">
+    <param name="username" value="YOUR_TELNYX_SIP_USERNAME"/>
+    <param name="password" value="YOUR_TELNYX_SIP_PASSWORD"/>
+    <param name="realm" value="sip.telnyx.com"/>
+    <param name="proxy" value="sip.telnyx.com"/>
+    <param name="register" value="true"/>
+    <param name="caller-id-in-from" value="true"/>
+    <param name="expire-seconds" value="3600"/>
+  </gateway>
+  -->
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- VoIP.ms - Cheapest DIDs ($0.85/month)                   -->
+  <!-- Sign up: https://voip.ms                                -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!--
+  <gateway name="voipms">
+    <param name="username" value="YOUR_VOIPMS_USERNAME"/>
+    <param name="password" value="YOUR_VOIPMS_PASSWORD"/>
+    <param name="realm" value="atlanta1.voip.ms"/>
+    <param name="proxy" value="atlanta1.voip.ms"/>
+    <param name="register" value="true"/>
+    <param name="caller-id-in-from" value="true"/>
+    <param name="expire-seconds" value="3600"/>
+  </gateway>
+  -->
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- Twilio Elastic SIP Trunk                                -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!--
+  <gateway name="twilio">
+    <param name="username" value="YOUR_TWILIO_SIP_USERNAME"/>
+    <param name="password" value="YOUR_TWILIO_SIP_PASSWORD"/>
+    <param name="realm" value="yourcompany.pstn.twilio.com"/>
+    <param name="proxy" value="yourcompany.pstn.twilio.com"/>
+    <param name="register" value="false"/>
+    <param name="caller-id-in-from" value="true"/>
+  </gateway>
+  -->
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- Vonage (Nexmo)                                          -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!--
+  <gateway name="vonage">
+    <param name="username" value="YOUR_VONAGE_API_KEY"/>
+    <param name="password" value="YOUR_VONAGE_API_SECRET"/>
+    <param name="realm" value="sip.nexmo.com"/>
+    <param name="proxy" value="sip.nexmo.com"/>
+    <param name="register" value="true"/>
+    <param name="caller-id-in-from" value="true"/>
+    <param name="expire-seconds" value="3600"/>
+  </gateway>
+  -->
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- Plivo - Best for India Numbers                          -->
+  <!-- Sign up: https://console.plivo.com                      -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!--
+  <gateway name="plivo">
+    <param name="username" value="YOUR_PLIVO_AUTH_ID"/>
+    <param name="password" value="YOUR_PLIVO_AUTH_TOKEN"/>
+    <param name="realm" value="sip.plivo.com"/>
+    <param name="proxy" value="sip.plivo.com"/>
+    <param name="register" value="true"/>
+    <param name="caller-id-in-from" value="true"/>
+    <param name="expire-seconds" value="3600"/>
+  </gateway>
+  -->
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- Bandwidth                                               -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!--
+  <gateway name="bandwidth">
+    <param name="username" value="YOUR_BANDWIDTH_USERNAME"/>
+    <param name="password" value="YOUR_BANDWIDTH_PASSWORD"/>
+    <param name="realm" value="sip.bandwidth.com"/>
+    <param name="proxy" value="sip.bandwidth.com"/>
+    <param name="register" value="true"/>
+    <param name="caller-id-in-from" value="true"/>
+    <param name="expire-seconds" value="3600"/>
+  </gateway>
+  -->
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- BulkVS - Cheapest Overall ($0.25/month DID)             -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!--
+  <gateway name="bulkvs">
+    <param name="username" value="YOUR_BULKVS_USERNAME"/>
+    <param name="password" value="YOUR_BULKVS_PASSWORD"/>
+    <param name="realm" value="sip.bulkvs.com"/>
+    <param name="proxy" value="sip.bulkvs.com"/>
+    <param name="register" value="true"/>
+    <param name="caller-id-in-from" value="true"/>
+    <param name="expire-seconds" value="3600"/>
+  </gateway>
+  -->
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- Flowroute                                               -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!--
+  <gateway name="flowroute">
+    <param name="username" value="YOUR_FLOWROUTE_ACCESS_KEY"/>
+    <param name="password" value="YOUR_FLOWROUTE_SECRET_KEY"/>
+    <param name="realm" value="us-east-nj.sip.flowroute.com"/>
+    <param name="proxy" value="us-east-nj.sip.flowroute.com"/>
+    <param name="register" value="true"/>
+    <param name="caller-id-in-from" value="true"/>
+    <param name="expire-seconds" value="3600"/>
+  </gateway>
+  -->
+
+</include>
