@@ -52,11 +52,25 @@ export function useSipPhone() {
     if (!sdh) return;
     const pc: RTCPeerConnection = sdh.peerConnection;
     if (!pc) return;
-    pc.ontrack = (event) => {
+
+    const attachStream = (stream: MediaStream) => {
       const audio = getAudioElement();
-      audio.srcObject = event.streams[0];
+      audio.srcObject = stream;
       audio.play().catch(() => {});
     };
+
+    // Listen for new tracks
+    pc.ontrack = (event) => {
+      attachStream(event.streams[0]);
+    };
+
+    // Check if tracks already exist (event may have fired before we attached)
+    const receivers = pc.getReceivers();
+    if (receivers.length > 0) {
+      const stream = new MediaStream();
+      receivers.forEach((r) => { if (r.track) stream.addTrack(r.track); });
+      if (stream.getTracks().length > 0) attachStream(stream);
+    }
   }, [getAudioElement]);
 
   // Register to SIP server
@@ -72,6 +86,15 @@ export function useSipPhone() {
       authorizationUsername: extension,
       authorizationPassword: password,
       displayName: extension,
+      logLevel: "error",
+      sessionDescriptionHandlerFactoryOptions: {
+        peerConnectionConfiguration: {
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+          ],
+        },
+      },
       delegate: {
         onInvite: (invitation: any) => {
           sessionRef.current = invitation;
@@ -147,6 +170,12 @@ export function useSipPhone() {
     const inviter = new Inviter(ua, targetUri, {
       sessionDescriptionHandlerOptions: {
         constraints: { audio: true, video: false },
+        peerConnectionConfiguration: {
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+          ],
+        },
       },
     });
 
@@ -217,6 +246,12 @@ export function useSipPhone() {
       await (session as any).accept({
         sessionDescriptionHandlerOptions: {
           constraints: { audio: true, video: false },
+          peerConnectionConfiguration: {
+            iceServers: [
+              { urls: "stun:stun.l.google.com:19302" },
+              { urls: "stun:stun1.l.google.com:19302" },
+            ],
+          },
         },
       });
     } catch (err) {

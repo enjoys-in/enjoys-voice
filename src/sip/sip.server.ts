@@ -270,10 +270,6 @@ export class SipServer {
       proxyResponseHeaders: ['contact', 'allow', 'supported'],
       noAck: false,
       timeout: 15000,
-      // Pass SDP transparently for WebRTC media to flow between peers
-      passProvisionalResponses: true,
-      localSdpA: (sdp: string) => sdp,  // Don't modify SDP for A-leg
-      localSdpB: (sdp: string) => sdp,  // Don't modify SDP for B-leg
     };
 
     // drachtio-server internally maps .invalid Contact URIs to the WebSocket
@@ -377,9 +373,6 @@ export class SipServer {
     const fwdOpts: any = {
       proxyRequestHeaders: ['to', 'from', 'cseq', 'max-forwards', 'content-type'],
       proxyResponseHeaders: ['contact', 'allow', 'supported'],
-      passProvisionalResponses: true,
-      localSdpA: (sdp: string) => sdp,
-      localSdpB: (sdp: string) => sdp,
     };
 
     try {
