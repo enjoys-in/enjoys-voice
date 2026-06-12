@@ -195,9 +195,17 @@ export class SipServer {
           audit: this.audit,
           ivr: this.ivr,
           notifyFn: this.notifyFn,
-        routeToExtension: this.boundRouteToExtension,
-        forwardCall: this.boundForwardCall,
+          routeToExtension: this.boundRouteToExtension,
+          forwardCall: this.boundForwardCall,
         };
+
+        // Try trunk inbound first (before dial plan)
+        if (await this.routeHandlers[0].handle(ctx, services)) return;
+
+        // Resolve via dial plan for all other cases
+        const route = this.dialPlan.resolve(calledNumber);
+        console.log(`🗺️ Dial plan: ${calledNumber} → ${route.type} (${route.normalizedNumber})`);
+
         // Try each handler in priority order (skip trunk inbound already tried)
         for (let i = 1; i < this.routeHandlers.length; i++) {
           if (await this.routeHandlers[i].handle(ctx, services, route)) return;
