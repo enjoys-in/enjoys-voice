@@ -10,6 +10,7 @@
 export interface RuntimeConfig {
   API_BASE?: string;
   GO_API_BASE?: string;
+  SIGNAL_URL?: string;
   ICE_SERVERS?: RTCIceServer[] | string;
 }
 
@@ -45,6 +46,24 @@ export function getGoApiBase(): string {
   if (base) return base;
   if (typeof window !== "undefined") {
     return `${window.location.protocol}//${window.location.hostname}:3003`;
+  }
+  return "";
+}
+
+/**
+ * Signaling WebSocket URL (presence, call events, in-call recording relay).
+ * This is the Node signaling server, which is SEPARATE from the SIP media WS.
+ *
+ * Prod: set SIGNAL_URL to `wss://DOMAIN/signal` — Caddy upgrades and proxies it
+ * to the Node signaling server (api:3002). Dev: falls back to ws(s)://host:3002,
+ * the signaling server's own port (the REST API is on :3001).
+ */
+export function getSignalingUrl(): string {
+  const base = runtimeConfig().SIGNAL_URL;
+  if (base) return base;
+  if (typeof window !== "undefined") {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${proto}//${window.location.hostname}:3002`;
   }
   return "";
 }

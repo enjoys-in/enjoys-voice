@@ -29,7 +29,13 @@ func (s *authService) Login(ctx context.Context, username, password string) (*mo
 		// Try by extension
 		user, err = s.userRepo.GetByExtension(ctx, username)
 		if err != nil {
-			return nil, errors.New("invalid credentials")
+			// Try by phone number (mobile), normalized like signup
+			normalized := strings.ReplaceAll(username, " ", "")
+			normalized = strings.ReplaceAll(normalized, "-", "")
+			user, err = s.userRepo.GetByMobile(ctx, normalized)
+			if err != nil {
+				return nil, errors.New("invalid credentials")
+			}
 		}
 	}
 
@@ -115,8 +121,13 @@ func generateExtension(mobile string) string {
 			digits += string(c)
 		}
 	}
-	if len(digits) >= 7 {
-		return digits[len(digits)-7:]
+	// Extension must always be 5-7 digits: cap long numbers at the last 7
+	// digits and left-pad short ones with zeros up to 5.
+	if len(digits) > 7 {
+		digits = digits[len(digits)-7:]
+	}
+	for len(digits) < 5 {
+		digits = "0" + digits
 	}
 	return digits
 }

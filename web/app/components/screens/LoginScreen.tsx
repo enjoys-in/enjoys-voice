@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAuthStore } from "../../stores";
-import { api, ApiError } from "../../lib/api";
+import { goApi, GoApiError } from "../../lib/go-api";
 import { loginSchema } from "../../lib/validations";
 
 export function LoginScreen() {
@@ -35,7 +35,7 @@ export function LoginScreen() {
 
     setLoading(true);
     try {
-      const data = await api.login({ username: extension, password });
+      const data = await goApi.auth.login(extension, password);
       login(
         {
           extension: data.user.extension,
@@ -43,7 +43,8 @@ export function LoginScreen() {
           name: data.user.name,
           mobile: data.user.mobile,
         },
-        data.user.extension,
+        data.token,
+        data.refreshToken,
         {
           wsUrl: data.sipConfig.wsUrl,
           sipWsUrl: data.sipConfig.sipWsUrl,
@@ -51,7 +52,7 @@ export function LoginScreen() {
         }
       );
     } catch (err) {
-      if (err instanceof ApiError) {
+      if (err instanceof GoApiError) {
         setError(err.message);
       } else {
         setError("Connection failed");

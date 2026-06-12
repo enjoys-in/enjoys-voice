@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useContactStore } from "../stores";
+import { getSignalingUrl } from "../lib/runtime-config";
 import type { Contact } from "../types";
 
 export type WSMessage =
@@ -30,9 +31,10 @@ export function useWebSocket() {
     extensionRef.current = extension;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = window.location.hostname;
-    const url = `${protocol}//${host}:3001`;
+    // Connect to the Node signaling server. Auth is carried by the httpOnly
+    // access-token cookie, which the browser attaches to the upgrade request
+    // automatically (same-site), so no token is placed in the URL or body.
+    const url = getSignalingUrl();
 
     const ws = new WebSocket(url);
     wsRef.current = ws;

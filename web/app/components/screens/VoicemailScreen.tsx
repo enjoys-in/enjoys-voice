@@ -24,23 +24,20 @@ interface VoicemailScreenProps {
 export function VoicemailScreen({ onCall }: VoicemailScreenProps) {
   const { user } = useAuthStore();
   const ext = user?.extension;
-  const { voicemails, setVoicemails, markRead, remove } = useVoicemailStore();
-  const [loading, setLoading] = useState(false);
+  const { voicemails, loading, fetchVoicemails, markRead, remove } = useVoicemailStore();
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const refresh = useCallback(async () => {
-    if (!ext) return;
-    setLoading(true);
-    try {
-      const res = await api.getVoicemails(ext);
-      setVoicemails(res.voicemails);
-    } catch {
-      /* ignore */
-    } finally {
-      setLoading(false);
-    }
-  }, [ext, setVoicemails]);
+  // TTL-guarded in the store: if AppShell already loaded recently, this mount
+  // reuses the cache instead of firing a second request. The refresh button
+  // forces a fresh fetch.
+  const refresh = useCallback(
+    (force = false) => {
+      if (!ext) return;
+      fetchVoicemails(ext, force);
+    },
+    [ext, fetchVoicemails]
+  );
 
   useEffect(() => {
     refresh();
@@ -132,7 +129,7 @@ export function VoicemailScreen({ onCall }: VoicemailScreenProps) {
           size="icon"
           variant="ghost"
           className="h-8 w-8"
-          onClick={refresh}
+          onClick={() => refresh(true)}
           disabled={loading}
         >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />

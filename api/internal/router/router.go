@@ -4,6 +4,7 @@ import (
 	"github.com/enjoys-in/enjoys-voice/api/internal/handler"
 	"github.com/enjoys-in/enjoys-voice/api/internal/middleware"
 	"github.com/enjoys-in/enjoys-voice/api/internal/response"
+	"github.com/enjoys-in/enjoys-voice/api/internal/token"
 	"github.com/gin-gonic/gin"
 )
 
@@ -20,7 +21,7 @@ type Handlers struct {
 	Voicemail  *handler.VoicemailHandler
 }
 
-func Setup(r *gin.Engine, h *Handlers, jwtSecret string) {
+func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 	r.Use(middleware.CORS())
 
 	api := r.Group("/api")
@@ -34,38 +35,35 @@ func Setup(r *gin.Engine, h *Handlers, jwtSecret string) {
 		api.POST("/auth", h.Auth.Login)
 		api.POST("/auth/login", h.Auth.Login)
 		api.POST("/auth/signup", h.Auth.Signup)
-
-		// ── Data routes ported from the Node HTTP API ───────────────
-		// These mirror the (currently public) Express routes so the web
-		// app can talk to Go directly. Move them under `protected` once a
-		// real token-issuing auth flow exists.
-		api.GET("/lookup/:phone", h.User.Lookup)
-
-		// IVR flow builder persistence
-		api.GET("/ivr/flows", h.Ivr.List)
-		api.POST("/ivr/flows", h.Ivr.Save)
-		api.GET("/ivr/flows/:id", h.Ivr.Get)
-		api.PUT("/ivr/flows/:id", h.Ivr.Save)
-		api.DELETE("/ivr/flows/:id", h.Ivr.Delete)
-
-		// PSTN call forwarding
-		api.GET("/pstn-forward/:ext", h.Settings.GetPstnForward)
-		api.POST("/pstn-forward/:ext", h.Settings.SetPstnForward)
-
-		// Audit log
-		api.GET("/audit", h.Audit.Query)
-		api.GET("/audit/:ext", h.Audit.GetByExtension)
-
-		// Voicemails
-		api.GET("/voicemails/:ext", h.Voicemail.List)
-		api.GET("/voicemails/:ext/:id/audio", h.Voicemail.Audio)
-		api.POST("/voicemails/:ext/:id/read", h.Voicemail.MarkRead)
-		api.DELETE("/voicemails/:ext/:id", h.Voicemail.Delete)
+		api.POST("/auth/refresh", h.Auth.Refresh)
 
 		// Protected routes
 		protected := api.Group("")
-		protected.Use(middleware.AuthMiddleware(jwtSecret))
+		protected.Use(middleware.AuthMiddleware(tm))
 		{
+			protected.GET("/lookup/:phone", h.User.Lookup)
+
+			// IVR flow builder persistence
+			protected.GET("/ivr/flows", h.Ivr.List)
+			protected.POST("/ivr/flows", h.Ivr.Save)
+			protected.GET("/ivr/flows/:id", h.Ivr.Get)
+			protected.PUT("/ivr/flows/:id", h.Ivr.Save)
+			protected.DELETE("/ivr/flows/:id", h.Ivr.Delete)
+
+			// PSTN call forwarding
+			protected.GET("/pstn-forward/:ext", h.Settings.GetPstnForward)
+			protected.POST("/pstn-forward/:ext", h.Settings.SetPstnForward)
+
+			// Audit log
+			protected.GET("/audit", h.Audit.Query)
+			protected.GET("/audit/:ext", h.Audit.GetByExtension)
+
+			// Voicemails
+			protected.GET("/voicemails/:ext", h.Voicemail.List)
+			protected.GET("/voicemails/:ext/:id/audio", h.Voicemail.Audio)
+			protected.POST("/voicemails/:ext/:id/read", h.Voicemail.MarkRead)
+			protected.DELETE("/voicemails/:ext/:id", h.Voicemail.Delete)
+
 			// Users
 			protected.GET("/users", h.User.GetAll)
 			protected.GET("/users/:ext", h.User.GetByExtension)

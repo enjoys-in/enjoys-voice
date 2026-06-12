@@ -15,6 +15,7 @@
     "drachtio-fsmrf": "^4.1.1",
     "drachtio-srf": "^5.0.10",
     "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.3",
     "ws": "^8.18.3"
   },
   "devDependencies": {
@@ -22,6 +23,7 @@
     "@swc/core": "^1.11.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.0.15",
     "@types/ws": "^8.18.1",
     "typescript": "^5.8.3"

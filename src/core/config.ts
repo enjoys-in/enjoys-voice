@@ -64,6 +64,15 @@ export interface AppConfig {
     callerTune: string;
     holdMusic: string;
   };
+  auth: {
+    // Shared HS256 secret + issuer — MUST match the Go API (JWT_SECRET / JWT_ISSUER)
+    // so the signaling WS can verify the access token the Go API issued.
+    jwtSecret: string;
+    jwtIssuer: string;
+    // Origins permitted to open the signaling WebSocket (CSWSH defense). When
+    // empty, localhost/127.0.0.1 on any port is allowed for local dev.
+    allowedOrigins: string[];
+  };
   sipUsers: Array<{ extension: string; username: string; password: string; name: string }>;
 }
 
@@ -132,6 +141,14 @@ export const config: AppConfig = {
     // (configured in local_stream.conf.xml -> music/8000). It exists and loops
     // forever, unlike a single hard-coded WAV that may be missing.
     holdMusic: process.env.HOLD_MUSIC_FILE || 'local_stream://moh',
+  },
+  auth: {
+    jwtSecret: process.env.JWT_SECRET || 'enjoys-voice-secret-change-me',
+    jwtIssuer: process.env.JWT_ISSUER || 'enjoys-voice',
+    allowedOrigins: (process.env.ALLOWED_ORIGINS || '')
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean),
   },
   sipUsers: [
     { extension: '1001', username: 'user1', password: 'pass123', name: 'Alice' },

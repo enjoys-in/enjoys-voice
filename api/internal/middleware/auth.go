@@ -4,48 +4,54 @@ import (
 	"strings"
 
 	"github.com/enjoys-in/enjoys-voice/api/internal/response"
+	"github.com/enjoys-in/enjoys-voice/api/internal/token"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 )
 
-func AuthMiddleware(secret string) gin.HandlerFunc {
+func AuthMiddleware(tm *token.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
+		raw := bearerToken(c)
+		if raw == "" {
+			// Fall back to the httpOnly cookie set on login (credentials flow).
+			if cookie, err := c.Cookie("token"); err == nil {
+				raw = cookie
+			}
+		}
+		if raw == "" {
 			response.Unauthorized(c, "Missing authorization header")
 			c.Abort()
 			return
 		}
 
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-			response.Unauthorized(c, "Invalid authorization format")
-			c.Abort()
-			return
-		}
-
-		token, err := jwt.Parse(parts[1], func(t *jwt.Token) (interface{}, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, jwt.ErrSignatureInvalid
-			}
-			return []byte(secret), nil
-		})
-
-		if err != nil || !token.Valid {
+		claims, err := tm.Parse(raw)
+		if err != nil {
 			response.Unauthorized(c, "Invalid token")
 			c.Abort()
 			return
 		}
 
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			response.Unauthorized(c, "Invalid claims")
+		if claims.Type != token.TypeAccess {
+			response.Unauthorized(c, "Invalid token type")
 			c.Abort()
 			return
 		}
 
-		c.Set("extension", claims["extension"])
-		c.Set("user_id", claims["user_id"])
+		c.Set("extension", claims.Extension)
+		c.Set("user_id", claims.UserID)
 		c.Next()
 	}
+}
+
+// bearerToken extracts the token from an "Authorization: Bearer <token>" header.
+// Returns "" when the header is absent or malformed.
+func bearerToken(c *gin.Context) string {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		return ""
+	}
+	return parts[1]
 }

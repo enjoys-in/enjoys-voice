@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_extension ON users(extension);
-CREATE INDEX IF NOT EXISTS idx_users_mobile ON users(mobile);
+-- Mobile is unique: a phone number maps to exactly one account.
+DROP INDEX IF EXISTS idx_users_mobile;
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_mobile ON users(mobile);
 
 CREATE TABLE IF NOT EXISTS user_settings (
     id SERIAL PRIMARY KEY,
@@ -125,3 +127,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_ivr_flows_ext ON ivr_flows(extension);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_ext ON audit_logs(extension);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_event ON audit_logs(event);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
+
+-- Seed test users (password for all three: "password123").
+-- Extensions are 5-7 digits; idempotent via ON CONFLICT (matches the unique
+-- username and mobile constraints), so re-running leaves existing rows intact.
+INSERT INTO users (extension, username, name, mobile, password) VALUES
+    ('10001', '10001', 'Alice Anderson', '9000000001', '$2a$10$Wn27fo.YXbLVYofOKcQXN.kmN2pMb3iybuqTfXeGQ/2YmZ9abg.6G'),
+    ('10002', '10002', 'Bob Brown',      '9000000002', '$2a$10$WAowptQFB9KH3LhVzQiCi.uTB7qamL5Js5RSy2pIre9eE7LplXBaq'),
+    ('10003', '10003', 'Carol Clark',    '9000000003', '$2a$10$Yzc5osN7SnGYrwvrqBslnek.CnsDQGcS41zJ6.Tw8FXmKwSemh2TC')
+ON CONFLICT DO NOTHING;

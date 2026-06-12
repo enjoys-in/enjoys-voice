@@ -1,7 +1,9 @@
 import { WebSocketServer as WsServer, WebSocket } from 'ws';
+import type { IncomingMessage } from 'http';
 import fs from 'fs';
 import path from 'path';
-import { config } from '@/core';
+import { config, verifyAccessToken, parseCookies } from '@/core';
+import type { JwtClaims } from '@/core';
 import { DatabaseService } from '@/services';
 
 interface WsClient {
@@ -9,6 +11,7 @@ interface WsClient {
   extension: string;
   username: string;
   authenticated: boolean;
+  userId?: number;
 }
 
 export class SignalingServer {
@@ -18,14 +21,33 @@ export class SignalingServer {
   constructor(private db: DatabaseService) {}
 
   start(): void {
-    this.wss = new WsServer({ port: config.server.wsPort });
+    this.wss = new WsServer({
+      port: config.server.wsPort,
+      // CSWSH defense: unlike fetch(), WebSocket upgrades are NOT covered by
+      // CORS, yet the browser still auto-attaches our auth cookie. Reject any
+      // origin that is not explicitly allowed before the handshake completes.
+      verifyClient: (info: { origin: string; secure: boolean; req: IncomingMessage }) =>
+        this.isAllowedOrigin(info.origin),
+    });
 
     this.wss.on('listening', () => {
       console.log(`✅ WS: Signaling server on port ${config.server.wsPort}`);
     });
 
-    this.wss.on('connection', (ws: WebSocket) => {
-      let client: WsClient = { ws, extension: '', username: '', authenticated: false };
+    this.wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
+      const client: WsClient = { ws, extension: '', username: '', authenticated: false };
+
+      // Authenticate from the httpOnly access-token cookie the Go API set on
+      // login. The browser attaches it automatically to the upgrade request,
+      // so the client never has to (and cannot) read or send it itself.
+      const cookies = parseCookies(req.headers.cookie);
+      const claims = verifyAccessToken(cookies.token);
+      if (!claims) {
+        this.send(ws, { type: 'error', message: 'Unauthorized' });
+        ws.close(4401, 'Unauthorized');
+        return;
+      }
+      this.authenticateClient(client, claims);
 
       ws.on('message', (raw: Buffer) => {
         try {
@@ -47,11 +69,31 @@ export class SignalingServer {
     });
   }
 
+  /**
+   * Decide whether a browser Origin may open the signaling socket.
+   *  - No Origin header → non-browser client (native socket, tests, S2S); CSWSH
+   *    is a browser-only attack, so these are allowed.
+   *  - ALLOWED_ORIGINS set → must match the allowlist exactly (production).
+   *  - Otherwise (dev) → allow localhost / 127.0.0.1 on any port.
+   */
+  private isAllowedOrigin(origin?: string): boolean {
+    if (!origin) return true;
+    if (config.auth.allowedOrigins.length > 0) {
+      return config.auth.allowedOrigins.includes(origin);
+    }
+    try {
+      const { hostname } = new URL(origin);
+      return hostname === 'localhost' || hostname === '127.0.0.1';
+    } catch {
+      return false;
+    }
+  }
+
   private handleMessage(client: WsClient, msg: any): void {
     switch (msg.type) {
       case 'auth':
       case 'register':
-        this.handleAuth(client, msg);
+        this.handleAuth(client);
         break;
       case 'call':
         this.handleCallSignal(client, msg);
@@ -68,25 +110,44 @@ export class SignalingServer {
     }
   }
 
-  private handleAuth(client: WsClient, msg: any): void {
-    const user = this.db.authenticate(msg.username, msg.password);
-    if (!user) {
-      this.send(client.ws, { type: 'error', message: 'Invalid credentials' });
-      return;
-    }
-
+  /**
+   * Bind a verified token to the connection. Called once at handshake time.
+   * The identity comes solely from the JWT claims — never from the message body
+   * — so a client cannot register as someone else. Passwords are not involved:
+   * possession of a valid, unexpired access token IS the proof of identity.
+   */
+  private authenticateClient(client: WsClient, claims: JwtClaims): void {
+    const user = this.db.getUser(claims.extension);
     client.authenticated = true;
-    client.extension = user.extension;
-    client.username = user.username;
-    this.clients.set(user.extension, client);
+    client.extension = claims.extension;
+    client.username = user?.username || claims.extension;
+    client.userId = claims.user_id;
+    this.clients.set(client.extension, client);
+    this.sendRegistered(client);
+    this.broadcastPresence();
+  }
 
+  private sendRegistered(client: WsClient): void {
+    const user = this.db.getUser(client.extension);
     this.send(client.ws, {
       type: 'registered',
-      user: { extension: user.extension, name: user.name, username: user.username },
+      user: { extension: client.extension, name: user?.name || client.extension, username: client.username },
       sipWsUrl: config.server.publicSipWsUrl || `ws://${config.server.publicIp}:${config.sipWs.port}`,
     });
+  }
 
-    this.broadcastPresence();
+  /**
+   * Handle a client-sent `register`/`auth` message. Authentication already
+   * happened at the WS handshake via the access-token cookie, so this is just
+   * an idempotent confirmation request — no credentials are read from `msg`.
+   */
+  private handleAuth(client: WsClient): void {
+    if (!client.authenticated) {
+      this.send(client.ws, { type: 'error', message: 'Unauthorized' });
+      client.ws.close(4401, 'Unauthorized');
+      return;
+    }
+    this.sendRegistered(client);
   }
 
   private handleCallSignal(client: WsClient, msg: any): void {

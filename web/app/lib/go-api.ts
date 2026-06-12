@@ -30,24 +30,64 @@ export class GoApiError extends Error {
   }
 }
 
-/** Reads the persisted bearer token (zustand persist key "callnet-auth"). */
-function authToken(): string | null {
-  if (typeof window === "undefined") return null;
+/** Reads the persisted access + refresh tokens (zustand persist "callnet-auth"). */
+function authTokens(): { token: string | null; refreshToken: string | null } {
+  if (typeof window === "undefined") return { token: null, refreshToken: null };
   try {
     const raw = window.localStorage.getItem("callnet-auth");
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { state?: { token?: string | null } };
-    return parsed?.state?.token ?? null;
+    if (!raw) return { token: null, refreshToken: null };
+    const parsed = JSON.parse(raw) as {
+      state?: { token?: string | null; refreshToken?: string | null };
+    };
+    return {
+      token: parsed?.state?.token ?? null,
+      refreshToken: parsed?.state?.refreshToken ?? null,
+    };
   } catch {
-    return null;
+    return { token: null, refreshToken: null };
   }
+}
+
+// De-duplicates concurrent refreshes: while one /auth/refresh is in flight, all
+// callers await the same promise instead of firing a stampede of refreshes.
+let refreshInFlight: Promise<string | null> | null = null;
+
+/** Exchanges the stored refresh token for a new access token; updates the store. */
+function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const { refreshToken } = authTokens();
+    if (!refreshToken) return null;
+    try {
+      const res = await fetch(`${GO_API_BASE}/api/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ refreshToken }),
+      });
+      const body = (await res.json().catch(() => null)) as GoEnvelope<{
+        token: string;
+        refreshToken: string;
+      }> | null;
+      if (!res.ok || !body?.success || !body.data?.token) return null;
+      const { useAuthStore } = await import("../stores/auth.store");
+      useAuthStore.getState().setTokens(body.data.token, body.data.refreshToken);
+      return body.data.token;
+    } catch {
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
 }
 
 async function goRequest<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  retryOn401 = true
 ): Promise<T> {
-  const token = authToken();
+  const { token } = authTokens();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -57,7 +97,21 @@ async function goRequest<T>(
   const res = await fetch(`${GO_API_BASE}/api${endpoint}`, {
     ...options,
     headers,
+    credentials: "include",
   });
+
+  // Access token expired → try a one-time refresh, then replay the request.
+  if (res.status === 401 && retryOn401) {
+    const newToken = await refreshAccessToken();
+    if (newToken) {
+      return goRequest<T>(endpoint, options, false);
+    }
+    // Refresh failed → session is dead; clear it.
+    if (typeof window !== "undefined") {
+      const { useAuthStore } = await import("../stores/auth.store");
+      useAuthStore.getState().logout();
+    }
+  }
 
   let body: GoEnvelope<T> | null = null;
   try {
@@ -75,6 +129,28 @@ async function goRequest<T>(
 }
 
 // ─── Payload types ──────────────────────────────────────
+
+export interface AuthUser {
+  extension: string;
+  name: string;
+  username: string;
+  mobile?: string;
+}
+
+export interface AuthSipConfig {
+  wsUrl: string;
+  sipWsUrl: string;
+  domain: string;
+  trunkEnabled: boolean;
+}
+
+export interface AuthResult {
+  token: string;
+  refreshToken: string;
+  expiresIn: number;
+  user: AuthUser;
+  sipConfig: AuthSipConfig;
+}
 
 export interface PstnForward {
   enabled: boolean;
@@ -114,6 +190,25 @@ export interface GoLookupResponse {
 // ─── Client ─────────────────────────────────────────────
 
 export const goApi = {
+  // Auth — issues JWT access + refresh tokens and returns the SIP config.
+  // retryOn401 disabled: a 401 here means bad credentials, not an expired token.
+  auth: {
+    login(username: string, password: string): Promise<AuthResult> {
+      return goRequest<AuthResult>(
+        "/auth",
+        { method: "POST", body: JSON.stringify({ username, password }) },
+        false
+      );
+    },
+    signup(name: string, mobile: string, password: string): Promise<AuthResult> {
+      return goRequest<AuthResult>(
+        "/auth/signup",
+        { method: "POST", body: JSON.stringify({ name, mobile, password }) },
+        false
+      );
+    },
+  },
+
   // Phone → user lookup
   lookupByPhone(phone: string): Promise<GoLookupResponse> {
     return goRequest<GoLookupResponse>(`/lookup/${encodeURIComponent(phone)}`);

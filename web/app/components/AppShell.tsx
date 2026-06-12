@@ -19,7 +19,6 @@ import { SplashScreen } from "./SplashScreen";
 import { useSipPhone } from "../hooks/useSipPhone";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useSettingsSync } from "../hooks/useSettingsSync";
-import { api } from "../lib/api";
 import { CallStatus } from "../types";
 
 export function AppShell() {
@@ -28,7 +27,7 @@ export function AppShell() {
   const { isAuthenticated, user, sipConfig } = useAuthStore();
   const { activeCall } = useCallStore();
   const { settings } = useSettingsStore();
-  const { setVoicemails, unreadCount } = useVoicemailStore();
+  const { fetchVoicemails, unreadCount } = useVoicemailStore();
 
   const { register, makeCall, hangUp, answer, sendDtmf, isRecording, startRecording, stopRecording } = useSipPhone();
   const { connect, disconnect, onMessage, send: wsSend } = useWebSocket();
@@ -41,16 +40,16 @@ export function AppShell() {
   // The display name shown to the other party (From header).
   const displayName = settings.displayName?.trim() || user?.name || user?.extension;
 
-  // Load the user's voicemail messages.
-  const refreshVoicemails = useCallback(async () => {
-    if (!user?.extension) return;
-    try {
-      const res = await api.getVoicemails(user.extension);
-      setVoicemails(res.voicemails);
-    } catch {
-      /* ignore */
-    }
-  }, [user?.extension, setVoicemails]);
+  // Load the user's voicemail messages. TTL-guarded in the store, so the
+  // initial preload here and the VoicemailScreen mount share one request.
+  // Pass force=true (e.g. after a "voicemail" WS event) to bypass the cache.
+  const refreshVoicemails = useCallback(
+    (force = false) => {
+      if (!user?.extension) return;
+      fetchVoicemails(user.extension, force);
+    },
+    [user?.extension, fetchVoicemails]
+  );
 
   // Wait for zustand persist hydration
   useEffect(() => {
@@ -115,7 +114,7 @@ export function AppShell() {
   useEffect(() => {
     const off = onMessage((msg) => {
       if (msg.type === "call_event" && msg.event === "voicemail") {
-        refreshVoicemails();
+        refreshVoicemails(true);
       }
     });
     return off;

@@ -6,11 +6,13 @@ import (
 
 	"github.com/enjoys-in/enjoys-voice/api/internal/cache"
 	"github.com/enjoys-in/enjoys-voice/api/internal/config"
+	"github.com/enjoys-in/enjoys-voice/api/internal/database"
 	"github.com/enjoys-in/enjoys-voice/api/internal/handler"
 	"github.com/enjoys-in/enjoys-voice/api/internal/models"
 	"github.com/enjoys-in/enjoys-voice/api/internal/repository"
 	"github.com/enjoys-in/enjoys-voice/api/internal/router"
 	"github.com/enjoys-in/enjoys-voice/api/internal/service"
+	"github.com/enjoys-in/enjoys-voice/api/internal/token"
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -44,6 +46,11 @@ func main() {
 		log.Fatalf("Failed to migrate: %v", err)
 	}
 
+	// Apply SQL migrations (seed data) — idempotent, safe on every startup.
+	if err := database.RunSQLMigrations(db, cfg.MigrationsDir); err != nil {
+		log.Fatalf("Failed to run SQL migrations: %v", err)
+	}
+
 	// ─── Cache (Valkey) ──────────────────────────────────
 	valkey, err := cache.NewValkeyCache(cfg.ValkeyAddr, cfg.ValkeyPass, cfg.ValkeyDB)
 	if err != nil {
@@ -74,9 +81,12 @@ func main() {
 	auditSvc := service.NewAuditService(auditRepo)
 	vmSvc := service.NewVoicemailService(vmRepo)
 
+	// ─── Tokens ──────────────────────────────────────────
+	tokenMgr := token.NewManager(cfg.JWTSecret, cfg.JWTIssuer, cfg.AccessTTL, cfg.RefreshTTL)
+
 	// ─── Handlers ────────────────────────────────────────
 	handlers := &router.Handlers{
-		Auth:       handler.NewAuthHandler(authSvc),
+		Auth:       handler.NewAuthHandler(authSvc, tokenMgr, cfg.Sip, cfg.Cookie),
 		User:       handler.NewUserHandler(userSvc),
 		Settings:   handler.NewSettingsHandler(settingsSvc),
 		Call:       handler.NewCallHandler(callSvc),
@@ -95,7 +105,7 @@ func main() {
 
 	// ─── Router ──────────────────────────────────────────
 	r := gin.Default()
-	router.Setup(r, handlers, cfg.JWTSecret)
+	router.Setup(r, handlers, tokenMgr)
 
 	// ─── Start ───────────────────────────────────────────
 	log.Printf("Enjoys Voice API starting on :%s", cfg.Port)

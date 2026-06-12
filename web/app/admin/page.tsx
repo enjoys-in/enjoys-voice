@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api, type UserResponse, type CallRecordResponse, type HealthResponse } from "../lib/api";
 import { CallRecordStatus } from "../types";
 
@@ -94,8 +95,8 @@ export default function AdminPage() {
         <ScrollArea className="h-full">
           <div className="p-6 space-y-6 max-w-5xl">
             {tab === "overview" && <OverviewTab health={health} users={users} calls={calls} loading={loading} />}
-            {tab === "users" && <UsersTab users={users} onRefresh={loadData} />}
-            {tab === "calls" && <CallsTab calls={calls} />}
+            {tab === "users" && <UsersTab users={users} loading={loading} onRefresh={loadData} />}
+            {tab === "calls" && <CallsTab calls={calls} loading={loading} />}
             {tab === "config" && <ConfigTab />}
           </div>
         </ScrollArea>
@@ -117,7 +118,7 @@ function OverviewTab({
   calls: CallRecordResponse[];
   loading: boolean;
 }) {
-  if (loading) return <p className="text-muted-foreground">Loading...</p>;
+  if (loading) return <OverviewSkeleton />;
 
   const online = users.filter((u) => u.registered).length;
 
@@ -162,7 +163,7 @@ function OverviewTab({
 
 // ─── Users Tab ─────────────────────────────────────────
 
-function UsersTab({ users, onRefresh }: { users: UserResponse[]; onRefresh: () => void }) {
+function UsersTab({ users, loading, onRefresh }: { users: UserResponse[]; loading: boolean; onRefresh: () => void }) {
   return (
     <>
       <div className="flex items-center justify-between">
@@ -177,16 +178,20 @@ function UsersTab({ users, onRefresh }: { users: UserResponse[]; onRefresh: () =
             <span>Username</span>
             <span>Status</span>
           </div>
-          {users.map((u) => (
-            <div key={u.extension} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-4 px-4 py-3 border-b border-border/30 last:border-0 text-sm">
-              <span className="font-mono">{u.extension}</span>
-              <span>{u.name}</span>
-              <span className="text-muted-foreground">{u.username}</span>
-              <Badge variant={u.registered ? "default" : "secondary"} className="text-[10px]">
-                {u.registered ? "online" : "offline"}
-              </Badge>
-            </div>
-          ))}
+          {loading ? (
+            <TableSkeleton cols={4} />
+          ) : (
+            users.map((u) => (
+              <div key={u.extension} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-4 px-4 py-3 border-b border-border/30 last:border-0 text-sm">
+                <span className="font-mono">{u.extension}</span>
+                <span>{u.name}</span>
+                <span className="text-muted-foreground">{u.username}</span>
+                <Badge variant={u.registered ? "default" : "secondary"} className="text-[10px]">
+                  {u.registered ? "online" : "offline"}
+                </Badge>
+              </div>
+            ))
+          )}
         </CardContent>
       </Card>
     </>
@@ -195,7 +200,7 @@ function UsersTab({ users, onRefresh }: { users: UserResponse[]; onRefresh: () =
 
 // ─── Calls Tab ─────────────────────────────────────────
 
-function CallsTab({ calls }: { calls: CallRecordResponse[] }) {
+function CallsTab({ calls, loading }: { calls: CallRecordResponse[]; loading: boolean }) {
   return (
     <>
       <h2 className="text-2xl font-bold">Call Logs ({calls.length})</h2>
@@ -208,7 +213,9 @@ function CallsTab({ calls }: { calls: CallRecordResponse[] }) {
             <span>Direction</span>
             <span>Status</span>
           </div>
-          {calls.length === 0 ? (
+          {loading ? (
+            <TableSkeleton cols={5} />
+          ) : calls.length === 0 ? (
             <p className="px-4 py-8 text-center text-muted-foreground text-sm">No calls logged</p>
           ) : (
             calls.map((c) => (
@@ -234,11 +241,22 @@ function CallsTab({ calls }: { calls: CallRecordResponse[] }) {
 
 // ─── Config Tab ────────────────────────────────────────
 
+// Module-level cache so switching away from and back to the Config tab
+// (which unmounts/remounts this component) does not re-hit the API.
+let cachedConfig: Record<string, string | number | boolean> | null = null;
+
 function ConfigTab() {
-  const [config, setConfig] = useState<Record<string, string | number | boolean> | null>(null);
+  const [config, setConfig] = useState<Record<string, string | number | boolean> | null>(cachedConfig);
 
   useEffect(() => {
-    api.getConfig().then((c) => setConfig(c as unknown as Record<string, string | number | boolean>)).catch(() => {});
+    if (cachedConfig) return;
+    api
+      .getConfig()
+      .then((c) => {
+        cachedConfig = c as unknown as Record<string, string | number | boolean>;
+        setConfig(cachedConfig);
+      })
+      .catch(() => {});
   }, []);
 
   return (
@@ -251,10 +269,60 @@ function ConfigTab() {
               <Row key={key} label={key} value={String(val)} />
             ))
           ) : (
-            <p className="text-muted-foreground">Loading...</p>
+            <ConfigSkeleton />
           )}
         </CardContent>
       </Card>
+    </>
+  );
+}
+
+// ─── Skeletons ─────────────────────────────────────────
+
+function OverviewSkeleton() {
+  return (
+    <>
+      <Skeleton className="h-8 w-40" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-24 w-full rounded-xl" />
+        ))}
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Skeleton className="h-44 w-full rounded-xl" />
+        <Skeleton className="h-44 w-full rounded-xl" />
+      </div>
+    </>
+  );
+}
+
+function TableSkeleton({ cols, rows = 6 }: { cols: number; rows?: number }) {
+  return (
+    <>
+      {Array.from({ length: rows }).map((_, r) => (
+        <div
+          key={r}
+          className="grid gap-4 px-4 py-3 border-b border-border/30 last:border-0"
+          style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+        >
+          {Array.from({ length: cols }).map((_, c) => (
+            <Skeleton key={c} className="h-4 w-full" />
+          ))}
+        </div>
+      ))}
+    </>
+  );
+}
+
+function ConfigSkeleton() {
+  return (
+    <>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="flex justify-between">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-4 w-20" />
+        </div>
+      ))}
     </>
   );
 }
