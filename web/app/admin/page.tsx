@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut } from "lucide-react";
+import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -73,6 +73,14 @@ export default function AdminPage() {
               {label}
             </button>
           ))}
+          {/* IVR builder lives on its own route (full-screen canvas). */}
+          <a
+            href="/admin/ivr"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors text-muted-foreground hover:text-foreground hover:bg-accent/50"
+          >
+            <PhoneIncoming className="h-4 w-4" />
+            IVR Flows
+          </a>
         </nav>
         <div className="p-3 border-t border-border/50">
           <a href="/" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors">
