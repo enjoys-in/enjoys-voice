@@ -4,8 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Asterisk WebRTC Test Client</title>
-  <!-- SIP.js (SimpleUser API) from CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/sip.js@0.21.2/dist/sip.min.js"></script>
+  <!-- SIP.js is loaded as an ES module in the script below -->
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
@@ -100,7 +99,10 @@
     <audio id="remoteAudio" autoplay></audio>
   </div>
 
-  <script>
+  <script type="module">
+    // SIP.js ships only as an ES module — import the browser-ready +esm bundle.
+    import { Web } from "https://cdn.jsdelivr.net/npm/sip.js@0.21.2/+esm";
+
     let simpleUser = null;
 
     const $ = (id) => document.getElementById(id);
@@ -137,7 +139,7 @@
 
       try {
         setStatus("Connecting…", "ring");
-        simpleUser = new SIP.Web.SimpleUser(server, {
+        simpleUser = new Web.SimpleUser(server, {
           aor,
           media: { remote: { audio: $("remoteAudio") } },
           userAgentOptions: {
@@ -197,6 +199,10 @@
     async function doHangup() {
       try { await simpleUser?.hangup(); } catch (err) { log("Hangup error: " + (err?.message || err)); }
     }
+
+    // Inline onclick handlers need these on the global scope (module scope is local).
+    Object.assign(window, { preset, doRegister, doUnregister, doCall, doHangup });
+    log("SIP.js loaded — ready");
   </script>
 </body>
 </html>
