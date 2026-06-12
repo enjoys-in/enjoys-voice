@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "../ui/EmptyState";
 import { useAuthStore, useVoicemailStore } from "../../stores";
 import { api } from "../../lib/api";
+import { getCachedVoicemailUrl, invalidateCachedVoicemail } from "../../lib/voicemail-cache";
 import { formatPhone } from "../../lib/phone";
 
 interface VoicemailScreenProps {
@@ -27,6 +28,12 @@ export function VoicemailScreen({ onCall }: VoicemailScreenProps) {
   const { voicemails, loading, fetchVoicemails, markRead, remove } = useVoicemailStore();
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Blob URL currently driving <audio>; revoked when playback stops so cached
+  // recordings (which can be several MB) don't pile up in memory.
+  const objectUrlRef = useRef<string | null>(null);
+  // The id the user most recently asked to play. Lets the async cache lookup
+  // bail if the user toggled off / switched messages before it resolved.
+  const pendingIdRef = useRef<string | null>(null);
 
   // TTL-guarded in the store: if AppShell already loaded recently, this mount
   // reuses the cache instead of firing a second request. The refresh button
@@ -43,13 +50,23 @@ export function VoicemailScreen({ onCall }: VoicemailScreenProps) {
     refresh();
   }, [refresh]);
 
+  // Stop playback, release the <audio>, and revoke any blob URL we minted.
+  const teardownAudio = useCallback(() => {
+    audioRef.current?.pause();
+    audioRef.current = null;
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+  }, []);
+
   // Clean up audio on unmount.
   useEffect(() => {
     return () => {
-      audioRef.current?.pause();
-      audioRef.current = null;
+      teardownAudio();
+      pendingIdRef.current = null;
     };
-  }, []);
+  }, [teardownAudio]);
 
   const togglePlay = useCallback(
     (id: string) => {
@@ -57,35 +74,55 @@ export function VoicemailScreen({ onCall }: VoicemailScreenProps) {
 
       // Toggle off if the same message is playing.
       if (playingId === id) {
-        audioRef.current?.pause();
+        pendingIdRef.current = null;
+        teardownAudio();
         setPlayingId(null);
         return;
       }
 
-      audioRef.current?.pause();
-      const audio = new Audio(api.voicemailAudioUrl(ext, id));
-      audioRef.current = audio;
-      audio.onended = () => setPlayingId(null);
-      audio.onerror = () => setPlayingId(null);
-      audio.play().then(
-        () => setPlayingId(id),
-        () => setPlayingId(null)
-      );
+      // Switching messages: stop the current one, mark this id as the request.
+      teardownAudio();
+      pendingIdRef.current = id;
 
-      // Mark as read locally + on the server.
+      // Mark as read locally + on the server (independent of playback).
       markRead(id);
       api.markVoicemailRead(ext, id).catch(() => {});
+
+      // First play fetches + caches the recording; later plays are served from
+      // Cache Storage with no backend hit. Bail if the user toggled away while
+      // it was still loading.
+      void (async () => {
+        const url = await getCachedVoicemailUrl(api.voicemailAudioUrl(ext, id));
+        if (pendingIdRef.current !== id) {
+          if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+          return;
+        }
+        objectUrlRef.current = url.startsWith("blob:") ? url : null;
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        const onDone = () => {
+          if (pendingIdRef.current === id) pendingIdRef.current = null;
+          teardownAudio();
+          setPlayingId(null);
+        };
+        audio.onended = onDone;
+        audio.onerror = onDone;
+        audio.play().then(() => setPlayingId(id), onDone);
+      })();
     },
-    [ext, playingId, markRead]
+    [ext, playingId, markRead, teardownAudio]
   );
 
   const handleDelete = useCallback(
     async (id: string) => {
       if (!ext) return;
       if (playingId === id) {
-        audioRef.current?.pause();
+        pendingIdRef.current = null;
+        teardownAudio();
         setPlayingId(null);
       }
+      // Evict the cached recording from the browser too — it's gone for good.
+      void invalidateCachedVoicemail(api.voicemailAudioUrl(ext, id));
       remove(id);
       try {
         await api.deleteVoicemail(ext, id);
@@ -93,7 +130,7 @@ export function VoicemailScreen({ onCall }: VoicemailScreenProps) {
         /* ignore */
       }
     },
-    [ext, playingId, remove]
+    [ext, playingId, remove, teardownAudio]
   );
 
   const formatTime = (iso: string) => {
