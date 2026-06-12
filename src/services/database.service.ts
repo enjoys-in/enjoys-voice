@@ -1,4 +1,5 @@
 import { CallLog, SipUser, SipRegistration, Voicemail, config } from '@/core';
+import { EventEmitter } from 'events';
 import {
   loadAllUsers,
   loadUserByExtension,
@@ -11,7 +12,7 @@ import {
   type ForwardingRow,
 } from './postgres';
 
-export class DatabaseService {
+export class DatabaseService extends EventEmitter {
   private users = new Map<string, SipUser>();
   private callLogs: CallLog[] = [];
   private registrations = new Map<string, SipRegistration>();
@@ -23,6 +24,7 @@ export class DatabaseService {
   private voicemails = new Map<string, Voicemail[]>();
 
   constructor() {
+    super();
     this.seed();
   }
 
@@ -414,6 +416,8 @@ export class DatabaseService {
     list.unshift(vm);
     if (list.length > 100) list.pop();
     this.voicemails.set(vm.mailbox, list);
+    // Mirror to the shared Postgres voicemails table via the write queue.
+    this.emit('voicemail:created', vm);
   }
 
   getVoicemails(mailbox: string): Voicemail[] {
@@ -428,6 +432,7 @@ export class DatabaseService {
     const vm = this.getVoicemail(mailbox, id);
     if (!vm) return false;
     vm.read = true;
+    this.emit('voicemail:read', { extension: mailbox, filename: vm.file });
     return true;
   }
 
@@ -436,7 +441,8 @@ export class DatabaseService {
     if (!list) return false;
     const idx = list.findIndex(v => v.id === id);
     if (idx === -1) return false;
-    list.splice(idx, 1);
+    const [removed] = list.splice(idx, 1);
+    this.emit('voicemail:deleted', { extension: mailbox, filename: removed.file });
     return true;
   }
 

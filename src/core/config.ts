@@ -79,6 +79,12 @@ export interface AppConfig {
     // of truth. MUST match the Go API's DATABASE_URL.
     url: string;
   };
+  redis: {
+    // Valkey/Redis connection used for the write-behind queue (and registration
+    // store). Redis-protocol compatible (Redis, Valkey, Dragonfly). When the
+    // server is unreachable, queued writes are skipped best-effort.
+    url: string;
+  };
   sipUsers: Array<{ extension: string; username: string; password: string; name: string }>;
 }
 
@@ -160,6 +166,9 @@ export const config: AppConfig = {
     url:
       process.env.DATABASE_URL ||
       'postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable',
+  },
+  redis: {
+    url: process.env.REDIS_URL || 'redis://localhost:6379',
   },
   sipUsers: [
     { extension: '1001', username: 'user1', password: 'pass123', name: 'Alice' },

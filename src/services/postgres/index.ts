@@ -11,3 +11,4 @@ export {
 } from './detail.repo';
 export type { BlockedRow, ForwardingRow, PstnRow } from './detail.repo';
 export { UserSyncListener } from './notify';
+export { insertVoicemail, markVoicemailReadByFile, deleteVoicemailByFile } from './voicemail.repo';

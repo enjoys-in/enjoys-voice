@@ -1,5 +1,15 @@
 import { config } from '@/core';
-import { DatabaseService, TrunkService, AuditService, createRegistrationStore, UserSyncListener } from '@/services';
+import {
+  DatabaseService,
+  TrunkService,
+  AuditService,
+  createRegistrationStore,
+  UserSyncListener,
+  WriteQueue,
+  insertVoicemail,
+  markVoicemailReadByFile,
+  deleteVoicemailByFile,
+} from '@/services';
 import { SipServer } from '@/sip';
 import { SignalingServer } from '@/websocket';
 import { HttpServer } from '@/http';
@@ -12,6 +22,7 @@ class Application {
   private ws: SignalingServer;
   private http: HttpServer;
   private userSync: UserSyncListener;
+  private writeQueue: WriteQueue;
 
   constructor() {
     this.db = new DatabaseService();
@@ -30,6 +41,23 @@ class Application {
       onReconnect: async () => {
         await this.db.hydrateFromPostgres();
       },
+    });
+    // Write-behind queue: voicemail mutations are emitted as events, enqueued to
+    // Valkey, and applied to the shared Postgres by a worker. This keeps the SIP
+    // path off the DB write latency and shares voicemails with the Go dashboard.
+    this.writeQueue = new WriteQueue();
+    this.writeQueue
+      .on('voicemail.create', (vm) => insertVoicemail(vm))
+      .on('voicemail.read', ({ extension, filename }) => markVoicemailReadByFile(extension, filename))
+      .on('voicemail.delete', ({ extension, filename }) => deleteVoicemailByFile(extension, filename));
+    this.db.on('voicemail:created', (vm) => {
+      void this.writeQueue.enqueue('voicemail.create', vm).catch(() => {});
+    });
+    this.db.on('voicemail:read', (p) => {
+      void this.writeQueue.enqueue('voicemail.read', p).catch(() => {});
+    });
+    this.db.on('voicemail:deleted', (p) => {
+      void this.writeQueue.enqueue('voicemail.delete', p).catch(() => {});
     });
   }
 
@@ -55,6 +83,13 @@ class Application {
     // best-effort — a failure here must not stop the SIP/WS/HTTP servers.
     this.userSync.start().catch((err: any) =>
       console.warn(`   Sync:   ⚠️  user-sync listener failed to start (${err?.message})`),
+    );
+
+    // Start the write-behind queue worker (voicemail → Postgres). Best-effort:
+    // if Valkey is unreachable, voicemails still record (in memory + on disk),
+    // they just aren't mirrored to the shared DB until it recovers.
+    this.writeQueue.start().catch((err: any) =>
+      console.warn(`   Queue:  ⚠️  write queue failed to start (${err?.message})`),
     );
 
     // Wire SIP call events → WebSocket notifications
