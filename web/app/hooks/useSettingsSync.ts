@@ -19,16 +19,17 @@ export function useSettingsSync() {
   const { user } = useAuthStore();
   const { setSettings, setLoading } = useSettingsStore();
 
-  // Load blocked numbers + forwarding from API (once globally)
+  // Load blocked numbers + forwarding + pstn-forward from API (once globally)
   const loadSettings = useCallback(async () => {
     if (!user) return;
     if (settingsLoaded) return;
     settingsLoaded = true;
     setLoading(true);
     try {
-      const [blockRes, fwdRes] = await Promise.all([
+      const [blockRes, fwdRes, pstnFwdRes] = await Promise.all([
         api.getBlockedNumbers(user.extension),
         api.getForwarding(user.extension),
+        api.getPstnForward(user.extension),
       ]);
       setSettings({
         blockedNumbers: blockRes.blocked,
@@ -37,6 +38,7 @@ export function useSettingsSync() {
           noAnswer: fwdRes.noAnswer || undefined,
           unavailable: fwdRes.unavailable || undefined,
         },
+        pstnForwardToBrowser: pstnFwdRes.enabled,
       });
     } catch {
       settingsLoaded = false; // Allow retry on failure
@@ -88,5 +90,18 @@ export function useSettingsSync() {
     [user]
   );
 
-  return { loadSettings, saveForwarding, blockNumber, unblockNumber };
+  // Save PSTN forward to browser setting
+  const savePstnForward = useCallback(
+    async (enabled: boolean) => {
+      if (!user) return;
+      try {
+        await api.setPstnForward(user.extension, enabled);
+      } catch {
+        // silent
+      }
+    },
+    [user]
+  );
+
+  return { loadSettings, saveForwarding, blockNumber, unblockNumber, savePstnForward };
 }

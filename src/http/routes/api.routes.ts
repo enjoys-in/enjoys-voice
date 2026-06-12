@@ -199,5 +199,20 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
     res.json(audit.getByExtension(req.params.ext, limit));
   });
 
+  // ─── PSTN Forward to Browser ────────────────────────
+  router.get('/pstn-forward/:ext', (req: Request, res: Response) => {
+    res.json({ enabled: db.getPstnForward(req.params.ext) });
+  });
+
+  router.post('/pstn-forward/:ext', (req: Request, res: Response) => {
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      res.status(400).json({ error: 'Missing boolean field: enabled' });
+      return;
+    }
+    const ok = db.setPstnForward(req.params.ext, enabled);
+    res.json({ success: ok });
+  });
+
   return router;
 }

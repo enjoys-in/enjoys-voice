@@ -32,7 +32,7 @@ const RINGTONES = [
 export function SettingsScreen() {
   const { user, logout } = useAuthStore();
   const { settings, setSettings, setForwarding, addBlockedNumber, removeBlockedNumber } = useSettingsStore();
-  const { saveForwarding, blockNumber, unblockNumber } = useSettingsSync();
+  const { saveForwarding, blockNumber, unblockNumber, savePstnForward } = useSettingsSync();
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [customCallerTunes, setCustomCallerTunes] = useState<{ id: string; name: string }[]>([]);
@@ -420,14 +420,17 @@ export function SettingsScreen() {
           {/* ─── PSTN Tab ───────────────────────────────────── */}
           {activeTab === "pstn" && (
             <>
-              {/* PSTN Settings */}
+              {/* PSTN Outbound: Browser → Phone */}
               <Card className="border-border/50 bg-card/50">
                 <CardHeader className="p-4 pb-2">
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
-                    <Globe className="h-4 w-4" /> PSTN Fallback
+                    <Globe className="h-4 w-4" /> Browser → Phone
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-4 pt-0 space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Route calls to unavailable extensions to a mobile number via SIP trunk.
+                  </p>
                   <div className="flex items-center justify-between">
                     <Label htmlFor="pstn" className="text-sm">Enable PSTN fallback</Label>
                     <Switch
@@ -447,10 +450,42 @@ export function SettingsScreen() {
                       />
                     </div>
                   )}
-                  <Separator className="opacity-50" />
+                </CardContent>
+              </Card>
+
+              {/* PSTN Inbound: Phone → Browser */}
+              <Card className="border-border/50 bg-card/50">
+                <CardHeader className="p-4 pb-2">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <Phone className="h-4 w-4" /> Phone → Browser
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4 pt-0 space-y-3">
                   <p className="text-xs text-muted-foreground">
-                    When enabled, calls to unavailable extensions will be routed to the configured mobile number via SIP trunk.
+                    Forward incoming calls from your phone number to this browser app. Calls to your mobile will ring here.
                   </p>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="pstn-fwd" className="text-sm">Forward phone to browser</Label>
+                    <Switch
+                      id="pstn-fwd"
+                      checked={settings.pstnForwardToBrowser}
+                      onCheckedChange={(v) => { setSettings({ pstnForwardToBrowser: v }); savePstnForward(v); }}
+                    />
+                  </div>
+                  {settings.pstnForwardToBrowser && (
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Your phone number (DID)</Label>
+                      <PhoneInput
+                        value={settings.pstnMobile || ""}
+                        countryCode={settings.pstnCountryCode || "+91"}
+                        onValueChange={(v) => setSettings({ pstnMobile: v })}
+                        onCountryCodeChange={(v) => setSettings({ pstnCountryCode: v })}
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        When someone calls this number via SIP trunk, it will ring on your browser extension ({user?.extension}).
+                      </p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </>

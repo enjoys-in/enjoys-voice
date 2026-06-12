@@ -49,6 +49,7 @@ export interface UserSettings {
   pstnEnabled: boolean;
   pstnMobile?: string;
   pstnCountryCode?: string;
+  pstnForwardToBrowser: boolean;
   recordingEnabled: boolean;
   voicemailEnabled: boolean;
   forwarding: ForwardingRules;

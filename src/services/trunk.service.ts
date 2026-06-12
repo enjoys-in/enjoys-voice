@@ -18,6 +18,11 @@ export class TrunkService {
     return this.trunk.enabled;
   }
 
+  /** Check if a source IP matches the trunk host (inbound from PSTN) */
+  isFromTrunk(sourceIp: string): boolean {
+    return this.trunk.enabled && sourceIp === this.trunk.host;
+  }
+
   getActive() {
     return this.trunk.enabled ? this.trunk : undefined;
   }

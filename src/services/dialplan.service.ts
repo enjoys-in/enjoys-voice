@@ -1,6 +1,12 @@
 import { config } from '@/core';
 
-export type RouteType = 'internal' | 'external' | 'ivr' | 'emergency' | 'blocked';
+export enum RouteType {
+  Internal = 'internal',
+  External = 'external',
+  IVR = 'ivr',
+  Emergency = 'emergency',
+  Blocked = 'blocked',
+}
 
 export interface DialResult {
   type: RouteType;
@@ -24,27 +30,27 @@ export class DialPlanService {
 
     // Emergency check first
     if (this.emergencyNumbers.has(cleaned)) {
-      return { type: 'emergency', target: cleaned, originalNumber: dialed, normalizedNumber: cleaned };
+      return { type: RouteType.Emergency, target: cleaned, originalNumber: dialed, normalizedNumber: cleaned };
     }
 
     // IVR routing
     if (this.IVR_PATTERN.test(cleaned)) {
-      return { type: 'ivr', target: cleaned, originalNumber: dialed, normalizedNumber: cleaned };
+      return { type: RouteType.IVR, target: cleaned, originalNumber: dialed, normalizedNumber: cleaned };
     }
 
     // Internal extension (4-7 digits, no country code)
     if (this.INTERNAL_PATTERN.test(cleaned) && !cleaned.startsWith('+')) {
-      return { type: 'internal', target: cleaned, originalNumber: dialed, normalizedNumber: cleaned };
+      return { type: RouteType.Internal, target: cleaned, originalNumber: dialed, normalizedNumber: cleaned };
     }
 
     // External (with or without +)
     if (this.EXTERNAL_PATTERN.test(cleaned)) {
       const normalized = this.normalizeExternal(cleaned);
-      return { type: 'external', target: normalized, originalNumber: dialed, normalizedNumber: normalized };
+      return { type: RouteType.External, target: normalized, originalNumber: dialed, normalizedNumber: normalized };
     }
 
     // Default: try as internal extension
-    return { type: 'internal', target: cleaned, originalNumber: dialed, normalizedNumber: cleaned };
+    return { type: RouteType.Internal, target: cleaned, originalNumber: dialed, normalizedNumber: cleaned };
   }
 
   private normalizeExternal(number: string): string {
@@ -63,14 +69,14 @@ export class DialPlanService {
   }
 
   isInternal(number: string): boolean {
-    return this.resolve(number).type === 'internal';
+    return this.resolve(number).type === RouteType.Internal;
   }
 
   isExternal(number: string): boolean {
-    return this.resolve(number).type === 'external';
+    return this.resolve(number).type === RouteType.External;
   }
 
   isIvr(number: string): boolean {
-    return this.resolve(number).type === 'ivr';
+    return this.resolve(number).type === RouteType.IVR;
   }
 }

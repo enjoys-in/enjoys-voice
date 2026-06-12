@@ -238,4 +238,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  // PSTN Forward to Browser
+  getPstnForward: (ext: string) =>
+    request<{ enabled: boolean }>(`/pstn-forward/${ext}`),
+
+  setPstnForward: (ext: string, enabled: boolean) =>
+    request<SuccessResponse>(`/pstn-forward/${ext}`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    }),
 } as const;

@@ -1,7 +1,7 @@
 import Srf from 'drachtio-srf';
 import crypto from 'crypto';
 import { config } from '@/core';
-import { DatabaseService, TrunkService, AuditService, DialPlanService } from '@/services';
+import { DatabaseService, TrunkService, AuditService, DialPlanService, RouteType } from '@/services';
 import type { RegistrationStore } from '@/services/registration';
 import { IVRSystem } from './ivr.system';
 
@@ -163,12 +163,30 @@ export class SipServer {
       });
       this.audit.log('call_start', callingNumber, { to: calledNumber, callId }, req.source_address);
 
+      // ─── Inbound from Trunk (PSTN → Browser) ─────────
+      if (this.trunk.isFromTrunk(req.source_address)) {
+        const fwdTarget = this.db.findPstnForwardTarget(calledNumber);
+        if (fwdTarget) {
+          const reg = this.db.getRegistration(fwdTarget.extension);
+          if (reg) {
+            console.log(`📲 PSTN→Browser: ${calledNumber} → ext ${fwdTarget.extension}`);
+            await this.routeToExtension(req, res, reg.contact, callId);
+            return;
+          }
+          console.log(`📲 PSTN→Browser: ${fwdTarget.extension} not registered, rejecting`);
+        }
+        // Inbound trunk call but no matching DID or user offline
+        res.send(480);
+        this.db.updateCall(callId, { status: 'missed' });
+        return;
+      }
+
       // Use dial plan to resolve routing
       const route = this.dialPlan.resolve(calledNumber);
       console.log(`🗺️ Dial plan: ${calledNumber} → ${route.type} (${route.normalizedNumber})`);
 
       // Emergency calls always go to trunk
-      if (route.type === 'emergency') {
+      if (route.type === RouteType.Emergency) {
         console.log(`🚨 Emergency: Routing ${route.target} to trunk`);
         if (this.trunk.isEnabled) {
           const ok = await this.trunk.routeCall(this.srf, req, res, route.target);
@@ -181,7 +199,7 @@ export class SipServer {
       }
 
       // IVR routing
-      if (route.type === 'ivr' && this.ivr?.isConnected() && config.ivr.enabled) {
+      if (route.type === RouteType.IVR && this.ivr?.isConnected() && config.ivr.enabled) {
         console.log(`🎙️ IVR: Routing call`);
         try {
           await this.ivr.handleIncomingCall(req, res);
@@ -194,7 +212,7 @@ export class SipServer {
       }
 
       // Internal extension
-      if (route.type === 'internal') {
+      if (route.type === RouteType.Internal) {
         const reg = this.db.getRegistration(route.target);
         if (reg) {
           await this.routeToExtension(req, res, reg.contact, callId);
@@ -211,7 +229,7 @@ export class SipServer {
       }
 
       // External via trunk
-      if (route.type === 'external' && this.trunk.isEnabled) {
+      if (route.type === RouteType.External && this.trunk.isEnabled) {
         console.log(`📞 Trunk: Routing to ${route.normalizedNumber}`);
         const ok = await this.trunk.routeCall(this.srf, req, res, route.normalizedNumber);
         this.db.updateCall(callId, { status: ok ? 'answered' : 'failed' });

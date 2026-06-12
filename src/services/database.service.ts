@@ -212,4 +212,26 @@ export class DatabaseService {
       unavailable: user?.forwardOnUnavailable,
     };
   }
+
+  setPstnForward(extension: string, enabled: boolean): boolean {
+    const user = this.users.get(extension);
+    if (!user) return false;
+    user.pstnForwardToBrowser = enabled;
+    return true;
+  }
+
+  getPstnForward(extension: string): boolean {
+    return this.users.get(extension)?.pstnForwardToBrowser ?? false;
+  }
+
+  /** Find a user who has pstnForwardToBrowser enabled and matches the given phone number */
+  findPstnForwardTarget(calledNumber: string): SipUser | undefined {
+    const normalized = calledNumber.replace(/[^0-9]/g, '').slice(-10);
+    for (const [, user] of this.users) {
+      if (!user.pstnForwardToBrowser || !user.mobile) continue;
+      const userMobile = user.mobile.replace(/[^0-9]/g, '').slice(-10);
+      if (userMobile === normalized && user.registered) return user;
+    }
+    return undefined;
+  }
 }

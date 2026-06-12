@@ -23,6 +23,7 @@ export interface SipUser {
   forwardOnBusy?: string;
   forwardOnNoAnswer?: string;
   forwardOnUnavailable?: string;
+  pstnForwardToBrowser?: boolean;
 }
 
 export interface SipRegistration {
