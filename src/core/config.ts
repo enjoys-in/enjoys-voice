@@ -128,7 +128,10 @@ export const config: AppConfig = {
     ringback: process.env.RINGBACK_FILE || '/usr/share/freeswitch/sounds/ringtones/ringback.wav',
     ringbackIn: process.env.RINGBACK_IN_FILE || '/usr/share/freeswitch/sounds/ringtones/ringback_in.wav',
     callerTune: process.env.CALLER_TUNE_FILE || '/usr/share/freeswitch/sounds/ringtones/caller_tune.wav',
-    holdMusic: process.env.HOLD_MUSIC_FILE || '/usr/share/freeswitch/sounds/music/hold_music_1.wav',
+    // local_stream://moh is the standard FreeSWITCH music-on-hold stream
+    // (configured in local_stream.conf.xml -> music/8000). It exists and loops
+    // forever, unlike a single hard-coded WAV that may be missing.
+    holdMusic: process.env.HOLD_MUSIC_FILE || 'local_stream://moh',
   },
   sipUsers: [
     { extension: '1001', username: 'user1', password: 'pass123', name: 'Alice' },

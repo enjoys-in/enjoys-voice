@@ -199,10 +199,119 @@ export class IVRSystem {
     }
   }
 
+  /**
+   * Play a file/prompt, logging it and tolerating a missing file.
+   *
+   * `endpoint.play()` throws "File Not Found" when FreeSWITCH can't locate the
+   * file (e.g. a misconfigured sound path). A single missing prompt must not
+   * abort the whole call, so we log which file failed and carry on.
+   */
+  private async playSafe(endpoint: Mrf.Endpoint, file: string): Promise<void> {
+    console.log(`   ▶️ play: ${file}`);
+    try {
+      await endpoint.play(file);
+    } catch (err: any) {
+      console.warn(`   ⚠️ play failed for "${file}": ${err?.message}`);
+    }
+  }
+
+  /**
+   * Configure a calmer, clearer TTS voice and add a short lead-in silence.
+   *
+   * The default flite voice ("kal") is fast and robotic; "slt" is clearer.
+   * Flite has NO true speech-rate control, so for a genuinely slower/natural
+   * pace the real fix is pre-recorded prompt files (see audit notes). The
+   * 500ms silence prevents the first word being clipped while RTP comes up.
+   */
+  private async prepareVoice(endpoint: Mrf.Endpoint): Promise<void> {
+    try {
+      await endpoint.execute('set', 'tts_engine=flite');
+      await endpoint.execute('set', 'tts_voice=slt');
+      await endpoint.play('silence_stream://500');
+    } catch (err: any) {
+      console.warn(`⚠️ IVR: prepareVoice failed: ${err?.message}`);
+    }
+  }
+
+  /**
+   * Play a prompt and collect a single DTMF digit, with barge-in.
+   *
+   * The ENTIRE prompt is played to the caller. They can either listen to all
+   * of it and then press a key, OR — if they already know the menu — barge in
+   * and press a key at any moment, which stops the prompt instantly and
+   * advances to the next step. If no key is pressed, the prompt replays up to
+   * `tries` times before giving up (returns '').
+   *
+   * We deliberately do NOT use playCollect()/play_and_get_digits here: that
+   * FreeSWITCH app parses its arguments by spaces, so a `say:` prompt that
+   * contains spaces (every one of our menus) corrupts the argument parsing —
+   * only the first word is spoken and digit collection silently fails. Playing
+   * the prompt with play() (the whole string is a single file arg) and reading
+   * the digit from the channel's `dtmf` events avoids that entirely.
+   */
+  private async promptAndCollect(
+    endpoint: Mrf.Endpoint,
+    prompt: string,
+    opts: { waitMs?: number; tries?: number; valid?: string; label?: string } = {},
+  ): Promise<string> {
+    const waitMs = opts.waitMs ?? 7000;
+    const tries = Math.max(1, opts.tries ?? 2);
+    const label = opts.label || 'prompt';
+
+    // Let any DTMF key stop the prompt the instant it is pressed (barge-in).
+    await endpoint.execute('set', 'playback_terminators=0123456789*#');
+
+    for (let attempt = 1; attempt <= tries; attempt++) {
+      console.log(`   🎚️ ${label}: prompt attempt ${attempt}/${tries}`);
+      const digit = await new Promise<string>((resolve) => {
+        let settled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+
+        const finish = (d: string) => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          endpoint.removeListener('dtmf', onDtmf);
+          resolve(d);
+        };
+
+        const onDtmf = (evt: Mrf.DtmfEvent) => {
+          console.log(`   ⌨️ ${label}: DTMF received "${evt.dtmf}"`);
+          finish(evt.dtmf);
+        };
+        endpoint.on('dtmf', onDtmf);
+
+        // Play the WHOLE prompt. A barge-in keypress resolves via onDtmf
+        // before playback finishes; otherwise we wait waitMs for a key after.
+        endpoint.play(prompt)
+          .then(() => {
+            if (settled) return;            // caller barged in mid-prompt
+            timer = setTimeout(() => finish(''), waitMs);
+          })
+          .catch((e: any) => {
+            console.warn(`   ⚠️ ${label}: prompt playback failed: ${e?.message}`);
+            finish('');
+          });
+      });
+
+      if (digit && (!opts.valid || opts.valid.includes(digit))) {
+        console.log(`   ✅ ${label}: accepted "${digit}"`);
+        return digit;
+      }
+      if (digit) console.log(`   ↩️ ${label}: "${digit}" not valid, retrying`);
+      else console.log(`   ⏱️ ${label}: no input (${attempt < tries ? 'retrying' : 'giving up'})`);
+    }
+
+    return '';
+  }
+
   async handleIncomingCall(req: any, res: any, existingCallId?: string): Promise<void> {
     const callId = existingCallId || crypto.randomUUID();
     const callerNumber = req.callingNumber || 'unknown';
     const calledNumber = req.calledNumber || 'unknown';
+
+    console.log(`\n📞 IVR: incoming call [${callId}]`);
+    console.log(`   from=${callerNumber} to=${calledNumber} reusedId=${!!existingCallId}`);
 
     const state: IVRCallState = {
       callId, callerNumber, calledNumber,
@@ -222,59 +331,78 @@ export class IVRSystem {
     }
 
     if (!(await this.ensureConnected())) {
+      console.warn(`⚠️ IVR: media server unavailable; rejecting [${callId}] with 503`);
       res.send(503);
       this.db.updateCall(callId, { status: 'failed' });
       return;
     }
 
+    let endpoint: Mrf.Endpoint | undefined;
+    let dialog: Srf.Dialog | undefined;
+
     try {
-      const { endpoint, dialog } = await this.ms!.connectCaller(req, res);
+      console.log(`🔗 IVR: answering & connecting caller to media server [${callId}]`);
+      ({ endpoint, dialog } = await this.ms!.connectCaller(req, res));
+      console.log(`✅ IVR: media connected, channel=${endpoint.uuid} [${callId}]`);
 
-      // One-time greeting. Played ONCE via play() so it is NOT repeated when
-      // the caller doesn't press a key in time — otherwise playCollect's retry
-      // would replay the whole prompt and the caller hears "welcome…welcome…".
-      await endpoint.play('say:Welcome to Enjoys Voice.');
+      // Calmer, clearer TTS voice + brief lead-in silence (see prepareVoice).
+      await this.prepareVoice(endpoint);
 
-      // Language menu. playCollect plays the menu prompt AND collects a digit in
-      // one step, with barge-in (the caller can press a key before it finishes).
-      // Only the short menu (not the greeting) repeats on no-input retry.
-      const { digits: lang } = await endpoint.playCollect({
-        file: 'say:Press 1 for English. Press 2 for Hindi.',
-        min: 1, max: 1, tries: 2, timeout: 8000, digitTimeout: 5000, terminators: '#',
-      });
+      // One-time greeting. Played ONCE so it is NOT repeated on menu retries.
+      console.log(`🗣️ IVR: greeting [${callId}]`);
+      await this.playSafe(endpoint, 'say:Welcome to Enjoys Voice.');
 
+      // Language menu. The FULL prompt is played; the caller may listen to all
+      // of it and then choose, or barge in and press a key at any point to jump
+      // ahead. Replays once if nothing is pressed.
+      console.log(`🌐 IVR: language menu [${callId}]`);
+      const lang = await this.promptAndCollect(
+        endpoint,
+        'say:Press 1 for English. Press 2 for Hindi.',
+        { valid: '12', tries: 2, waitMs: 7000, label: 'language' },
+      );
       if (lang === '2') state.language = 'hi';
+      console.log(`🌐 IVR: language=${state.language} [${callId}]`);
 
       // Department menu
       const menuPrompt = state.language === 'hi'
         ? 'say:hi:1 बिक्री. 2 तकनीकी सहायता. 3 बिलिंग. 9 ग्राहक सेवा.'
         : 'say:Press 1 for Sales. Press 2 for Support. Press 3 for Billing. Press 9 for Customer Care.';
-      const { digits: dept } = await endpoint.playCollect({
-        file: menuPrompt,
-        min: 1, max: 1, tries: 2, timeout: 8000, digitTimeout: 5000, terminators: '#',
-      });
+      console.log(`🏢 IVR: department menu [${callId}]`);
+      const dept = await this.promptAndCollect(
+        endpoint,
+        menuPrompt,
+        { valid: '1239', tries: 2, waitMs: 7000, label: 'department' },
+      );
 
       const deptMap: Record<string, string> = { '1': 'sales', '2': 'support', '3': 'billing', '9': 'care' };
       state.department = deptMap[dept] || 'care';
       state.status = 'queued';
 
-      // Play hold music while waiting for agent
-      await endpoint.play(config.sounds.holdMusic);
-
       this.db.updateCall(callId, { status: 'answered' });
-      console.log(`🎙️ IVR: ${callerNumber} → ${state.department} (${state.language})`);
+      console.log(`🎙️ IVR: ${callerNumber} → ${state.department} (${state.language}) [${callId}]`);
+
+      // Start hold music while waiting for an agent. Fire-and-forget: MOH loops
+      // forever, so we must NOT await it (that would block this handler). The
+      // call stays up; an agent transfer later stops MOH and bridges the legs.
+      console.log(`🎵 IVR: hold music (${config.sounds.holdMusic}) [${callId}]`);
+      endpoint.executeAsync('playback', config.sounds.holdMusic);
     } catch (err: any) {
-      
-      console.error('❌ IVR error:', err.message);
+      console.error(`❌ IVR error [${callId}]:`, err?.message || err);
       this.activeCalls.delete(callId);
       this.db.updateCall(callId, { status: 'failed' });
-      // Fail only THIS call. Do NOT tear down the shared media-server
-      // connection — that is handled by the lifecycle listeners, which also
-      // trigger an auto-reconnect. Nulling here previously disabled the IVR
-      // for every subsequent call (503 → fall-through to 480).
+
+      // End THIS call cleanly. connectCaller already answered (200 OK), so an
+      // error after that means we must HANG UP the established leg — destroy
+      // the endpoint and dialog. (If we never answered, send 503 instead.)
+      // We deliberately do NOT tear down the shared media-server connection;
+      // that is handled by the lifecycle listeners, which also auto-reconnect.
       if (!res.finalResponseSent) {
         res.send(503, 'Service Unavailable');
       }
+      try { await dialog?.destroy?.(); } catch { /* noop */ }
+      try { await endpoint?.destroy?.(); } catch { /* noop */ }
+      console.log(`🔚 IVR: call ended after error [${callId}]`);
     }
   }
 
