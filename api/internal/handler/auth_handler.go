@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/enjoys-in/enjoys-voice/api/internal/config"
 	"github.com/enjoys-in/enjoys-voice/api/internal/models"
@@ -35,6 +36,10 @@ type signupRequest struct {
 
 type refreshRequest struct {
 	RefreshToken string `json:"refreshToken" binding:"required"`
+}
+
+type updateMeRequest struct {
+	Name string `json:"name" binding:"required"`
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
@@ -137,7 +142,44 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	})
 }
 
-// setAuthCookies mirrors the token pair into httpOnly cookies so the browser
+// UpdateMe lets the authenticated user change their own display name. The
+// target is always the access-token subject set by AuthMiddleware, so there's
+// no IDOR surface — a user can only rename themselves. Backs the profile
+// "edit name" action in the UI.
+func (h *AuthHandler) UpdateMe(c *gin.Context) {
+	ext, _ := c.Get("extension")
+	extStr, _ := ext.(string)
+	if extStr == "" {
+		response.Unauthorized(c, "Not authenticated")
+		return
+	}
+
+	var req updateMeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Name is required")
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		response.BadRequest(c, "Name cannot be empty")
+		return
+	}
+
+	user, err := h.authSvc.UpdateName(c.Request.Context(), extStr, name)
+	if err != nil {
+		response.Internal(c, "Failed to update profile")
+		return
+	}
+
+	response.Success(c, "Profile updated", gin.H{
+		"extension": user.Extension,
+		"name":      user.Name,
+		"username":  user.Username,
+		"mobile":    user.Mobile,
+	})
+}
+
 // can authenticate with `credentials: "include"`. The access token also stays
 // in the JSON body for the Bearer-header flow; both transports are accepted.
 func (h *AuthHandler) setAuthCookies(c *gin.Context, pair *token.Pair) {

@@ -55,6 +55,21 @@ func (s *authService) GetByExtension(ctx context.Context, ext string) (*models.U
 	return s.userRepo.GetByExtension(ctx, ext)
 }
 
+// UpdateName changes the display name of the user identified by ext, then
+// re-warms the cached profile so /auth/me and lookups reflect it immediately.
+// Backs PATCH /auth/me (self-service rename); ext always comes from the token.
+func (s *authService) UpdateName(ctx context.Context, ext, name string) (*models.User, error) {
+	if err := s.userRepo.UpdateName(ctx, ext, name); err != nil {
+		return nil, err
+	}
+	user, err := s.userRepo.GetByExtension(ctx, ext)
+	if err != nil {
+		return nil, err
+	}
+	s.warmUserCache(ctx, user)
+	return user, nil
+}
+
 func (s *authService) Signup(ctx context.Context, name, mobile, password string) (*models.User, error) {
 	normalized := strings.ReplaceAll(mobile, " ", "")
 	normalized = strings.ReplaceAll(normalized, "-", "")

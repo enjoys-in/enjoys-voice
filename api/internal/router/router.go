@@ -43,6 +43,7 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 		{
 			// Current-session profile / validator (UI calls this on boot).
 			protected.GET("/auth/me", h.Auth.Me)
+			protected.PATCH("/auth/me", h.Auth.UpdateMe)
 
 			protected.GET("/lookup/:phone", h.User.Lookup)
 

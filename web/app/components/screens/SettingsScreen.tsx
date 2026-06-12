@@ -16,6 +16,7 @@ import { PhoneInput } from "../ui/PhoneInput";
 import { useAuthStore, useSettingsStore } from "../../stores";
 import { useSettingsSync } from "../../hooks/useSettingsSync";
 import { getCachedSoundUrl, invalidateSoundCache } from "../../lib/sound-cache";
+import { goApi } from "../../lib/go-api";
 
 const CALLER_TUNES = [
   { id: "caller_tune.wav", name: "Default Tune" },
@@ -39,6 +40,34 @@ export function SettingsScreen() {
   const [customRingtones, setCustomRingtones] = useState<{ id: string; name: string }[]>([]);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [activeTab, setActiveTab] = useState<"general" | "call" | "pstn">("general");
+
+  // Account name editor (persisted server-side via the Go API, port 3003).
+  const setUser = useAuthStore((s) => s.setUser);
+  const [accountName, setAccountName] = useState(user?.name ?? "");
+  const [savingName, setSavingName] = useState(false);
+  const [nameSaved, setNameSaved] = useState(false);
+
+  // Keep the field in sync if the cached profile loads/refreshes (e.g. boot /me).
+  useEffect(() => {
+    setAccountName(user?.name ?? "");
+  }, [user?.name]);
+
+  const handleSaveName = async () => {
+    const next = accountName.trim();
+    if (!next || next === user?.name || savingName) return;
+    setSavingName(true);
+    setNameSaved(false);
+    try {
+      const updated = await goApi.auth.updateName(next);
+      setUser(updated);
+      setNameSaved(true);
+      setTimeout(() => setNameSaved(false), 2000);
+    } catch {
+      setAccountName(user?.name ?? ""); // revert on failure
+    } finally {
+      setSavingName(false);
+    }
+  };
 
   const handleDeleteAccount = () => {
     // TODO: call DELETE /api/users/:ext when backend supports it
@@ -158,6 +187,31 @@ export function SettingsScreen() {
                       <p className="text-sm text-muted-foreground">ext. {user?.extension}</p>
                       {user?.mobile && <p className="text-xs text-muted-foreground">{user.mobile}</p>}
                     </div>
+                  </div>
+
+                  <Separator className="my-4" />
+
+                  {/* Editable account name — persisted server-side (Go API). */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="accountName" className="text-sm">Name</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="accountName"
+                        value={accountName}
+                        placeholder={user?.extension || "Your name"}
+                        onChange={(e) => { setAccountName(e.target.value); setNameSaved(false); }}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleSaveName(); }}
+                      />
+                      <Button
+                        onClick={handleSaveName}
+                        disabled={savingName || !accountName.trim() || accountName.trim() === user?.name}
+                      >
+                        {savingName ? "Saving…" : nameSaved ? "Saved" : "Save"}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Your account name, shown on your profile and in the app.
+                    </p>
                   </div>
 
                   <Separator className="my-4" />

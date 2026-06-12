@@ -52,6 +52,13 @@ func (r *userRepo) GetAll(ctx context.Context) ([]models.User, error) {
 	return users, err
 }
 
+func (r *userRepo) UpdateName(ctx context.Context, ext, name string) error {
+	return r.db.WithContext(ctx).
+		Model(&models.User{}).
+		Where("extension = ?", ext).
+		Update("name", name).Error
+}
+
 func (r *userRepo) Delete(ctx context.Context, ext string) error {
 	return r.db.WithContext(ctx).Where("extension = ?", ext).Delete(&models.User{}).Error
 }

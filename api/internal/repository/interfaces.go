@@ -13,6 +13,7 @@ type UserRepository interface {
 	GetByMobile(ctx context.Context, mobile string) (*models.User, error)
 	GetByUsername(ctx context.Context, username string) (*models.User, error)
 	GetAll(ctx context.Context) ([]models.User, error)
+	UpdateName(ctx context.Context, ext, name string) error
 	Delete(ctx context.Context, ext string) error
 }
 

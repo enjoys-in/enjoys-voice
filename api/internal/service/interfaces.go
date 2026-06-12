@@ -11,6 +11,7 @@ type AuthService interface {
 	Login(ctx context.Context, username, password string) (*models.User, error)
 	Signup(ctx context.Context, name, mobile, password string) (*models.User, error)
 	GetByExtension(ctx context.Context, ext string) (*models.User, error)
+	UpdateName(ctx context.Context, ext, name string) (*models.User, error)
 }
 
 type UserService interface {

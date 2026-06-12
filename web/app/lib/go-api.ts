@@ -215,6 +215,17 @@ export const goApi = {
     me(): Promise<AuthUser> {
       return goRequest<AuthUser>("/auth/me");
     },
+    /**
+     * Updates the current user's account name. The server identifies the user
+     * from the access token, so no extension is sent. Returns the refreshed
+     * profile, which callers persist via the auth store.
+     */
+    updateName(name: string): Promise<AuthUser> {
+      return goRequest<AuthUser>("/auth/me", {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      });
+    },
   },
 
   // Phone → user lookup
