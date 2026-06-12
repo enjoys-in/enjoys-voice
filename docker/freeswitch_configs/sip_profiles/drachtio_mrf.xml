@@ -31,6 +31,21 @@
     <param name="nonce-ttl" value="86400"/>
     <param name="manage-presence" value="false"/>
 
+    <!-- Accept DTLS-SRTP (WebRTC) offers relayed by drachtio-fsmrf so browser
+         clients can reach the IVR; fall back to plain RTP for softphones.
+         Without this, FreeSWITCH answers WebRTC INVITEs with 488. -->
+    <param name="rtp-secure-media" value="optional"/>
+
+    <!-- Accept the browser's ICE candidates. WebRTC clients on a LAN/host send
+         RFC1918 (192.168.x / 172.x / 10.x) and host candidates. The default
+         ACL is wan.auto (public IPs only), so all candidates get filtered out
+         => "no suitable candidates found" => 488. These ACLs (incl. the
+         any_v4.auto catch-all) let FreeSWITCH use the offered candidates. -->
+    <param name="apply-candidate-acl" value="localnet.auto"/>
+    <param name="apply-candidate-acl" value="wan_v4.auto"/>
+    <param name="apply-candidate-acl" value="rfc1918.auto"/>
+    <param name="apply-candidate-acl" value="any_v4.auto"/>
+
     <!-- so we can send INVITEs with no SDP and get an offer back with all available codecs -->
     <param name="enable-3pcc" value="true"/>
 

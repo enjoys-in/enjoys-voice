@@ -246,6 +246,7 @@ export class IVRSystem {
       this.db.updateCall(callId, { status: 'answered' });
       console.log(`🎙️ IVR: ${callerNumber} → ${state.department} (${state.language})`);
     } catch (err: any) {
+      
       console.error('❌ IVR error:', err.message);
       this.activeCalls.delete(callId);
       this.db.updateCall(callId, { status: 'failed' });

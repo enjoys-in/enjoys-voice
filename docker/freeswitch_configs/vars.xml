@@ -253,6 +253,11 @@
   <X-PRE-PROCESS cmd="set" data="global_codec_prefs=OPUS,G722,PCMU,PCMA,H264,VP8"/>
   <X-PRE-PROCESS cmd="set" data="outbound_codec_prefs=OPUS,G722,PCMU,PCMA,H264,VP8"/>
 
+  <!-- Default TTS engine/voice used by `say:<text>` playback (IVR prompts).
+       mod_flite is built in; without these the say: prompts produce no audio. -->
+  <X-PRE-PROCESS cmd="set" data="tts_engine=flite"/>
+  <X-PRE-PROCESS cmd="set" data="tts_voice=slt"/>
+
   <!--
       xmpp_client_profile and xmpp_server_profile
       xmpp_client_profile can be any string.
