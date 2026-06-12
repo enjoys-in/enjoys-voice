@@ -13,7 +13,7 @@ export class IvrHandler implements RouteHandler {
     services.audit.log('call_start', ctx.callingNumber, { to: route.target, callId: ctx.callId, type: 'ivr' }, ctx.req.source_address);
 
     try {
-      await services.ivr.handleIncomingCall(ctx.req, ctx.res);
+      await services.ivr.handleIncomingCall(ctx.req, ctx.res, ctx.callId);
     } catch (ivrErr: any) {
       console.error('❌ IVR routing failed:', ivrErr.message);
       if (!ctx.res.finalResponseSent) ctx.res.send(SipStatus.ServiceUnavailable);

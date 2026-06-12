@@ -42,6 +42,24 @@ services:
     networks:
       - voipnet
     restart: unless-stopped
+
+  asterisk:
+    image: andrius/asterisk:latest
+    container_name: asterisk
+    ports:
+      - "5070:5070/udp"            # SIP UDP (5060 used by drachtio)
+      - "5070:5070/tcp"            # SIP TCP
+      - "8088:8088/tcp"            # HTTP / WebSocket (browser SIP/WebRTC)
+      - "8089:8089/tcp"            # HTTPS / secure WebSocket (wss)
+      - "10000-10200:10000-10200/udp" # RTP media
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./asterisk/config:/etc/asterisk
+      - asterisk-recordings:/var/spool/asterisk/recording
+    networks:
+      - voipnet
+    restart: unless-stopped
  
 networks:
   voipnet:
@@ -51,3 +69,4 @@ volumes:
   freeswitch-sounds:
   freeswitch-recordings:
   tele-conf: 
+  asterisk-recordings:

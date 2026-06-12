@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { Phone, Delete } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSettingsStore } from "../../stores";
+import { formatDialDisplay } from "../../lib/phone";
 
 interface KeypadScreenProps {
   onCall: (target: string, name?: string) => void;
@@ -14,14 +15,13 @@ const KEYS = [
   ["1", "2", "3"],
   ["4", "5", "6"],
   ["7", "8", "9"],
-  ["*", "0", "#"],
+  ["+", "0", "#"],
 ];
 
 const SUB_LABELS: Record<string, string> = {
   "2": "ABC", "3": "DEF",
   "4": "GHI", "5": "JKL", "6": "MNO",
   "7": "PQRS", "8": "TUV", "9": "WXYZ",
-  "0": "+",
 };
 
 // DTMF dual-tone frequencies
@@ -32,7 +32,8 @@ const DTMF_FREQS: Record<string, [number, number]> = {
   "*": [941, 1209], "0": [941, 1336], "#": [941, 1477],
 };
 
-const VALID_KEYS = new Set(Object.keys(DTMF_FREQS));
+// Keys that can be entered via the physical keyboard (DTMF keys + the "+" prefix).
+const VALID_KEYS = new Set([...Object.keys(DTMF_FREQS), "+"]);
 
 function playDtmfTone(key: string) {
   const freqs = DTMF_FREQS[key];
@@ -69,6 +70,11 @@ export function KeypadScreen({ onCall, active = true }: KeypadScreenProps) {
   const { settings } = useSettingsStore();
 
   const handleKey = useCallback((key: string) => {
+    // "+" only makes sense as the leading country-code prefix.
+    if (key === "+") {
+      setNumber((prev) => (prev.length === 0 ? "+" : prev));
+      return;
+    }
     if (settings.dtmfEnabled) playDtmfTone(key);
     setNumber((prev) => prev + key);
   }, [settings.dtmfEnabled]);
@@ -112,7 +118,7 @@ export function KeypadScreen({ onCall, active = true }: KeypadScreenProps) {
       {/* Number display */}
       <div className="w-full mb-8 text-center min-h-[3rem]">
         <p className="text-3xl font-light tracking-wider truncate">
-          {number || <span className="text-muted-foreground/40">Enter number</span>}
+          {number ? formatDialDisplay(number) : <span className="text-muted-foreground/40">Enter number</span>}
         </p>
       </div>
 

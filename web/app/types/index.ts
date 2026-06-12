@@ -42,6 +42,7 @@ export interface ForwardingRules {
 }
 
 export interface UserSettings {
+  displayName?: string;
   callerTune: string;
   ringtone: string;
   soundsEnabled: boolean;

@@ -14,6 +14,17 @@
 - [ ] Server side: accept registrations for `@enjoys.in` domain
 - [ ] From/To headers use `sip:1001@enjoys.in` format
 
+## Caller Name Display (show name, not number)
+> We ALREADY save `name` at signup: `{ extension, username(=phone), password, name, mobile, registered }`.
+> Inbound already shows names (`fromName` via WS, `remoteIdentity.displayName` via SIP).
+> Gap is outbound + SIP-level display name. Tasks:
+- [ ] Outbound: resolve callee name before dialing via **WebSocket** (add a `lookup`/`get_user` WS message → server replies with `{ extension, name, mobile }`; do NOT use REST `/api/lookup`) and pass it as `makeCall(target, targetName)` so `peerName` shows the name
+- [ ] Set SIP `From` display name on outbound INVITE (UserAgent `displayName` / Inviter `fromDisplayName`) so the callee sees OUR name, not extension
+- [ ] Set `displayName` to the user's saved `name` (currently set to `extension` in `useSipPhone.register`)
+- [ ] Server: stamp `fromName` from `db.getUser(ext)?.name` on all call signaling events (partially done for `incoming_call`)
+- [ ] Fallback chain for display: saved contact name → user `name` → mobile/extension number
+- [ ] (Optional) Local contacts/address book so users can name unknown numbers
+
 ## User Signup via Mobile
 - [ ] Add `POST /api/signup` — accepts `{ countryCode, mobile, name }`
 - [ ] Generate extension automatically (e.g., mobile number or sequential)

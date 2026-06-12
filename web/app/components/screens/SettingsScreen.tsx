@@ -151,13 +151,29 @@ export function SettingsScreen() {
                 <CardContent className="p-4">
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-lg font-bold">
-                      {user?.name?.slice(0, 2).toUpperCase() || user?.extension}
+                      {(settings.displayName || user?.name)?.slice(0, 2).toUpperCase() || user?.extension}
                     </div>
                     <div className="flex-1">
-                      <p className="font-medium">{user?.name || user?.extension}</p>
+                      <p className="font-medium">{settings.displayName || user?.name || user?.extension}</p>
                       <p className="text-sm text-muted-foreground">ext. {user?.extension}</p>
                       {user?.mobile && <p className="text-xs text-muted-foreground">{user.mobile}</p>}
                     </div>
+                  </div>
+
+                  <Separator className="my-4" />
+
+                  {/* Editable display name shown to people you call */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="displayName" className="text-sm">Display name</Label>
+                    <Input
+                      id="displayName"
+                      value={settings.displayName || ""}
+                      placeholder={user?.name || user?.extension || "Your name"}
+                      onChange={(e) => setSettings({ displayName: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Shown as the caller name to people you call.
+                    </p>
                   </div>
                 </CardContent>
               </Card>

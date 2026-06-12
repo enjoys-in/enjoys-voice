@@ -3,8 +3,10 @@
 import { useCallback, useRef, useState } from "react";
 import { UserAgent, Registerer, Inviter, SessionState, Session } from "sip.js";
 import { useCallStore } from "../stores";
+import { useContactStore } from "../stores";
 import { getCachedSoundUrl } from "../lib/sound-cache";
 import { getIceServers } from "../lib/ice-config";
+import { toSipNumber } from "../lib/phone";
 
 export function useSipPhone() {
   const [registered, setRegistered] = useState(false);
@@ -18,6 +20,7 @@ export function useSipPhone() {
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const toneAudioRef = useRef<HTMLAudioElement | null>(null);
   const toneIdRef = useRef(0); // monotonic ID to cancel stale playTone calls
+  const currentNameRef = useRef<string>(""); // current SIP From display name
 
   // ─── Tone Playback ───────────────────────────────────
 
@@ -90,18 +93,32 @@ export function useSipPhone() {
   }, [getAudioElement]);
 
   // Register to SIP server
-  const register = useCallback(async (extension: string, password: string, wsUrl: string, domain: string) => {
-    if (uaRef.current) return;
+  const register = useCallback(async (extension: string, password: string, wsUrl: string, domain: string, displayName?: string) => {
+    // The name shown in the SIP From header (e.g. "Alice" <sip:1001@...>).
+    const fromName = displayName?.trim() || extension;
+
+    // Already registered with the same identity → nothing to do.
+    if (uaRef.current && currentNameRef.current === fromName) return;
+
+    // Registered under a different name → tear down and re-register.
+    if (uaRef.current) {
+      try { await registererRef.current?.unregister(); } catch {}
+      try { await uaRef.current.stop(); } catch {}
+      uaRef.current = null;
+      registererRef.current = null;
+    }
 
     const uri = UserAgent.makeURI(`sip:${extension}@${domain}`);
     if (!uri) return;
+
+    currentNameRef.current = fromName;
 
     const ua = new UserAgent({
       uri,
       transportOptions: { server: wsUrl },
       authorizationUsername: extension,
       authorizationPassword: password,
-      displayName: extension,
+      displayName: fromName,
       logLevel: "error",
       sessionDescriptionHandlerFactoryOptions: {
         peerConnectionConfiguration: {
@@ -112,7 +129,9 @@ export function useSipPhone() {
         onInvite: (invitation: any) => {
           sessionRef.current = invitation;
           const fromUri = invitation.remoteIdentity?.uri?.user || "unknown";
-          const fromName = invitation.remoteIdentity?.displayName || fromUri;
+          // Prefer a saved contact name, then SIP display name, then the number.
+          const contact = useContactStore.getState().findContact(fromUri);
+          const fromName = contact?.name || invitation.remoteIdentity?.displayName || fromUri;
           const callId = invitation.request?.callId || crypto.randomUUID();
 
           startCall({
@@ -169,6 +188,7 @@ export function useSipPhone() {
       try { await uaRef.current.stop(); } catch {}
       uaRef.current = null;
     }
+    currentNameRef.current = "";
     setSipConnected(false);
     setRegistered(false);
   }, []);
@@ -177,9 +197,14 @@ export function useSipPhone() {
     const ua = uaRef.current;
     if (!ua) return;
 
-    const targetUri = UserAgent.makeURI(`sip:${target}@${ua.configuration.uri.host}`);
+    // Display value may be formatted (e.g. "98765 43210"); normalize for SIP.
+    const dialTarget = toSipNumber(target);
+    const targetUri = UserAgent.makeURI(`sip:${dialTarget}@${ua.configuration.uri.host}`);
     if (!targetUri) return;
 
+    // Resolve a display name: explicit name → saved contact → phone number.
+    const contact = useContactStore.getState().findContact(target);
+    const displayName = targetName || contact?.name || target;
     const inviter = new Inviter(ua, targetUri, {
       sessionDescriptionHandlerOptions: {
         constraints: { audio: true, video: false },
@@ -194,8 +219,8 @@ export function useSipPhone() {
 
     startCall({
       callId,
-      peerExtension: target,
-      peerName: targetName || target,
+      peerExtension: dialTarget,
+      peerName: displayName,
       direction: "outbound",
       status: "dialing",
       startTime: Date.now(),

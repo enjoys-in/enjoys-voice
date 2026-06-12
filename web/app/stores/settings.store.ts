@@ -1,7 +1,13 @@
 import { create } from "zustand";
 import type { UserSettings } from "../types";
 
+// Display name is kept in localStorage so it persists across reloads.
+const DISPLAY_NAME_KEY = "voip.displayName";
+const initialDisplayName =
+  typeof window !== "undefined" ? window.localStorage.getItem(DISPLAY_NAME_KEY) || "" : "";
+
 const DEFAULT_SETTINGS: UserSettings = {
+  displayName: initialDisplayName,
   callerTune: "caller_tune.wav",
   ringtone: "ringtone.wav",
   soundsEnabled: true,
@@ -31,7 +37,13 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   settings: DEFAULT_SETTINGS,
   loading: false,
   setSettings: (updates) =>
-    set((state) => ({ settings: { ...state.settings, ...updates } })),
+    set((state) => {
+      // Persist display name so it survives reloads.
+      if (typeof window !== "undefined" && updates.displayName !== undefined) {
+        window.localStorage.setItem(DISPLAY_NAME_KEY, updates.displayName);
+      }
+      return { settings: { ...state.settings, ...updates } };
+    }),
   setLoading: (loading) => set({ loading }),
   addBlockedNumber: (number) =>
     set((state) => ({

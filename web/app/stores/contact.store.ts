@@ -10,6 +10,7 @@ interface ContactStore {
   updateContact: (extension: string, data: Partial<Contact>) => void;
   removeContact: (extension: string) => void;
   filteredContacts: () => Contact[];
+  findContact: (numberOrExt: string) => Contact | undefined;
 }
 
 export const useContactStore = create<ContactStore>((set, get) => ({
@@ -36,5 +37,18 @@ export const useContactStore = create<ContactStore>((set, get) => ({
       : contacts;
     // Online users first
     return filtered.sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0));
+  },
+  findContact: (numberOrExt) => {
+    if (!numberOrExt) return undefined;
+    const digits = numberOrExt.replace(/\D/g, "");
+    return get().contacts.find((c) => {
+      const ext = c.extension.replace(/\D/g, "");
+      const user = c.username.replace(/\D/g, "");
+      return (
+        c.extension === numberOrExt ||
+        c.username === numberOrExt ||
+        (!!digits && (ext === digits || user === digits || ext.endsWith(digits) || digits.endsWith(ext)))
+      );
+    });
   },
 }));

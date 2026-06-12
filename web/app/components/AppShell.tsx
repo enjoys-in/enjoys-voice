@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Phone } from "lucide-react";
 import { useAuthStore, useCallStore } from "../stores";
+import { useSettingsStore } from "../stores";
 import { BottomNav, type TabId } from "./layout/BottomNav";
 import { Sidebar } from "./layout/Sidebar";
 import { AppHeader } from "./layout/AppHeader";
@@ -13,6 +14,7 @@ import { KeypadScreen } from "./screens/KeypadScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { ActiveCallScreen } from "./screens/ActiveCallScreen";
 import { IncomingCallSheet } from "./call/IncomingCallSheet";
+import { SplashScreen } from "./SplashScreen";
 import { useSipPhone } from "../hooks/useSipPhone";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useSettingsSync } from "../hooks/useSettingsSync";
@@ -22,10 +24,14 @@ export function AppShell() {
   const [hydrated, setHydrated] = useState(false);
   const { isAuthenticated, user, sipConfig } = useAuthStore();
   const { activeCall } = useCallStore();
+  const { settings } = useSettingsStore();
 
   const { register, makeCall, hangUp, answer } = useSipPhone();
   const { connect, disconnect } = useWebSocket();
   const settingsSync = useSettingsSync();
+
+  // The display name shown to the other party (From header).
+  const displayName = settings.displayName?.trim() || user?.name || user?.extension;
 
   // Wait for zustand persist hydration
   useEffect(() => {
@@ -37,7 +43,7 @@ export function AppShell() {
     if (isAuthenticated && user && sipConfig) {
       console.log(`🔌 Auto-connecting: SIP + WS for ${user.extension}`);
       connect(user.extension);
-      register(user.extension, user.extension, sipConfig.sipWsUrl, sipConfig.domain);
+      register(user.extension, user.extension, sipConfig.sipWsUrl, sipConfig.domain, displayName);
     }
     return () => {
       disconnect();
@@ -45,8 +51,17 @@ export function AppShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, user?.extension]);
 
-  // Don't render until hydration completes (avoids SSR mismatch flash)
-  if (!hydrated) return null;
+  // Re-register when the user changes their display name in settings
+  useEffect(() => {
+    if (isAuthenticated && user && sipConfig) {
+      register(user.extension, user.extension, sipConfig.sipWsUrl, sipConfig.domain, displayName);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayName]);
+
+  // Show a branded splash while hydrating (avoids login-screen flicker for
+  // users who are already logged in).
+  if (!hydrated) return <SplashScreen />;
 
   if (!isAuthenticated) {
     return <LoginScreen />;

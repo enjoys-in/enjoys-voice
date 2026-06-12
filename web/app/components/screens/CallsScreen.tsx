@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
-import { Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, RefreshCw, Trash2 } from "lucide-react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, RefreshCw, Trash2, ChevronRight } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "../ui/EmptyState";
 import { useCallHistory } from "../../hooks/useCallHistory";
+import { useAuthStore } from "../../stores";
+import { formatPhone } from "../../lib/phone";
 import type { CallRecordResponse } from "../../lib/api";
 
 interface CallsScreenProps {
@@ -15,7 +17,10 @@ interface CallsScreenProps {
 
 export function CallsScreen({ onCall }: CallsScreenProps) {
   const { calls, loading, refresh, clearHistory } = useCallHistory();
+  const { user } = useAuthStore();
+  const myExt = user?.extension;
   const [pulling, setPulling] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
   const startY = useRef(0);
 
@@ -37,7 +42,7 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
     const d = new Date(iso);
     const now = new Date();
     if (d.toDateString() === now.toDateString()) {
-      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true });
     }
     return d.toLocaleDateString([], { month: "short", day: "numeric" });
   };
@@ -49,11 +54,75 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
+  // Direction relative to the logged-in user: a call I placed is "outbound",
+  // regardless of how the server stored it globally.
+  const isOutbound = useCallback(
+    (call: CallRecordResponse) => !!myExt && call.from === myExt,
+    [myExt],
+  );
+
+  // The OTHER party (never yourself).
+  const peerOf = useCallback(
+    (call: CallRecordResponse) => (isOutbound(call) ? call.to : call.from),
+    [isOutbound],
+  );
+  const peerLabelOf = useCallback(
+    (call: CallRecordResponse) =>
+      isOutbound(call) ? call.to : call.fromName || call.from,
+    [isOutbound],
+  );
+
   const getCallIcon = (call: CallRecordResponse) => {
     if (call.status === "missed") return <PhoneMissed className="h-4 w-4 text-destructive" />;
-    if (call.direction === "outbound") return <PhoneOutgoing className="h-4 w-4 text-emerald-500" />;
+    if (isOutbound(call)) return <PhoneOutgoing className="h-4 w-4 text-emerald-500" />;
     return <PhoneIncoming className="h-4 w-4 text-blue-500" />;
   };
+
+  const dateLabel = (iso: string) => {
+    const d = new Date(iso);
+    const now = new Date();
+    const yest = new Date(now);
+    yest.setDate(now.getDate() - 1);
+    if (d.toDateString() === now.toDateString()) return "Today";
+    if (d.toDateString() === yest.toDateString()) return "Yesterday";
+    return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+  };
+
+  // Build: [ { label: "Today", rows: [ { key, peer, peerLabel, calls[] } ] } ]
+  // Consecutive calls (same date + same peer) are merged into one row with a count.
+  const groups = useMemo(() => {
+    const out: {
+      label: string;
+      rows: { key: string; peer: string; peerLabel: string; calls: CallRecordResponse[] }[];
+    }[] = [];
+    let curLabel = "";
+    for (const call of calls) {
+      const label = dateLabel(call.startTime);
+      if (label !== curLabel) {
+        out.push({ label, rows: [] });
+        curLabel = label;
+      }
+      const section = out[out.length - 1];
+      const peer = peerOf(call);
+      const last = section.rows[section.rows.length - 1];
+      if (last && last.peer === peer) {
+        last.calls.push(call);
+      } else {
+        section.rows.push({ key: `${label}:${peer}:${call.id}`, peer, peerLabel: peerLabelOf(call), calls: [call] });
+      }
+    }
+    return out;
+  }, [calls, peerOf, peerLabelOf]);
+
+  const toggleExpand = (key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
 
   return (
     <div className="flex flex-col h-full">
@@ -105,39 +174,81 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
               description="Your call history will appear here"
             />
           ) : (
-            calls.map((call) => (
-              <div
-                key={call.id}
-                className="flex items-center gap-3 p-3 rounded-xl hover:bg-accent/50 transition-colors group"
-              >
-                <Avatar className="h-10 w-10">
-                  <AvatarFallback className="text-xs bg-muted">
-                    {(call.fromName || call.from).slice(0, 2).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    {getCallIcon(call)}
-                    <span className={`text-sm font-medium truncate ${call.status === "missed" ? "text-destructive" : ""}`}>
-                      {call.fromName || call.from}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {call.direction === "outbound" ? call.to : call.from}
-                    {call.duration ? ` · ${formatDuration(call.duration)}` : ""}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">{formatTime(call.startTime)}</span>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => onCall(call.direction === "outbound" ? call.to : call.from, call.fromName || call.from)}
-                  >
-                    <Phone className="h-4 w-4 text-emerald-500" />
-                  </Button>
-                </div>
+            groups.map((section) => (
+              <div key={section.label} className="mb-3">
+                <h2 className="px-1 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {section.label}
+                </h2>
+                {section.rows.map((row) => {
+                  const latest = row.calls[0];
+                  const count = row.calls.length;
+                  const isOpen = expanded.has(row.key);
+                  return (
+                    <div key={row.key}>
+                      <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-accent/50 transition-colors group">
+                        <Avatar className="h-10 w-10">
+                          <AvatarFallback className="text-xs bg-muted">
+                            {row.peerLabel.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <button
+                          type="button"
+                          className="flex-1 min-w-0 text-left"
+                          onClick={() => count > 1 && toggleExpand(row.key)}
+                        >
+                          <div className="flex items-center gap-2">
+                            {getCallIcon(latest)}
+                            <span className={`text-sm font-medium truncate ${latest.status === "missed" ? "text-destructive" : ""}`}>
+                              {formatPhone(row.peerLabel)}
+                            </span>
+                            {count > 1 && (
+                              <span className="text-xs text-muted-foreground">({count})</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {formatPhone(row.peer)}
+                            {latest.duration ? ` · ${formatDuration(latest.duration)}` : ""}
+                          </p>
+                        </button>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">{formatTime(latest.startTime)}</span>
+                          {count > 1 && (
+                            <ChevronRight
+                              className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? "rotate-90" : ""}`}
+                              onClick={() => toggleExpand(row.key)}
+                            />
+                          )}
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => onCall(row.peer, row.peerLabel)}
+                          >
+                            <Phone className="h-4 w-4 text-emerald-500" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Expanded per-call history for this number */}
+                      {isOpen && count > 1 && (
+                        <div className="ml-12 pl-2 border-l border-border/60 space-y-1 mb-1">
+                          {row.calls.map((c) => (
+                            <div key={c.id} className="flex items-center gap-2 py-1.5 text-xs">
+                              {getCallIcon(c)}
+                              <span className={`capitalize ${c.status === "missed" ? "text-destructive" : "text-muted-foreground"}`}>
+                                {c.status}
+                              </span>
+                              <span className="text-muted-foreground/70">
+                                {c.duration ? formatDuration(c.duration) : ""}
+                              </span>
+                              <span className="ml-auto text-muted-foreground">{formatTime(c.startTime)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ))
           )}

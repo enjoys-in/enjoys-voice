@@ -17,6 +17,7 @@ export class IVRSystem {
   private departments: Department[];
   private activeCalls = new Map<string, IVRCallState>();
   private recordings: { path: string; callId: string; time: string }[] = [];
+  private reconnecting = false;
 
   constructor(
     private srf: InstanceType<typeof Srf>,
@@ -40,6 +41,7 @@ export class IVRSystem {
           advertisedAddress: config.freeswitch.listenAddress,
           profile: 'drachtio_mrf',
         });
+        this.attachConnectionListeners(this.ms);
         console.log('✅ IVR: Connected to FreeSWITCH');
         return true;
       } catch (err: any) {
@@ -48,6 +50,41 @@ export class IVRSystem {
       }
     }
     return false;
+  }
+
+  /**
+   * Drop the media-server reference ONLY when the underlying ESL connection to
+   * FreeSWITCH actually dies, then auto-reconnect. A single failed call must
+   * never tear down the shared connection (that previously caused every later
+   * call to 503 / fall through to 480).
+   */
+  private attachConnectionListeners(ms: any): void {
+    const onDown = (why: string) => {
+      if (this.ms !== ms) return; // stale listener for a replaced connection
+      console.warn(`⚠️ IVR: FreeSWITCH connection lost (${why}); will reconnect`);
+      this.ms = null;
+      this.scheduleReconnect();
+    };
+    ms.on('end', () => onDown('end'));
+    ms.on('error', (e: any) => onDown(e?.message || 'error'));
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnecting) return;
+    this.reconnecting = true;
+    const attempt = async () => {
+      const ok = await this.initialize();
+      this.reconnecting = false;
+      if (ok) console.log('✅ IVR: Reconnected to FreeSWITCH');
+      else setTimeout(() => { this.reconnecting = true; attempt(); }, 5000);
+    };
+    setTimeout(attempt, 2000);
+  }
+
+  /** Ensure a live media-server connection, reconnecting on demand. */
+  private async ensureConnected(): Promise<boolean> {
+    if (this.ms) return true;
+    return this.initialize();
   }
 
   isConnected(): boolean {
@@ -66,8 +103,8 @@ export class IVRSystem {
     return this.recordings;
   }
 
-  async handleIncomingCall(req: any, res: any): Promise<void> {
-    const callId = crypto.randomUUID();
+  async handleIncomingCall(req: any, res: any, existingCallId?: string): Promise<void> {
+    const callId = existingCallId || crypto.randomUUID();
     const callerNumber = req.callingNumber || 'unknown';
     const calledNumber = req.calledNumber || 'unknown';
 
@@ -78,13 +115,17 @@ export class IVRSystem {
     };
     this.activeCalls.set(callId, state);
 
-    this.db.logCall({
-      id: callId, from: callerNumber, to: calledNumber,
-      fromName: callerNumber, status: 'ringing',
-      direction: 'inbound', startTime: state.startTime,
-    });
+    // Only create a new log entry if the caller (SIP server) didn't already
+    // log this call. Reusing the id avoids duplicate recents (ringing+failed).
+    if (!existingCallId) {
+      this.db.logCall({
+        id: callId, from: callerNumber, to: calledNumber,
+        fromName: callerNumber, status: 'ringing',
+        direction: 'inbound', startTime: state.startTime,
+      });
+    }
 
-    if (!this.ms) {
+    if (!(await this.ensureConnected())) {
       res.send(503);
       this.db.updateCall(callId, { status: 'failed' });
       return;
@@ -118,12 +159,13 @@ export class IVRSystem {
       console.error('❌ IVR error:', err.message);
       this.activeCalls.delete(callId);
       this.db.updateCall(callId, { status: 'failed' });
-      // Send error response if call wasn't answered yet
+      // Fail only THIS call. Do NOT tear down the shared media-server
+      // connection — that is handled by the lifecycle listeners, which also
+      // trigger an auto-reconnect. Nulling here previously disabled the IVR
+      // for every subsequent call (503 → fall-through to 480).
       if (!res.finalResponseSent) {
         res.send(503, 'Service Unavailable');
       }
-      // Mark IVR as disconnected so future calls skip IVR
-      this.ms = null;
     }
   }
 
