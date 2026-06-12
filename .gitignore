@@ -30,6 +30,10 @@ Thumbs.db
 docker/freeswitch_sounds/
 docker/pulse/
 
+# Runtime recordings / voicemail (generated at runtime)
+docker/recordings/
+docker/recordings-asterisk/
+
 # Next.js (web/)
 web/.next/
 web/node_modules/

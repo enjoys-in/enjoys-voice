@@ -29,7 +29,7 @@ export function AppShell() {
   const { settings } = useSettingsStore();
   const { setVoicemails, unreadCount } = useVoicemailStore();
 
-  const { register, makeCall, hangUp, answer } = useSipPhone();
+  const { register, makeCall, hangUp, answer, sendDtmf } = useSipPhone();
   const { connect, disconnect, onMessage } = useWebSocket();
   const settingsSync = useSettingsSync();
 
@@ -100,6 +100,7 @@ export function AppShell() {
       <ActiveCallScreen
         onHangUp={hangUp}
         onAnswer={answer}
+        onSendDtmf={sendDtmf}
       />
     );
   }

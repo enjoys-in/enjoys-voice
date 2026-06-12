@@ -5,6 +5,10 @@ declare module 'drachtio-fsmrf' {
     address: string;
     port: number;
     secret: string;
+    listenAddress?: string;
+    listenPort?: number;
+    advertisedAddress?: string;
+    profile?: string;
   }
 
   interface Endpoint {
@@ -13,7 +17,24 @@ declare module 'drachtio-fsmrf' {
     startRecording(path: string): Promise<void>;
     stopRecording(): Promise<void>;
     record(path: string, opts?: Record<string, unknown>): Promise<void>;
-    waitForDtmf(timeout: number): Promise<{ dtmf: string }>;
+    playCollect(opts: {
+      file: string;
+      min?: number;
+      max?: number;
+      tries?: number;
+      timeout?: number;
+      terminators?: string;
+      invalidFile?: string;
+      varName?: string;
+      regexp?: string;
+      digitTimeout?: number;
+    }): Promise<{
+      digits: string;
+      invalidDigits?: string;
+      terminatorUsed?: string;
+      playbackSeconds?: string;
+      playbackMilliseconds?: string;
+    }>;
     execute(app: string, args?: string): Promise<any>;
     destroy(): void;
     on(event: string, handler: (...args: any[]) => void): void;

@@ -138,6 +138,41 @@ Key params to update for NAT traversal:
 <param name="apply-candidate-acl" value="localnet.auto"/>
 ```
 
+#### WebRTC → IVR media negotiation (REQUIRED for browser clients)
+
+Browser (WebRTC) calls into the IVR go **through** FreeSWITCH (via
+`connectCaller`), unlike direct extension-to-extension calls where the two
+browsers negotiate media with each other. This exposes the `drachtio_mrf`
+profile to the browser's WebRTC SDP, which needs three things or the call
+fails. The working config (`docker/freeswitch_configs/sip_profiles/drachtio_mrf.xml`):
+
+```xml
+<!-- Accept the browser's DTLS-SRTP offer; plain RTP softphones still work -->
+<param name="rtp-secure-media" value="optional"/>
+
+<!-- Accept the browser's ICE candidates. WebRTC clients on a LAN/host send
+     RFC1918 (192.168.x / 172.x / 10.x) candidates; the default wan.auto ACL
+     (public IPs only) filters them all out => 488 Not Acceptable Here. -->
+<param name="apply-candidate-acl" value="localnet.auto"/>
+<param name="apply-candidate-acl" value="wan_v4.auto"/>
+<param name="apply-candidate-acl" value="rfc1918.auto"/>
+<param name="apply-candidate-acl" value="any_v4.auto"/>
+```
+
+And the default TTS engine for `say:` IVR prompts (`docker/freeswitch_configs/vars.xml`):
+
+```xml
+<!-- mod_flite is built in; without these the say: prompts produce no audio -->
+<X-PRE-PROCESS cmd="set" data="tts_engine=flite"/>
+<X-PRE-PROCESS cmd="set" data="tts_voice=slt"/>
+```
+
+After editing volume-mounted config, recreate the container so it loads fresh:
+```bash
+docker compose up -d --force-recreate drachtio-freeswitch
+```
+
+
 ### 4. TLS/SSL Certificates
 
 For production, SIP WebSocket MUST use WSS (TLS). Options:
@@ -238,6 +273,10 @@ bun run start &
 | IVR Connection timeout | `listenAddress` not reachable from FS container | On Windows: set `FREESWITCH_LISTEN_ADDRESS=host.docker.internal`. On Linux: use host IP. Do NOT use Docker bridge gateway IP (172.x.x.1) on Windows |
 | IVR Connection timeout | `listenPort` is 0 or wrong | Ensure `FREESWITCH_LISTEN_PORT=8085` (must match the port your app listens on for MRF callbacks) |
 | IVR Connection timeout | Volume mount overrides FS config | Do NOT mount to `/usr/local/freeswitch/conf/` or `/etc/freeswitch`. Only mount sounds |
+| **IVR `488 Not Acceptable Here`** (WebRTC client) | FreeSWITCH `drachtio_mrf` profile rejected the browser's ICE candidates — default `wan.auto` ACL filters out RFC1918/LAN candidates → log shows `no suitable candidates found` → 488 | Add `apply-candidate-acl` (localnet.auto, wan_v4.auto, rfc1918.auto, any_v4.auto) to the `drachtio_mrf` profile, then recreate the container |
+| **IVR `488 Not Acceptable Here`** (WebRTC client) | Profile had no secure-media support, so the browser's DTLS-SRTP offer was refused | Add `<param name="rtp-secure-media" value="optional"/>` to the `drachtio_mrf` profile |
+| **IVR prompt silent / `say:` no audio** | No default TTS engine configured; `say:<text>` had nothing to synthesize with | Set `tts_engine=flite` + `tts_voice=slt` in `vars.xml` (mod_flite is built in) |
+| **IVR call answers then drops after ~3s** | `ext-rtp-ip` advertises the container's internal Docker IP (e.g. 172.21.0.3), unreachable by the browser, so media/DTLS never completes and FS tears the call down | Set `ext-rtp-ip`/`ext-sip-ip` to the host LAN/public IP (or `auto-nat`) and ensure the RTP port range is published + firewall-open |
 | WebRTC no audio | NAT traversal failure | Set correct ext-rtp-ip in FS profile, ensure STUN/TURN |
 | SIP register fails | Wrong domain/WS URL | Match DOMAIN env with client config |
 | "Lost connection to FreeSWITCH" | Container restarted/ESL unreachable | Check `docker logs drachtio-freeswitch`, verify port 8021 exposed |

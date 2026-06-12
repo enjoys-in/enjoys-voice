@@ -223,18 +223,25 @@ export class IVRSystem {
 
     try {
       const { endpoint, dialog } = await this.ms.connectCaller(req, res);
-      // Play welcome and collect DTMF
-      await endpoint.play('say:Welcome to CallNet. Press 1 for English, 2 for Hindi.');
-      const { dtmf } = await endpoint.waitForDtmf(10000);
+      // Language menu. playCollect plays the prompt AND collects a digit in one
+      // step, with barge-in (the caller can press a key before it finishes).
+      // Prompts are phrased as separate short sentences so the TTS engine
+      // inserts a natural pause between them instead of rushing one long line.
+      const { digits: lang } = await endpoint.playCollect({
+        file: 'say:Welcome to CallNet. Press 1 for English. Press 2 for Hindi.',
+        min: 1, max: 1, tries: 2, timeout: 8000, digitTimeout: 5000, terminators: '#',
+      });
 
-      if (dtmf === '2') state.language = 'hi';
+      if (lang === '2') state.language = 'hi';
 
       // Department menu
       const menuPrompt = state.language === 'hi'
-        ? 'say:hi:1 बिक्री, 2 तकनीकी सहायता, 3 बिलिंग, 9 ग्राहक सेवा'
-        : 'say:Press 1 for Sales, 2 for Support, 3 for Billing, 9 for Customer Care';
-      await endpoint.play(menuPrompt);
-      const { dtmf: dept } = await endpoint.waitForDtmf(10000);
+        ? 'say:hi:1 बिक्री. 2 तकनीकी सहायता. 3 बिलिंग. 9 ग्राहक सेवा.'
+        : 'say:Press 1 for Sales. Press 2 for Support. Press 3 for Billing. Press 9 for Customer Care.';
+      const { digits: dept } = await endpoint.playCollect({
+        file: menuPrompt,
+        min: 1, max: 1, tries: 2, timeout: 8000, digitTimeout: 5000, terminators: '#',
+      });
 
       const deptMap: Record<string, string> = { '1': 'sales', '2': 'support', '3': 'billing', '9': 'care' };
       state.department = deptMap[dept] || 'care';
