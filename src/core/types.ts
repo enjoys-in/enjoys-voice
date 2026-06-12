@@ -1,3 +1,20 @@
+export enum SipStatus {
+  OK = 200,
+  Trying = 100,
+  Ringing = 180,
+  SessionProgress = 183,
+  RateLimited = 429,
+  Forbidden = 403,
+  NotFound = 404,
+  RequestTimeout = 408,
+  TemporarilyUnavailable = 480,
+  BusyHere = 486,
+  RequestTerminated = 487,
+  ServiceUnavailable = 503,
+  Decline = 603,
+  ServerError = 500,
+}
+
 export interface CallLog {
   id: string;
   from: string;
@@ -48,12 +65,13 @@ export interface Department {
   priority: number;
 }
 
+type IVRCallStateStatus = 'ivr' | 'queued' | 'connected' | 'voicemail' | 'ended';
 export interface IVRCallState {
   callId: string;
   callerNumber: string;
   calledNumber: string;
   language: 'en' | 'hi';
   department?: string;
-  status: 'ivr' | 'queued' | 'connected' | 'voicemail' | 'ended';
+  status: IVRCallStateStatus;
   startTime: string;
 }

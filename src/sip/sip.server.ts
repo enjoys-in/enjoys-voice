@@ -1,9 +1,15 @@
 import Srf from 'drachtio-srf';
 import crypto from 'crypto';
 import { config } from '@/core';
-import { DatabaseService, TrunkService, AuditService, DialPlanService, RouteType } from '@/services';
+import { SipStatus } from '@/core/types';
+import { DatabaseService, TrunkService, AuditService, DialPlanService } from '@/services';
 import type { RegistrationStore } from '@/services/registration';
 import { IVRSystem } from './ivr.system';
+import {
+  TrunkInboundHandler, EmergencyHandler, IvrHandler,
+  InternalHandler, ExternalHandler,
+  type RouteHandler, type CallContext, type RouteServices,
+} from './routes';
 
 export class SipServer {
   private srf: InstanceType<typeof Srf>;
@@ -15,6 +21,15 @@ export class SipServer {
   private sipRateMap = new Map<string, { count: number; resetAt: number }>();
   private readonly SIP_RATE_LIMIT = 30; // per minute per IP
   private readonly SIP_RATE_WINDOW = 60_000;
+
+  // ─── Route Handlers (ordered by priority) ────────────
+  private routeHandlers: RouteHandler[] = [
+    new TrunkInboundHandler(),
+    new EmergencyHandler(),
+    new IvrHandler(),
+    new InternalHandler(),
+    new ExternalHandler(),
+  ];
 
   constructor(
     private db: DatabaseService,
@@ -92,7 +107,7 @@ export class SipServer {
     this.srf.register(async (req: any, res: any) => {
       try {
         if (!this.checkSipRate(req.source_address)) {
-          res.send(429);
+          res.send(SipStatus.RateLimited);
           return;
         }
 
@@ -113,7 +128,7 @@ export class SipServer {
         const user = this.db.getUser(username);
         if (!user) {
           console.log(`❌ SIP REGISTER: Unknown user "${username}" (available: ${this.db.getUsers().map(u => u.extension).join(',')})`);
-          res.send(403);
+          res.send(SipStatus.Forbidden);
           return;
         }
 
@@ -121,7 +136,7 @@ export class SipServer {
           await this.registrationStore.unregister(user.extension);
           this.db.unregisterUser(user.extension);
           this.audit.log('unregister', user.extension, { contact }, req.source_address);
-          res.send(200, { headers: { 'Contact': contact, 'Expires': '0' } });
+          res.send(SipStatus.OK, { headers: { 'Contact': contact, 'Expires': '0' } });
           console.log(`🔴 SIP: ${user.name} unregistered`);
         } else {
           const source = {
@@ -132,12 +147,12 @@ export class SipServer {
           await this.registrationStore.register(user.extension, { contact, expires, source });
           this.db.registerUser(user.extension, contact, expires, undefined, source);
           this.audit.log('register', user.extension, { contact, source }, req.source_address);
-          res.send(200, { headers: { 'Contact': contact, 'Expires': expires.toString() } });
+          res.send(SipStatus.OK, { headers: { 'Contact': contact, 'Expires': expires.toString() } });
           console.log(`✅ SIP: ${user.name} registered at ${contact} (source: ${source.protocol}/${source.address}:${source.port})`);
         }
       } catch (err: any) {
         console.error('❌ SIP REGISTER error:', err.message, err.stack);
-        res.send(500);
+        res.send(SipStatus.ServerError);
       }
     });
   }
@@ -145,7 +160,7 @@ export class SipServer {
   private handleInvite(): void {
     this.srf.invite(async (req: any, res: any) => {
       if (!this.checkSipRate(req.source_address)) {
-        res.send(429);
+        res.send(SipStatus.RateLimited);
         return;
       }
 
@@ -163,92 +178,43 @@ export class SipServer {
       });
       this.audit.log('call_start', callingNumber, { to: calledNumber, callId }, req.source_address);
 
-      // ─── Inbound from Trunk (PSTN → Browser) ─────────
-      if (this.trunk.isFromTrunk(req.source_address)) {
-        const fwdTarget = this.db.findPstnForwardTarget(calledNumber);
-        if (fwdTarget) {
-          const reg = this.db.getRegistration(fwdTarget.extension);
-          if (reg) {
-            console.log(`📲 PSTN→Browser: ${calledNumber} → ext ${fwdTarget.extension}`);
-            await this.routeToExtension(req, res, reg.contact, callId);
-            return;
-          }
-          console.log(`📲 PSTN→Browser: ${fwdTarget.extension} not registered, rejecting`);
-        }
-        // Inbound trunk call but no matching DID or user offline
-        res.send(480);
-        this.db.updateCall(callId, { status: 'missed' });
-        return;
-      }
+      const ctx: CallContext = { req, res, calledNumber, callingNumber, callId };
+      const services: RouteServices = {
+        srf: this.srf,
+        db: this.db,
+        trunk: this.trunk,
+        audit: this.audit,
+        ivr: this.ivr,
+        notifyFn: this.notifyFn,
+        routeToExtension: this.routeToExtension.bind(this),
+        forwardCall: this.forwardCall.bind(this),
+      };
 
-      // Use dial plan to resolve routing
+      // Try trunk inbound first (before dial plan)
+      if (await this.routeHandlers[0].handle(ctx, services)) return;
+
+      // Resolve via dial plan for all other cases
       const route = this.dialPlan.resolve(calledNumber);
       console.log(`🗺️ Dial plan: ${calledNumber} → ${route.type} (${route.normalizedNumber})`);
 
-      // Emergency calls always go to trunk
-      if (route.type === RouteType.Emergency) {
-        console.log(`🚨 Emergency: Routing ${route.target} to trunk`);
-        if (this.trunk.isEnabled) {
-          const ok = await this.trunk.routeCall(this.srf, req, res, route.target);
-          this.db.updateCall(callId, { status: ok ? 'answered' : 'failed' });
-        } else {
-          res.send(503);
-          this.db.updateCall(callId, { status: 'failed' });
-        }
-        return;
+      // Try each handler in priority order (skip trunk inbound already tried)
+      for (let i = 1; i < this.routeHandlers.length; i++) {
+        if (await this.routeHandlers[i].handle(ctx, services, route)) return;
       }
 
-      // IVR routing
-      if (route.type === RouteType.IVR && this.ivr?.isConnected() && config.ivr.enabled) {
-        console.log(`🎙️ IVR: Routing call`);
-        try {
-          await this.ivr.handleIncomingCall(req, res);
-        } catch (ivrErr: any) {
-          console.error('❌ IVR routing failed:', ivrErr.message);
-          if (!res.finalResponseSent) res.send(503);
-          this.db.updateCall(callId, { status: 'failed' });
-        }
-        return;
-      }
-
-      // Internal extension
-      if (route.type === RouteType.Internal) {
-        const reg = this.db.getRegistration(route.target);
-        if (reg) {
-          await this.routeToExtension(req, res, reg.contact, callId);
-          return;
-        }
-        // Internal ext not registered → try PSTN fallback via mobile number
-        const targetUser = this.db.getUser(route.target);
-        if (targetUser?.mobile && this.trunk.isEnabled) {
-          console.log(`📱 PSTN fallback: ${route.target} → mobile ${targetUser.mobile}`);
-          const ok = await this.trunk.routeCall(this.srf, req, res, targetUser.mobile);
-          this.db.updateCall(callId, { status: ok ? 'answered' : 'failed' });
-          return;
-        }
-      }
-
-      // External via trunk
-      if (route.type === RouteType.External && this.trunk.isEnabled) {
-        console.log(`📞 Trunk: Routing to ${route.normalizedNumber}`);
-        const ok = await this.trunk.routeCall(this.srf, req, res, route.normalizedNumber);
-        this.db.updateCall(callId, { status: ok ? 'answered' : 'failed' });
-        return;
-      }
-
-      // No route
-      res.send(480);
+      // No route matched
+      res.send(SipStatus.TemporarilyUnavailable);
       this.db.updateCall(callId, { status: 'missed' });
     });
   }
 
   private handleOther(): void {
-    this.srf.options((_req: any, res: any) => res.send(200));
-    this.srf.info((_req: any, res: any) => res.send(200));
+    this.srf.options((_req: any, res: any) => res.send(SipStatus.OK));
+    this.srf.info((_req: any, res: any) => res.send(SipStatus.OK));
     this.srf.on('cancel', () => console.log('❌ SIP: Call cancelled'));
     this.srf.message((req: any, res: any) => {
       console.log('📨 SIP MESSAGE:', req.body);
-      res.send(200);
+      res.send(SipStatus.OK);
     });
   }
 
@@ -264,7 +230,7 @@ export class SipServer {
       console.log(`🚫 Blocked: ${callingNumber} → ${calledExt}`);
       this.notifyFn?.(callingNumber, 'declined', { reason: 'blocked', callId });
       this.db.updateCall(callId, { status: 'missed' });
-      res.send(603, 'Decline');
+      res.send(SipStatus.Decline, 'Decline');
       return;
     }
 
@@ -314,7 +280,7 @@ export class SipServer {
       const status = err.status || 0;
       const forwarding = this.db.getForwarding(calledExt);
 
-      if (status === 486 || status === 603) {
+      if (status === SipStatus.BusyHere || status === SipStatus.Decline) {
         // Declined / Busy
         console.log(`📵 Call declined/busy: ${status}`);
         this.audit.log('call_declined', callingNumber, { to: calledExt, callId, status });
@@ -324,9 +290,9 @@ export class SipServer {
         } else {
           this.notifyFn?.(callingNumber, 'declined', { reason: 'busy', callId });
           this.db.updateCall(callId, { status: 'missed' });
-          if (!res.finalResponseSent) res.send(486, 'Busy Here');
+          if (!res.finalResponseSent) res.send(SipStatus.BusyHere, 'Busy Here');
         }
-      } else if (status === 408 || err.message?.includes('timeout')) {
+      } else if (status === SipStatus.RequestTimeout || err.message?.includes('timeout')) {
         // No answer (timeout)
         console.log(`📵 No answer (timeout): ${calledExt}`);
         if (forwarding.noAnswer) {
@@ -335,13 +301,13 @@ export class SipServer {
         } else {
           this.notifyFn?.(callingNumber, 'no_answer', { callId });
           this.db.updateCall(callId, { status: 'missed' });
-          if (!res.finalResponseSent) res.send(480, 'No Answer');
+          if (!res.finalResponseSent) res.send(SipStatus.TemporarilyUnavailable, 'No Answer');
         }
-      } else if (status === 487) {
+      } else if (status === SipStatus.RequestTerminated) {
         // Caller cancelled
         console.log(`📵 Call cancelled by caller`);
         this.db.updateCall(callId, { status: 'missed' });
-      } else if (status === 480) {
+      } else if (status === SipStatus.TemporarilyUnavailable) {
         // Unavailable
         console.log(`📵 Callee unavailable`);
         if (forwarding.unavailable) {
@@ -350,7 +316,7 @@ export class SipServer {
         } else {
           this.notifyFn?.(callingNumber, 'unavailable', { callId });
           this.db.updateCall(callId, { status: 'missed' });
-          if (!res.finalResponseSent) res.send(480);
+          if (!res.finalResponseSent) res.send(SipStatus.TemporarilyUnavailable);
         }
       } else {
         console.error('❌ Call routing failed:', err.message || err);
@@ -359,7 +325,7 @@ export class SipServer {
         this.audit.log('call_failed', callingNumber, { to: calledExt, callId, error: err.message });
         this.notifyFn?.(callingNumber, 'failed', { reason: 'error', callId });
         this.db.updateCall(callId, { status: 'failed' });
-        if (!res.finalResponseSent) res.send(503);
+        if (!res.finalResponseSent) res.send(SipStatus.ServiceUnavailable);
       }
     }
   }
@@ -378,7 +344,7 @@ export class SipServer {
       console.log(`❌ Forward target ${target} not registered`);
       this.notifyFn?.(callingNumber, 'unavailable', { callId });
       this.db.updateCall(callId, { status: 'missed' });
-      if (!res.finalResponseSent) res.send(480);
+      if (!res.finalResponseSent) res.send(SipStatus.TemporarilyUnavailable);
       return;
     }
 
@@ -410,7 +376,7 @@ export class SipServer {
       console.error(`❌ Forward to ${target} failed:`, fwdErr.message);
       this.notifyFn?.(callingNumber, 'failed', { reason: 'forward_failed', callId });
       this.db.updateCall(callId, { status: 'failed' });
-      if (!res.finalResponseSent) res.send(503);
+      if (!res.finalResponseSent) res.send(SipStatus.ServiceUnavailable);
     }
   }
 }
