@@ -10,3 +10,4 @@ export {
   loadPstnByExtension,
 } from './detail.repo';
 export type { BlockedRow, ForwardingRow, PstnRow } from './detail.repo';
+export { UserSyncListener } from './notify';

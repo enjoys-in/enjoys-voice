@@ -1,6 +1,7 @@
 import { CallLog, SipUser, SipRegistration, Voicemail, config } from '@/core';
 import {
   loadAllUsers,
+  loadUserByExtension,
   loadAllBlocked,
   loadAllForwarding,
   loadAllPstn,
@@ -149,6 +150,42 @@ export class DatabaseService {
     if (user.mobile) {
       this.phoneIndex.set(user.mobile.replace(/\D/g, ''), user.extension);
     }
+  }
+
+  /**
+   * Reconcile a single user with Postgres after a change notification. Loads the
+   * row by extension: if it exists the identity + routing detail are refreshed;
+   * if it's gone (deleted) the user is removed from memory. This one method
+   * therefore handles INSERT, UPDATE and DELETE uniformly — the caller only has
+   * to know which extension changed.
+   */
+  async syncUser(extension: string): Promise<void> {
+    const row = await loadUserByExtension(extension);
+    if (!row) {
+      this.removeUser(extension);
+      return;
+    }
+    this.upsertUser({
+      extension: row.extension,
+      username: row.username,
+      name: row.name,
+      mobile: row.mobile,
+    });
+    await this.hydrateUserDetail(row.extension);
+  }
+
+  /**
+   * Remove a user from the in-memory store and drop any live SIP registration.
+   * Clears every index that points at them (extension, username, phone number).
+   */
+  removeUser(extension: string): void {
+    const user = this.users.get(extension);
+    if (!user) return;
+    this.users.delete(user.extension);
+    this.users.delete(user.username);
+    this.usedExtensions.delete(user.extension);
+    if (user.mobile) this.phoneIndex.delete(user.mobile.replace(/\D/g, ''));
+    this.registrations.delete(user.extension);
   }
 
   // ─── Signup / Extension Generation ───────────────────

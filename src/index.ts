@@ -1,5 +1,5 @@
 import { config } from '@/core';
-import { DatabaseService, TrunkService, AuditService, createRegistrationStore } from '@/services';
+import { DatabaseService, TrunkService, AuditService, createRegistrationStore, UserSyncListener } from '@/services';
 import { SipServer } from '@/sip';
 import { SignalingServer } from '@/websocket';
 import { HttpServer } from '@/http';
@@ -11,6 +11,7 @@ class Application {
   private sip: SipServer;
   private ws: SignalingServer;
   private http: HttpServer;
+  private userSync: UserSyncListener;
 
   constructor() {
     this.db = new DatabaseService();
@@ -20,6 +21,16 @@ class Application {
     this.sip = new SipServer(this.db, this.trunk, registrationStore, this.audit);
     this.ws = new SignalingServer(this.db);
     this.http = new HttpServer(this.db, this.trunk, this.sip, this.audit);
+    // Keep the in-memory user store in sync with Postgres in near real time:
+    // any account created/edited/deleted via the Go API is reconciled here
+    // without a restart. onReconnect re-hydrates to catch changes missed while
+    // the listener was disconnected.
+    this.userSync = new UserSyncListener({
+      onUserChanged: (ext) => this.db.syncUser(ext),
+      onReconnect: async () => {
+        await this.db.hydrateFromPostgres();
+      },
+    });
   }
 
   async start(): Promise<void> {
@@ -39,6 +50,12 @@ class Application {
     } catch (err: any) {
       console.warn(`   Users:  ⚠️  Postgres hydration failed, using in-memory seed (${err?.message})`);
     }
+
+    // Start syncing user changes from Postgres (LISTEN/NOTIFY). Self-healing and
+    // best-effort — a failure here must not stop the SIP/WS/HTTP servers.
+    this.userSync.start().catch((err: any) =>
+      console.warn(`   Sync:   ⚠️  user-sync listener failed to start (${err?.message})`),
+    );
 
     // Wire SIP call events → WebSocket notifications
     this.sip.setNotifier((ext, event, data) => this.ws.notifyCallEvent(ext, event, data));
