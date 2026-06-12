@@ -44,6 +44,14 @@ export interface AppConfig {
     recordingsDir: string;
     defaultLanguage: 'en' | 'hi';
   };
+  voicemail: {
+    enabled: boolean;
+    // Path FreeSWITCH writes recordings to (inside the FS container).
+    fsDir: string;
+    // Path the backend reads recordings from (shared volume / bind mount).
+    hostDir: string;
+    maxSec: number;
+  };
   sounds: {
     basePath: string;
     ringback: string;
@@ -99,6 +107,12 @@ export const config: AppConfig = {
     maxVoicemailSec: parseInt(process.env.MAX_VOICEMAIL_SEC || '180'),
     recordingsDir: process.env.RECORDINGS_DIR || '/usr/local/freeswitch/recordings',
     defaultLanguage: (process.env.IVR_DEFAULT_LANG || 'en') as 'en' | 'hi',
+  },
+  voicemail: {
+    enabled: process.env.VOICEMAIL_ENABLED !== 'false',
+    fsDir: process.env.VOICEMAIL_FS_DIR || '/usr/local/freeswitch/recordings/voicemail',
+    hostDir: process.env.VOICEMAIL_HOST_DIR || 'docker/recordings/voicemail',
+    maxSec: parseInt(process.env.MAX_VOICEMAIL_SEC || '180'),
   },
   sounds: {
     basePath: process.env.SOUNDS_PATH || '/usr/share/freeswitch/sounds',

@@ -1,6 +1,8 @@
 import Srf from 'drachtio-srf';
 import Mrf from 'drachtio-fsmrf';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { config, IVRCallState, Department } from '@/core';
 import { DatabaseService } from '@/services';
 
@@ -18,6 +20,8 @@ export class IVRSystem {
   private activeCalls = new Map<string, IVRCallState>();
   private recordings: { path: string; callId: string; time: string }[] = [];
   private reconnecting = false;
+  /** Optional callback to notify a user of events (e.g. new voicemail) via WS. */
+  private notifyFn?: (extension: string, event: string, data?: any) => void;
 
   constructor(
     private srf: InstanceType<typeof Srf>,
@@ -26,6 +30,11 @@ export class IVRSystem {
   ) {
     this.mrf = new Mrf(srf);
     this.departments = departments || DEFAULT_DEPARTMENTS;
+  }
+
+  /** Register a callback to push events (e.g. new voicemail) to users. */
+  setNotifier(fn: (extension: string, event: string, data?: any) => void): void {
+    this.notifyFn = fn;
   }
 
   async initialize(): Promise<boolean> {
@@ -101,6 +110,87 @@ export class IVRSystem {
 
   getRecordings() {
     return this.recordings;
+  }
+
+  /**
+   * Answer an offline-user call and capture a voicemail.
+   * Plays an "unavailable" announcement, a beep, then records until the
+   * caller presses 0 or the max duration is reached. Stores the message
+   * for the mailbox owner and notifies them over WebSocket.
+   */
+  async recordVoicemail(
+    req: any,
+    res: any,
+    mailbox: string,
+    callerNumber: string,
+    fromName: string,
+  ): Promise<boolean> {
+    if (!config.voicemail.enabled) return false;
+
+    if (!(await this.ensureConnected())) {
+      if (!res.finalResponseSent) res.send(480, 'Temporarily Unavailable');
+      return false;
+    }
+
+    const id = crypto.randomUUID();
+    const fileName = `vm_${mailbox}_${Date.now()}.wav`;
+    const fsPath = `${config.voicemail.fsDir}/${fileName}`;
+
+    // Ensure the shared recordings directory exists (same bind mount the
+    // FreeSWITCH container writes into), so the record app can create the file.
+    try {
+      fs.mkdirSync(path.resolve(config.voicemail.hostDir), { recursive: true });
+    } catch { /* best-effort */ }
+
+    let endpoint: any;
+    let dialog: any;
+    const startedAt = Date.now();
+
+    try {
+      ({ endpoint, dialog } = await this.ms.connectCaller(req, res));
+
+      const greeting = `say:The person you are trying to reach is unavailable. `
+        + `Please leave a message after the tone. Press zero when you are finished.`;
+      await endpoint.play(greeting);
+      // Short beep tone.
+      await endpoint.play('tone_stream://%(500,0,800)');
+
+      // Stop recording when the caller presses 0 (or #).
+      await endpoint.execute('set', 'playback_terminators=0#');
+      // record: <path> <max-secs> <silence-threshold> <silence-hits>
+      await endpoint.execute('record', `${fsPath} ${config.voicemail.maxSec} 200 5`);
+
+      const duration = Math.round((Date.now() - startedAt) / 1000);
+
+      this.db.addVoicemail({
+        id,
+        mailbox,
+        from: callerNumber,
+        fromName: fromName || callerNumber,
+        file: fileName,
+        duration,
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+
+      this.notifyFn?.(mailbox, 'voicemail', {
+        id,
+        from: callerNumber,
+        fromName: fromName || callerNumber,
+        duration,
+        createdAt: new Date().toISOString(),
+      });
+
+      console.log(`📭 Voicemail saved for ${mailbox} from ${callerNumber} (${duration}s)`);
+      return true;
+    } catch (err: any) {
+      console.error('❌ Voicemail error:', err.message);
+      if (res && !res.finalResponseSent) res.send(480, 'Temporarily Unavailable');
+      return false;
+    } finally {
+      try { endpoint?.destroy(); } catch { /* noop */ }
+      try { await dialog?.destroy?.(); } catch { /* noop */ }
+    }
   }
 
   async handleIncomingCall(req: any, res: any, existingCallId?: string): Promise<void> {

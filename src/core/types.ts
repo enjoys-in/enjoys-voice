@@ -27,6 +27,17 @@ export interface CallLog {
   duration?: number;
 }
 
+export interface Voicemail {
+  id: string;
+  mailbox: string;     // extension the message was left for
+  from: string;        // caller number
+  fromName: string;
+  file: string;        // filename within the voicemail directory
+  duration?: number;   // seconds
+  createdAt: string;
+  read: boolean;
+}
+
 export interface SipUser {
   extension: string;
   username: string;
@@ -64,9 +75,7 @@ export interface Department {
   queueName: string;
   maxWait: number;
   priority: number;
-}
-
-type IVRCallStateStatus = 'ivr' | 'queued' | 'connected' | 'voicemail' | 'ended';
+}type IVRCallStateStatus = 'ivr' | 'queued' | 'connected' | 'voicemail' | 'ended';
 export interface IVRCallState {
   callId: string;
   callerNumber: string;

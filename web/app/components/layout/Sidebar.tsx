@@ -1,6 +1,6 @@
 "use client";
 
-import { Phone, Clock, Users, Hash, Settings, LogOut } from "lucide-react";
+import { Phone, Clock, Users, Hash, Settings, Voicemail, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "../../stores";
 import type { TabId } from "./BottomNav";
@@ -8,16 +8,18 @@ import type { TabId } from "./BottomNav";
 interface SidebarProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
+  voicemailUnread?: number;
 }
 
 const tabs: { id: TabId; label: string; icon: typeof Phone }[] = [
   { id: "calls", label: "Recents", icon: Clock },
   { id: "contacts", label: "Contacts", icon: Users },
   { id: "keypad", label: "Keypad", icon: Hash },
+  { id: "voicemail", label: "Voicemail", icon: Voicemail },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
+export function Sidebar({ activeTab, onTabChange, voicemailUnread = 0 }: SidebarProps) {
   const { logout } = useAuthStore();
 
   return (
@@ -47,6 +49,11 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
           >
             <Icon className="h-4 w-4" />
             {label}
+            {id === "voicemail" && voicemailUnread > 0 && (
+              <span className="ml-auto min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-semibold leading-none">
+                {voicemailUnread > 9 ? "9+" : voicemailUnread}
+              </span>
+            )}
           </button>
         ))}
       </nav>

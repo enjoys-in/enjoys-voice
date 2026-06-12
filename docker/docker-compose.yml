@@ -38,7 +38,7 @@ services:
     volumes:
       - ./freeswitch_configs:/etc/freeswitch
       - ./freeswitch_sounds:/usr/share/freeswitch/sounds
-      - freeswitch-recordings:/usr/local/freeswitch/recordings
+      - ./recordings:/usr/local/freeswitch/recordings
     networks:
       - voipnet
     restart: unless-stopped

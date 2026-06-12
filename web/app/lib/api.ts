@@ -130,6 +130,22 @@ export interface ForwardingResponse {
   unavailable?: string | null;
 }
 
+export interface VoicemailRecord {
+  id: string;
+  mailbox: string;
+  from: string;
+  fromName: string;
+  file: string;
+  duration?: number;
+  createdAt: string;
+  read: boolean;
+}
+
+export interface VoicemailListResponse {
+  voicemails: VoicemailRecord[];
+  unread: number;
+}
+
 export interface SuccessResponse {
   success: boolean;
 }
@@ -249,4 +265,23 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ enabled, target: target || undefined }),
     }),
+
+  // Voicemail
+  getVoicemails: (ext: string) =>
+    request<VoicemailListResponse>(`/voicemails/${ext}`),
+
+  markVoicemailRead: (ext: string, id: string) =>
+    request<{ success: boolean; unread: number }>(
+      `/voicemails/${ext}/${id}/read`,
+      { method: "POST" }
+    ),
+
+  deleteVoicemail: (ext: string, id: string) =>
+    request<SuccessResponse>(`/voicemails/${ext}/${id}`, {
+      method: "DELETE",
+    }),
+
+  // Direct (non-JSON) URL for streaming a voicemail recording.
+  voicemailAudioUrl: (ext: string, id: string) =>
+    `${API_BASE}/api/voicemails/${ext}/${id}/audio`,
 } as const;

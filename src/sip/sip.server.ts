@@ -49,6 +49,7 @@ export class SipServer {
   /** Register a callback to notify users of call events via WebSocket */
   setNotifier(fn: (extension: string, event: string, data?: any) => void): void {
     this.notifyFn = fn;
+    this.ivr?.setNotifier(fn);
   }
 
   /** Check SIP rate limit per source IP. Returns true if allowed. */
@@ -97,6 +98,7 @@ export class SipServer {
 
     console.log('🔄 IVR: Connecting to FreeSWITCH...');
     this.ivr = new IVRSystem(this.srf, this.db);
+    if (this.notifyFn) this.ivr.setNotifier(this.notifyFn);
     const ok = await this.ivr.initialize();
     if (ok) console.log('🎙️ IVR: Ready');
     else console.warn('⚠️ IVR: Not available (media features disabled)');

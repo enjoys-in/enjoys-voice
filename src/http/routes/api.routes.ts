@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { DatabaseService, TrunkService, AuditService } from '@/services';
 import type { AuditEvent } from '@/services';
 import { SipServer } from '@/sip';
@@ -211,6 +213,46 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
       return;
     }
     const ok = db.setPstnForward(req.params.ext, enabled, target || undefined);
+    res.json({ success: ok });
+  });
+
+  // ─── Voicemail ───────────────────────────────────────
+  router.get('/voicemails/:ext', (req: Request, res: Response) => {
+    const list = db.getVoicemails(req.params.ext);
+    res.json({
+      voicemails: list,
+      unread: db.unreadVoicemailCount(req.params.ext),
+    });
+  });
+
+  router.get('/voicemails/:ext/:id/audio', (req: Request, res: Response) => {
+    const vm = db.getVoicemail(req.params.ext, req.params.id);
+    if (!vm) {
+      res.status(404).json({ error: 'Voicemail not found' });
+      return;
+    }
+    const filePath = path.resolve(config.voicemail.hostDir, vm.file);
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({ error: 'Recording file missing' });
+      return;
+    }
+    res.setHeader('Content-Type', 'audio/wav');
+    res.setHeader('Accept-Ranges', 'bytes');
+    fs.createReadStream(filePath).pipe(res);
+  });
+
+  router.post('/voicemails/:ext/:id/read', (req: Request, res: Response) => {
+    const ok = db.markVoicemailRead(req.params.ext, req.params.id);
+    res.json({ success: ok, unread: db.unreadVoicemailCount(req.params.ext) });
+  });
+
+  router.delete('/voicemails/:ext/:id', (req: Request, res: Response) => {
+    const vm = db.getVoicemail(req.params.ext, req.params.id);
+    const ok = db.deleteVoicemail(req.params.ext, req.params.id);
+    // Best-effort cleanup of the audio file.
+    if (ok && vm) {
+      try { fs.unlinkSync(path.resolve(config.voicemail.hostDir, vm.file)); } catch { /* noop */ }
+    }
     res.json({ success: ok });
   });
 

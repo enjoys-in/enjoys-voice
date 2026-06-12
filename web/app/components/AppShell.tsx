@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Phone } from "lucide-react";
-import { useAuthStore, useCallStore } from "../stores";
+import { useAuthStore, useCallStore, useVoicemailStore } from "../stores";
 import { useSettingsStore } from "../stores";
 import { BottomNav, type TabId } from "./layout/BottomNav";
 import { Sidebar } from "./layout/Sidebar";
@@ -12,12 +12,14 @@ import { CallsScreen } from "./screens/CallsScreen";
 import { ContactsScreen } from "./screens/ContactsScreen";
 import { KeypadScreen } from "./screens/KeypadScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
+import { VoicemailScreen } from "./screens/VoicemailScreen";
 import { ActiveCallScreen } from "./screens/ActiveCallScreen";
 import { IncomingCallSheet } from "./call/IncomingCallSheet";
 import { SplashScreen } from "./SplashScreen";
 import { useSipPhone } from "../hooks/useSipPhone";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useSettingsSync } from "../hooks/useSettingsSync";
+import { api } from "../lib/api";
 
 export function AppShell() {
   const [activeTab, setActiveTab] = useState<TabId>("calls");
@@ -25,13 +27,25 @@ export function AppShell() {
   const { isAuthenticated, user, sipConfig } = useAuthStore();
   const { activeCall } = useCallStore();
   const { settings } = useSettingsStore();
+  const { setVoicemails, unreadCount } = useVoicemailStore();
 
   const { register, makeCall, hangUp, answer } = useSipPhone();
-  const { connect, disconnect } = useWebSocket();
+  const { connect, disconnect, onMessage } = useWebSocket();
   const settingsSync = useSettingsSync();
 
   // The display name shown to the other party (From header).
   const displayName = settings.displayName?.trim() || user?.name || user?.extension;
+
+  // Load the user's voicemail messages.
+  const refreshVoicemails = useCallback(async () => {
+    if (!user?.extension) return;
+    try {
+      const res = await api.getVoicemails(user.extension);
+      setVoicemails(res.voicemails);
+    } catch {
+      /* ignore */
+    }
+  }, [user?.extension, setVoicemails]);
 
   // Wait for zustand persist hydration
   useEffect(() => {
@@ -44,12 +58,23 @@ export function AppShell() {
       console.log(`🔌 Auto-connecting: SIP + WS for ${user.extension}`);
       connect(user.extension);
       register(user.extension, user.extension, sipConfig.sipWsUrl, sipConfig.domain, displayName);
+      refreshVoicemails();
     }
     return () => {
       disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, user?.extension]);
+
+  // Refetch voicemails when a new one is left for this user.
+  useEffect(() => {
+    const off = onMessage((msg) => {
+      if (msg.type === "call_event" && msg.event === "voicemail") {
+        refreshVoicemails();
+      }
+    });
+    return off;
+  }, [onMessage, refreshVoicemails]);
 
   // Re-register when the user changes their display name in settings
   useEffect(() => {
@@ -58,6 +83,8 @@ export function AppShell() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayName]);
+
+  const vmUnread = unreadCount();
 
   // Show a branded splash while hydrating (avoids login-screen flicker for
   // users who are already logged in).
@@ -80,7 +107,7 @@ export function AppShell() {
   return (
     <div className="flex h-dvh bg-background">
       {/* Desktop sidebar */}
-      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
+      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} voicemailUnread={vmUnread} />
 
       {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0">
@@ -95,6 +122,7 @@ export function AppShell() {
           <div className={activeTab === "calls" ? "" : "hidden"}><CallsScreen onCall={makeCall} /></div>
           <div className={activeTab === "contacts" ? "" : "hidden"}><ContactsScreen onCall={makeCall} /></div>
           <div className={activeTab === "keypad" ? "h-full" : "hidden"}><KeypadScreen onCall={makeCall} active={activeTab === "keypad"} /></div>
+          <div className={activeTab === "voicemail" ? "" : "hidden"}><VoicemailScreen onCall={makeCall} /></div>
           <div className={activeTab === "settings" ? "" : "hidden"}><SettingsScreen /></div>
         </main>
 
@@ -110,7 +138,7 @@ export function AppShell() {
 
         {/* Bottom navigation (mobile only) */}
         <div className="lg:hidden">
-          <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+          <BottomNav activeTab={activeTab} onTabChange={setActiveTab} voicemailUnread={vmUnread} />
         </div>
       </div>
     </div>

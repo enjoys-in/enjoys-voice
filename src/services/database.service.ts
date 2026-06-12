@@ -1,4 +1,4 @@
-import { CallLog, SipUser, SipRegistration, config } from '@/core';
+import { CallLog, SipUser, SipRegistration, Voicemail, config } from '@/core';
 
 export class DatabaseService {
   private users = new Map<string, SipUser>();
@@ -8,6 +8,8 @@ export class DatabaseService {
   private phoneIndex = new Map<string, string>();
   /** Track used extensions for collision avoidance */
   private usedExtensions = new Set<string>();
+  /** mailbox extension → voicemail messages */
+  private voicemails = new Map<string, Voicemail[]>();
 
   constructor() {
     this.seed();
@@ -240,4 +242,42 @@ export class DatabaseService {
     }
     return undefined;
   }
+
+  // ─── Voicemail ───────────────────────────────────────
+
+  addVoicemail(vm: Voicemail): void {
+    const list = this.voicemails.get(vm.mailbox) || [];
+    list.unshift(vm);
+    if (list.length > 100) list.pop();
+    this.voicemails.set(vm.mailbox, list);
+  }
+
+  getVoicemails(mailbox: string): Voicemail[] {
+    return this.voicemails.get(mailbox) || [];
+  }
+
+  getVoicemail(mailbox: string, id: string): Voicemail | undefined {
+    return this.voicemails.get(mailbox)?.find(v => v.id === id);
+  }
+
+  markVoicemailRead(mailbox: string, id: string): boolean {
+    const vm = this.getVoicemail(mailbox, id);
+    if (!vm) return false;
+    vm.read = true;
+    return true;
+  }
+
+  deleteVoicemail(mailbox: string, id: string): boolean {
+    const list = this.voicemails.get(mailbox);
+    if (!list) return false;
+    const idx = list.findIndex(v => v.id === id);
+    if (idx === -1) return false;
+    list.splice(idx, 1);
+    return true;
+  }
+
+  unreadVoicemailCount(mailbox: string): number {
+    return (this.voicemails.get(mailbox) || []).filter(v => !v.read).length;
+  }
 }
+

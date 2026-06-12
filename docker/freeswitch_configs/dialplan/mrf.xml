@@ -5,6 +5,11 @@
          address specified in the X-esl-outbound header -->
     <extension name="socket">
       <condition field="${sip_user_agent}" expression="^drachtio-fsmrf:(.*)$">
+        <!-- Browser legs arrive as WebRTC offers (UDP/TLS/RTP/SAVPF) relayed
+             by drachtio. Enable DTLS-SRTP so FreeSWITCH answers the secure
+             media offer instead of rejecting it with 488 Not Acceptable. -->
+        <action application="set" data="rtp_secure_media=true"/>
+        <action application="set" data="rtp_secure_media_inbound=true"/>
         <action application="answer"/>
         <action application="set" data="send_silence_when_idle=-1"/>
         <action application="set" data="hangup_after_bridge=false"/>
