@@ -50,7 +50,7 @@
     <load module="mod_verto"/>
 
     <!-- Applications -->
-    <load module="mod_signalwire"/>
+    <!-- <load module="mod_signalwire"/> -->
     <load module="mod_commands"/>
     <load module="mod_conference"/>
     <!-- <load module="mod_curl"/> -->
@@ -127,10 +127,10 @@
     <load module="mod_lua"/>
 
     <!-- ASR /TTS -->
-    <!-- <load module="mod_flite"/> -->
+    <load module="mod_flite"/>
     <!-- <load module="mod_pocketsphinx"/> -->
     <!-- <load module="mod_cepstral"/> -->
-    <!-- <load module="mod_tts_commandline"/> -->
+    <load module="mod_tts_commandline"/>
     <!-- <load module="mod_rss"/> -->
 
     <!-- Say -->

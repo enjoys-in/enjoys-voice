@@ -14,6 +14,13 @@
       <node type="allow" cidr="192.168.42.42/32"/>
     </list>
 
+    <!-- Allow ESL / SIP from the docker bridge network (drachtio + host app) -->
+    <list name="docker" default="deny">
+      <node type="allow" cidr="172.16.0.0/12"/>
+      <node type="allow" cidr="127.0.0.1/32"/>
+      <node type="allow" cidr="10.0.0.0/8"/>
+    </list>
+
     <!--
 	This will traverse the directory adding all users
 	with the cidr= tag to this ACL, when this ACL matches
