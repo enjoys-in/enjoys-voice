@@ -316,11 +316,16 @@ export class DatabaseService extends EventEmitter {
   logCall(data: CallLog): void {
     this.callLogs.unshift(data);
     if (this.callLogs.length > 500) this.callLogs.pop();
+    // Mirror to the shared Postgres call_records table via the write queue.
+    this.emit('call:upserted', data);
   }
 
   updateCall(callId: string, updates: Partial<CallLog>): void {
     const call = this.callLogs.find(c => c.id === callId);
-    if (call) Object.assign(call, updates);
+    if (call) {
+      Object.assign(call, updates);
+      this.emit('call:upserted', call);
+    }
   }
 
   getCalls(): CallLog[] {

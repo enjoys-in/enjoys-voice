@@ -6,6 +6,7 @@ export { createRegistrationStore, MemoryRegistrationStore, RedisRegistrationStor
 export type { RegistrationStore } from './registration';
 export { UserSyncListener } from './postgres';
 export { insertVoicemail, markVoicemailReadByFile, deleteVoicemailByFile } from './postgres';
+export { ensureCallSchema, upsertCall } from './postgres';
 export { WriteQueue } from './queue';
 export type { AuditEntry, AuditEvent } from './audit.service';
 export type { DialResult } from './dialplan.service';

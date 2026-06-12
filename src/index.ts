@@ -9,6 +9,8 @@ import {
   insertVoicemail,
   markVoicemailReadByFile,
   deleteVoicemailByFile,
+  ensureCallSchema,
+  upsertCall,
 } from '@/services';
 import { SipServer } from '@/sip';
 import { SignalingServer } from '@/websocket';
@@ -49,7 +51,8 @@ class Application {
     this.writeQueue
       .on('voicemail.create', (vm) => insertVoicemail(vm))
       .on('voicemail.read', ({ extension, filename }) => markVoicemailReadByFile(extension, filename))
-      .on('voicemail.delete', ({ extension, filename }) => deleteVoicemailByFile(extension, filename));
+      .on('voicemail.delete', ({ extension, filename }) => deleteVoicemailByFile(extension, filename))
+      .on('call.upsert', (call) => upsertCall(call));
     this.db.on('voicemail:created', (vm) => {
       void this.writeQueue.enqueue('voicemail.create', vm).catch(() => {});
     });
@@ -58,6 +61,9 @@ class Application {
     });
     this.db.on('voicemail:deleted', (p) => {
       void this.writeQueue.enqueue('voicemail.delete', p).catch(() => {});
+    });
+    this.db.on('call:upserted', (call) => {
+      void this.writeQueue.enqueue('call.upsert', call).catch(() => {});
     });
   }
 
@@ -88,6 +94,11 @@ class Application {
     // Start the write-behind queue worker (voicemail → Postgres). Best-effort:
     // if Valkey is unreachable, voicemails still record (in memory + on disk),
     // they just aren't mirrored to the shared DB until it recovers.
+    try {
+      await ensureCallSchema();
+    } catch (err: any) {
+      console.warn(`   Calls:  ⚠️  call_records schema ensure failed (${err?.message})`);
+    }
     this.writeQueue.start().catch((err: any) =>
       console.warn(`   Queue:  ⚠️  write queue failed to start (${err?.message})`),
     );
