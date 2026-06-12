@@ -56,7 +56,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./asterisk/config:/etc/asterisk
-      - asterisk-recordings:/var/spool/asterisk/recording
+      - ./recordings-asterisk:/var/spool/asterisk/recording
     networks:
       - voipnet
     restart: unless-stopped
@@ -69,4 +69,3 @@ volumes:
   freeswitch-sounds:
   freeswitch-recordings:
   tele-conf: 
-  asterisk-recordings:
