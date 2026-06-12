@@ -50,6 +50,7 @@ export interface UserSettings {
   pstnMobile?: string;
   pstnCountryCode?: string;
   pstnForwardToBrowser: boolean;
+  pstnForwardTarget?: string;
   recordingEnabled: boolean;
   voicemailEnabled: boolean;
   forwarding: ForwardingRules;

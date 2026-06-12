@@ -14,7 +14,7 @@ Browser (WebRTC/SIP.js) ──WSS──▶ Drachtio ──SIP──▶ FreeSWITC
 
 ## Prerequisites
 
-- Linux server (Ubuntu 22.04+ recommended)
+- Linux server (Ubuntu 22.04+ recommended) or Windows with Docker Desktop
 - Docker & Docker Compose v2
 - Bun runtime (v1.3+)
 - Domain name with DNS A record pointing to server IP
@@ -53,8 +53,10 @@ DRACHTIO_SECRET=CHANGE_ME_STRONG_SECRET
 FREESWITCH_HOST=127.0.0.1             # localhost (port 8021 exposed)
 FREESWITCH_PORT=8021
 FREESWITCH_SECRET=JambonzR0ck$
-FREESWITCH_LISTEN_ADDRESS=YOUR_SERVER_PUBLIC_IP   # CRITICAL: must be reachable by FS
+FREESWITCH_LISTEN_ADDRESS=YOUR_SERVER_PUBLIC_IP   # CRITICAL: must be reachable by FS container
 FREESWITCH_LISTEN_PORT=8085
+# Windows dev: use host.docker.internal (Docker bridge gateway IP won't work)
+# Linux prod: use the host's actual IP or 0.0.0.0
 
 # ─── SIP Trunk (optional, for PSTN) ──────────────────
 TRUNK_HOST=                           # Leave empty to disable
@@ -113,9 +115,23 @@ IVR_DEFAULT_LANG=en
 </drachtio>
 ```
 
-### 3. FreeSWITCH MRF Profile (`docker/drachtio/drachtio-freeswitch-mrf/config/`)
+### 3. FreeSWITCH MRF
 
-In the SIP profile XML, update:
+**Important:** The `drachtio/drachtio-freeswitch-mrf` image stores its config at `/usr/local/freeswitch/conf/` (NOT `/etc/freeswitch`). The SIP profile used is `drachtio_mrf`.
+
+**Do NOT mount a volume to override the config** unless you have a complete valid config. The default config works; only the sounds volume is needed:
+```yaml
+volumes:
+  - ./drachtio/drachtio-freeswitch-mrf/sounds:/usr/share/freeswitch/sounds
+```
+
+For production, if you need to customize the SIP profile, exec into the container:
+```bash
+docker exec -it drachtio-freeswitch bash
+cat /usr/local/freeswitch/conf/sip_profiles/drachtio_mrf.xml
+```
+
+Key params to update for NAT traversal:
 ```xml
 <param name="ext-rtp-ip" value="YOUR_SERVER_PUBLIC_IP"/>
 <param name="ext-sip-ip" value="YOUR_SERVER_PUBLIC_IP"/>
@@ -219,10 +235,13 @@ bun run start &
 
 | Issue | Cause | Fix |
 |-------|-------|-----|
-| IVR Connection timeout | RTP ports not reachable | Expose 16384-32768/udp, set ext-rtp-ip |
-| WebRTC no audio | NAT traversal failure | Set correct ext-rtp-ip, ensure STUN/TURN |
+| IVR Connection timeout | `listenAddress` not reachable from FS container | On Windows: set `FREESWITCH_LISTEN_ADDRESS=host.docker.internal`. On Linux: use host IP. Do NOT use Docker bridge gateway IP (172.x.x.1) on Windows |
+| IVR Connection timeout | `listenPort` is 0 or wrong | Ensure `FREESWITCH_LISTEN_PORT=8085` (must match the port your app listens on for MRF callbacks) |
+| IVR Connection timeout | Volume mount overrides FS config | Do NOT mount to `/usr/local/freeswitch/conf/` or `/etc/freeswitch`. Only mount sounds |
+| WebRTC no audio | NAT traversal failure | Set correct ext-rtp-ip in FS profile, ensure STUN/TURN |
 | SIP register fails | Wrong domain/WS URL | Match DOMAIN env with client config |
-| "Lost connection to FreeSWITCH" | Container restarted/ESL unreachable | Check docker logs, verify port 8021 |
+| "Lost connection to FreeSWITCH" | Container restarted/ESL unreachable | Check `docker logs drachtio-freeswitch`, verify port 8021 exposed |
+| Tone keeps playing after hangup | Async sound fetch race condition | Fixed: uses monotonic `toneIdRef` counter to cancel stale audio |
 
 ## STUN/TURN (for NAT traversal)
 
@@ -239,3 +258,33 @@ user=turnuser:turnpassword
 ```
 
 Then update the frontend SIP.js config to use the TURN server.
+
+## Windows Development Notes
+
+### Docker Networking
+
+On Windows with Docker Desktop, containers cannot reach the host via the Docker bridge gateway IP (e.g. `172.21.0.1`). Use `host.docker.internal` instead:
+
+```bash
+# .env for Windows dev
+FREESWITCH_LISTEN_ADDRESS=host.docker.internal
+```
+
+This is the address FreeSWITCH will use to connect back to your Bun app for MRF/IVR callbacks.
+
+### FreeSWITCH MRF Connection
+
+The IVR system connects to FreeSWITCH via:
+1. **ESL** (Event Socket) on port 8021 — for sending commands
+2. **MRF callback** on `FREESWITCH_LISTEN_ADDRESS:FREESWITCH_LISTEN_PORT` — FS connects back to your app
+
+The MRF profile used is `drachtio_mrf`. The `mrf.connect()` call specifies this profile name.
+
+## PSTN Forwarding
+
+Users can configure PSTN forwarding with a target:
+- **Empty target** → routes incoming PSTN calls to user's own browser extension
+- **Extension number** (e.g. `1002`) → routes to that registered extension
+- **IVR entry** (e.g. `5000`) → routes to the IVR system
+
+The trunk inbound handler resolves the target via `DialPlanService.resolve()` which returns a `RouteType` (Internal, IVR, etc.) and routes accordingly. If the target extension is not registered and it's not an IVR, the call is rejected with 480 Temporarily Unavailable.

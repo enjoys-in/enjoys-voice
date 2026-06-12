@@ -29,7 +29,6 @@ services:
     environment:
       - FREESWITCH_EVENT_SOCKET_PASSWORD=JambonzR0ck$
     volumes:
-      - ./drachtio/drachtio-freeswitch-mrf/config:/etc/freeswitch
       - ./drachtio/drachtio-freeswitch-mrf/sounds:/usr/share/freeswitch/sounds
     networks:
       - voipnet

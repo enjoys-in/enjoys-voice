@@ -36,7 +36,7 @@ export class IVRSystem {
           port: config.freeswitch.port,
           secret: config.freeswitch.secret,
           listenAddress: '0.0.0.0',
-          listenPort: 0,
+          listenPort: config.freeswitch.listenPort,
           advertisedAddress: config.freeswitch.listenAddress,
           profile: 'drachtio_mrf',
         });

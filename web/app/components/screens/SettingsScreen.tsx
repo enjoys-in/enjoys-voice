@@ -462,28 +462,42 @@ export function SettingsScreen() {
                 </CardHeader>
                 <CardContent className="p-4 pt-0 space-y-3">
                   <p className="text-xs text-muted-foreground">
-                    Forward incoming calls from your phone number to this browser app. Calls to your mobile will ring here.
+                    Forward incoming calls from your phone number to any extension or IVR.
                   </p>
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="pstn-fwd" className="text-sm">Forward phone to browser</Label>
+                    <Label htmlFor="pstn-fwd" className="text-sm">Forward phone calls</Label>
                     <Switch
                       id="pstn-fwd"
                       checked={settings.pstnForwardToBrowser}
-                      onCheckedChange={(v) => { setSettings({ pstnForwardToBrowser: v }); savePstnForward(v); }}
+                      onCheckedChange={(v) => { setSettings({ pstnForwardToBrowser: v }); savePstnForward(v, settings.pstnForwardTarget); }}
                     />
                   </div>
                   {settings.pstnForwardToBrowser && (
-                    <div className="space-y-2">
-                      <Label className="text-xs text-muted-foreground">Your phone number (DID)</Label>
-                      <PhoneInput
-                        value={settings.pstnMobile || ""}
-                        countryCode={settings.pstnCountryCode || "+91"}
-                        onValueChange={(v) => setSettings({ pstnMobile: v })}
-                        onCountryCodeChange={(v) => setSettings({ pstnCountryCode: v })}
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        When someone calls this number via SIP trunk, it will ring on your browser extension ({user?.extension}).
-                      </p>
+                    <div className="space-y-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Your phone number (DID)</Label>
+                        <PhoneInput
+                          value={settings.pstnMobile || ""}
+                          countryCode={settings.pstnCountryCode || "+91"}
+                          onValueChange={(v) => setSettings({ pstnMobile: v })}
+                          onCountryCodeChange={(v) => setSettings({ pstnCountryCode: v })}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Forward to (extension or IVR)</Label>
+                        <Input
+                          placeholder={user?.extension || "1001"}
+                          value={settings.pstnForwardTarget || ""}
+                          onChange={(e) => {
+                            const target = e.target.value;
+                            setSettings({ pstnForwardTarget: target });
+                            savePstnForward(settings.pstnForwardToBrowser, target);
+                          }}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Leave empty to ring your browser. Enter 5000 for IVR, or another extension like 1002.
+                        </p>
+                      </div>
                     </div>
                   )}
                 </CardContent>

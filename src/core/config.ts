@@ -68,7 +68,7 @@ export const config: AppConfig = {
     host: process.env.FREESWITCH_HOST || '127.0.0.1',
     port: parseInt(process.env.FREESWITCH_PORT || '8021'),
     secret: process.env.FREESWITCH_SECRET || 'JambonzR0ck$',
-    listenAddress: process.env.FREESWITCH_LISTEN_ADDRESS || '172.21.0.1',
+    listenAddress: process.env.FREESWITCH_LISTEN_ADDRESS || 'host.docker.internal',
     listenPort: parseInt(process.env.FREESWITCH_LISTEN_PORT || '8085'),
   },
   sipWs: {

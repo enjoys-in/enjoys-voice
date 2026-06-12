@@ -213,24 +213,30 @@ export class DatabaseService {
     };
   }
 
-  setPstnForward(extension: string, enabled: boolean): boolean {
+  setPstnForward(extension: string, enabled: boolean, target?: string): boolean {
     const user = this.users.get(extension);
     if (!user) return false;
     user.pstnForwardToBrowser = enabled;
+    user.pstnForwardTarget = target || undefined;
     return true;
   }
 
-  getPstnForward(extension: string): boolean {
-    return this.users.get(extension)?.pstnForwardToBrowser ?? false;
+  getPstnForward(extension: string): { enabled: boolean; target?: string } {
+    const user = this.users.get(extension);
+    return { enabled: user?.pstnForwardToBrowser ?? false, target: user?.pstnForwardTarget };
   }
 
   /** Find a user who has pstnForwardToBrowser enabled and matches the given phone number */
-  findPstnForwardTarget(calledNumber: string): SipUser | undefined {
+  findPstnForwardTarget(calledNumber: string): { user: SipUser; target: string } | undefined {
     const normalized = calledNumber.replace(/[^0-9]/g, '').slice(-10);
     for (const [, user] of this.users) {
       if (!user.pstnForwardToBrowser || !user.mobile) continue;
       const userMobile = user.mobile.replace(/[^0-9]/g, '').slice(-10);
-      if (userMobile === normalized && user.registered) return user;
+      if (userMobile === normalized) {
+        // target is either configured target or user's own extension
+        const target = user.pstnForwardTarget || user.extension;
+        return { user, target };
+      }
     }
     return undefined;
   }

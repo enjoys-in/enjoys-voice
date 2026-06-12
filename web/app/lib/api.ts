@@ -241,11 +241,11 @@ export const api = {
 
   // PSTN Forward to Browser
   getPstnForward: (ext: string) =>
-    request<{ enabled: boolean }>(`/pstn-forward/${ext}`),
+    request<{ enabled: boolean; target?: string }>(`/pstn-forward/${ext}`),
 
-  setPstnForward: (ext: string, enabled: boolean) =>
+  setPstnForward: (ext: string, enabled: boolean, target?: string) =>
     request<SuccessResponse>(`/pstn-forward/${ext}`, {
       method: "POST",
-      body: JSON.stringify({ enabled }),
+      body: JSON.stringify({ enabled, target: target || undefined }),
     }),
 } as const;

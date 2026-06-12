@@ -39,6 +39,7 @@ export function useSettingsSync() {
           unavailable: fwdRes.unavailable || undefined,
         },
         pstnForwardToBrowser: pstnFwdRes.enabled,
+        pstnForwardTarget: pstnFwdRes.target || "",
       });
     } catch {
       settingsLoaded = false; // Allow retry on failure
@@ -92,10 +93,10 @@ export function useSettingsSync() {
 
   // Save PSTN forward to browser setting
   const savePstnForward = useCallback(
-    async (enabled: boolean) => {
+    async (enabled: boolean, target?: string) => {
       if (!user) return;
       try {
-        await api.setPstnForward(user.extension, enabled);
+        await api.setPstnForward(user.extension, enabled, target);
       } catch {
         // silent
       }

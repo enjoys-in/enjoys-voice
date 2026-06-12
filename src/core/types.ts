@@ -41,6 +41,7 @@ export interface SipUser {
   forwardOnNoAnswer?: string;
   forwardOnUnavailable?: string;
   pstnForwardToBrowser?: boolean;
+  pstnForwardTarget?: string; // extension or IVR number to forward inbound PSTN calls to
 }
 
 export interface SipRegistration {

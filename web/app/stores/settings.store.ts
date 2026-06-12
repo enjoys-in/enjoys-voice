@@ -10,6 +10,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   pstnMobile: "",
   pstnCountryCode: "+91",
   pstnForwardToBrowser: false,
+  pstnForwardTarget: "",
   recordingEnabled: false,
   voicemailEnabled: false,
   forwarding: {},
