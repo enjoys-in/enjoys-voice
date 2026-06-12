@@ -1,5 +1,14 @@
 import { CallLog, SipUser, SipRegistration, Voicemail, config } from '@/core';
-import { loadAllUsers } from './postgres';
+import {
+  loadAllUsers,
+  loadAllBlocked,
+  loadAllForwarding,
+  loadAllPstn,
+  loadBlockedByExtension,
+  loadForwardingByExtension,
+  loadPstnByExtension,
+  type ForwardingRow,
+} from './postgres';
 
 export class DatabaseService {
   private users = new Map<string, SipUser>();
@@ -43,7 +52,84 @@ export class DatabaseService {
         mobile: row.mobile,
       });
     }
+    await this.hydrateAllDetail();
     return rows.length;
+  }
+
+  /**
+   * Bulk-load every user's blocking / forwarding / PSTN detail from Postgres in
+   * three queries and apply it to the in-memory users. Done once at startup so
+   * routing works even for users who never register (forward-on-unavailable,
+   * inbound PSTN to an offline user). Each call fully replaces the prior detail.
+   */
+  private async hydrateAllDetail(): Promise<void> {
+    const [blocked, forwarding, pstn] = await Promise.all([
+      loadAllBlocked(),
+      loadAllForwarding(),
+      loadAllPstn(),
+    ]);
+
+    // Reset routing detail on all users first so removed rows don't linger.
+    for (const user of this.getUsers()) {
+      user.blockedNumbers = [];
+      user.forwardOnBusy = undefined;
+      user.forwardOnNoAnswer = undefined;
+      user.forwardOnUnavailable = undefined;
+      user.pstnForwardToBrowser = false;
+      user.pstnForwardTarget = undefined;
+    }
+
+    for (const b of blocked) {
+      const user = this.users.get(b.extension);
+      if (user) (user.blockedNumbers ??= []).push(b.number);
+    }
+    for (const f of forwarding) {
+      this.applyForwardingRow(this.users.get(f.extension), f);
+    }
+    for (const p of pstn) {
+      this.applyPstn(this.users.get(p.extension), p.pstn_enabled, p.pstn_mobile);
+    }
+  }
+
+  /**
+   * Refresh a single user's blocking / forwarding / PSTN detail from Postgres.
+   * Triggered on SIP REGISTER to pick up dashboard changes made while running.
+   * No-op if the user isn't in memory. Fully replaces that user's detail.
+   */
+  async hydrateUserDetail(extension: string): Promise<void> {
+    const user = this.users.get(extension);
+    if (!user) return;
+
+    const [blocked, forwarding, pstn] = await Promise.all([
+      loadBlockedByExtension(extension),
+      loadForwardingByExtension(extension),
+      loadPstnByExtension(extension),
+    ]);
+
+    user.blockedNumbers = blocked.map((b) => b.number);
+    user.forwardOnBusy = undefined;
+    user.forwardOnNoAnswer = undefined;
+    user.forwardOnUnavailable = undefined;
+    for (const f of forwarding) this.applyForwardingRow(user, f);
+    this.applyPstn(user, pstn?.pstn_enabled ?? false, pstn?.pstn_mobile ?? null);
+  }
+
+  /** Map a forwarding_rules row onto the matching SipUser field. */
+  private applyForwardingRow(user: SipUser | undefined, row: ForwardingRow): void {
+    if (!user) return;
+    const target = row.target || undefined;
+    switch (row.type) {
+      case 'busy': user.forwardOnBusy = target; break;
+      case 'noAnswer': user.forwardOnNoAnswer = target; break;
+      case 'unavailable': user.forwardOnUnavailable = target; break;
+    }
+  }
+
+  /** Map user_settings PSTN fields onto the SipUser. */
+  private applyPstn(user: SipUser | undefined, enabled: boolean, mobile: string | null): void {
+    if (!user) return;
+    user.pstnForwardToBrowser = enabled;
+    user.pstnForwardTarget = mobile || undefined;
   }
 
   /**

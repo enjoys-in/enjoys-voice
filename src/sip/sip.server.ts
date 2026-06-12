@@ -158,6 +158,14 @@ export class SipServer {
           this.audit.log('register', user.extension, { contact, source }, req.source_address);
           res.send(SipStatus.OK, { headers: { 'Contact': contact, 'Expires': expires.toString() } });
           console.log(`✅ SIP: ${user.name} registered at ${contact} (source: ${source.protocol}/${source.address}:${source.port})`);
+
+          // Refresh this user's blocking/forwarding/PSTN detail from Postgres so
+          // routing reflects any dashboard changes. Fire-and-forget: the 200 OK
+          // is already sent and startup hydration provides a baseline, so a DB
+          // hiccup here must not fail the registration.
+          void this.db.hydrateUserDetail(user.extension).catch((err: any) =>
+            console.warn(`⚠️  detail refresh failed for ${user.extension}: ${err?.message}`),
+          );
         }
       } catch (err: any) {
         console.error('❌ SIP REGISTER error:', err.message, err.stack);
