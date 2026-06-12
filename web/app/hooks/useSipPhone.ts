@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { UserAgent, Registerer, Inviter, SessionState, Session } from "sip.js";
 import { useCallStore } from "../stores";
 import { getCachedSoundUrl } from "../lib/sound-cache";
+import { getIceServers } from "../lib/ice-config";
 
 export function useSipPhone() {
   const [registered, setRegistered] = useState(false);
@@ -104,10 +105,7 @@ export function useSipPhone() {
       logLevel: "error",
       sessionDescriptionHandlerFactoryOptions: {
         peerConnectionConfiguration: {
-          iceServers: [
-            { urls: "stun:stun.l.google.com:19302" },
-            { urls: "stun:stun1.l.google.com:19302" },
-          ],
+          iceServers: getIceServers(),
         },
       },
       delegate: {
@@ -186,10 +184,7 @@ export function useSipPhone() {
       sessionDescriptionHandlerOptions: {
         constraints: { audio: true, video: false },
         peerConnectionConfiguration: {
-          iceServers: [
-            { urls: "stun:stun.l.google.com:19302" },
-            { urls: "stun:stun1.l.google.com:19302" },
-          ],
+          iceServers: getIceServers(),
         },
       },
     });
@@ -262,10 +257,7 @@ export function useSipPhone() {
         sessionDescriptionHandlerOptions: {
           constraints: { audio: true, video: false },
           peerConnectionConfiguration: {
-            iceServers: [
-              { urls: "stun:stun.l.google.com:19302" },
-              { urls: "stun:stun1.l.google.com:19302" },
-            ],
+            iceServers: getIceServers(),
           },
         },
       });

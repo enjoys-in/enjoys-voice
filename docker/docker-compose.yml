@@ -33,6 +33,8 @@ services:
     environment:
       - SOUND_RATES=8000:16000
       - SOUND_TYPES=music:en-us-callie
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./freeswitch_configs:/etc/freeswitch
       - ./freeswitch_sounds:/usr/share/freeswitch/sounds
