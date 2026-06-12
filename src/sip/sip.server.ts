@@ -38,7 +38,13 @@ export class SipServer {
     private audit: AuditService,
   ) {
     this.srf = new Srf();
+    // Pre-bind to avoid allocating new functions on every INVITE
+    this.boundRouteToExtension = this.routeToExtension.bind(this);
+    this.boundForwardCall = this.forwardCall.bind(this);
   }
+
+  private readonly boundRouteToExtension: RouteServices['routeToExtension'];
+  private readonly boundForwardCall: RouteServices['forwardCall'];
 
   /** Register a callback to notify users of call events via WebSocket */
   setNotifier(fn: (extension: string, event: string, data?: any) => void): void {
@@ -65,6 +71,7 @@ export class SipServer {
     this.srf.on('connect', (_err: any, hp: string) => {
       this.connected = true;
       console.log(`✅ SIP: Connected to drachtio (${hp})`);
+      console.log(`   Registered handlers: register, invite, options, info, message`);
       // Defer IVR init to next tick to avoid blocking the connect handler
       setTimeout(() => this.initIvr(), 500);
     });
@@ -158,53 +165,51 @@ export class SipServer {
   }
 
   private handleInvite(): void {
+    console.log('📋 SIP: INVITE handler registered');
     this.srf.invite(async (req: any, res: any) => {
-      if (!this.checkSipRate(req.source_address)) {
-        res.send(SipStatus.RateLimited);
-        return;
+      try {
+        if (!this.checkSipRate(req.source_address)) {
+          res.send(SipStatus.RateLimited);
+          return;
+        }
+
+        const calledMatch = req.uri?.match(/sip:([^@]+)/);
+        const calledNumber = calledMatch ? calledMatch[1] : req.calledNumber;
+        const callingNumber = req.callingNumber || 'unknown';
+        const callId = crypto.randomUUID();
+
+        console.log(`📞 SIP INVITE: ${callingNumber} → ${calledNumber}`);
+
+        this.db.logCall({
+          id: callId, from: callingNumber, to: calledNumber,
+          fromName: this.db.getUser(callingNumber)?.name || callingNumber,
+          status: 'ringing', direction: 'inbound', startTime: new Date().toISOString(),
+        });
+        this.audit.log('call_start', callingNumber, { to: calledNumber, callId }, req.source_address);
+
+        const ctx: CallContext = { req, res, calledNumber, callingNumber, callId };
+        const services: RouteServices = {
+          srf: this.srf,
+          db: this.db,
+          trunk: this.trunk,
+          audit: this.audit,
+          ivr: this.ivr,
+          notifyFn: this.notifyFn,
+        routeToExtension: this.boundRouteToExtension,
+        forwardCall: this.boundForwardCall,
+        };
+        // Try each handler in priority order (skip trunk inbound already tried)
+        for (let i = 1; i < this.routeHandlers.length; i++) {
+          if (await this.routeHandlers[i].handle(ctx, services, route)) return;
+        }
+
+        // No route matched
+        res.send(SipStatus.TemporarilyUnavailable);
+        this.db.updateCall(callId, { status: 'missed' });
+      } catch (err: any) {
+        console.error('❌ SIP INVITE handler error:', err.message, err.stack);
+        if (!res.finalResponseSent) res.send(SipStatus.ServerError);
       }
-
-      const calledMatch = req.uri?.match(/sip:([^@]+)/);
-      const calledNumber = calledMatch ? calledMatch[1] : req.calledNumber;
-      const callingNumber = req.callingNumber || 'unknown';
-      const callId = crypto.randomUUID();
-
-      console.log(`📞 SIP INVITE: ${callingNumber} → ${calledNumber}`);
-
-      this.db.logCall({
-        id: callId, from: callingNumber, to: calledNumber,
-        fromName: this.db.getUser(callingNumber)?.name || callingNumber,
-        status: 'ringing', direction: 'inbound', startTime: new Date().toISOString(),
-      });
-      this.audit.log('call_start', callingNumber, { to: calledNumber, callId }, req.source_address);
-
-      const ctx: CallContext = { req, res, calledNumber, callingNumber, callId };
-      const services: RouteServices = {
-        srf: this.srf,
-        db: this.db,
-        trunk: this.trunk,
-        audit: this.audit,
-        ivr: this.ivr,
-        notifyFn: this.notifyFn,
-        routeToExtension: this.routeToExtension.bind(this),
-        forwardCall: this.forwardCall.bind(this),
-      };
-
-      // Try trunk inbound first (before dial plan)
-      if (await this.routeHandlers[0].handle(ctx, services)) return;
-
-      // Resolve via dial plan for all other cases
-      const route = this.dialPlan.resolve(calledNumber);
-      console.log(`🗺️ Dial plan: ${calledNumber} → ${route.type} (${route.normalizedNumber})`);
-
-      // Try each handler in priority order (skip trunk inbound already tried)
-      for (let i = 1; i < this.routeHandlers.length; i++) {
-        if (await this.routeHandlers[i].handle(ctx, services, route)) return;
-      }
-
-      // No route matched
-      res.send(SipStatus.TemporarilyUnavailable);
-      this.db.updateCall(callId, { status: 'missed' });
     });
   }
 
@@ -215,6 +220,10 @@ export class SipServer {
     this.srf.message((req: any, res: any) => {
       console.log('📨 SIP MESSAGE:', req.body);
       res.send(SipStatus.OK);
+    });
+    // Catch unhandled SIP requests for debugging
+    (this.srf as any).on('unhandledRequest', (req: any) => {
+      console.warn(`⚠️ SIP: Unhandled ${req.method} from ${req.source_address}`);
     });
   }
 

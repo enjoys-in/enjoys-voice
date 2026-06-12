@@ -16,27 +16,42 @@ export function useSipPhone() {
   const sessionRef = useRef<Session | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const toneAudioRef = useRef<HTMLAudioElement | null>(null);
+  const toneIdRef = useRef(0); // monotonic ID to cancel stale playTone calls
 
   // ─── Tone Playback ───────────────────────────────────
 
+  const stopTone = useCallback(() => {
+    toneIdRef.current++; // invalidate any in-flight playTone
+    const audio = toneAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.src = '';
+      toneAudioRef.current = null;
+    }
+    setTone(null);
+  }, [setTone]);
+
   const playTone = useCallback(async (src: string, loop = false) => {
-    stopTone();
+    // Increment ID so previous in-flight plays are cancelled
+    const id = ++toneIdRef.current;
+    // Stop any existing tone directly via ref
+    const existing = toneAudioRef.current;
+    if (existing) {
+      existing.pause();
+      existing.currentTime = 0;
+      existing.src = '';
+      toneAudioRef.current = null;
+    }
     const url = await getCachedSoundUrl(src);
+    // If stopTone or another playTone was called while we awaited, bail out
+    if (toneIdRef.current !== id) return;
     const audio = new Audio(url);
     audio.loop = loop;
     audio.volume = 0.5;
     audio.play().catch(() => {});
     toneAudioRef.current = audio;
   }, []);
-
-  const stopTone = useCallback(() => {
-    if (toneAudioRef.current) {
-      toneAudioRef.current.pause();
-      toneAudioRef.current.currentTime = 0;
-      toneAudioRef.current = null;
-    }
-    setTone(null);
-  }, [setTone]);
 
   const getAudioElement = useCallback(() => {
     if (!remoteAudioRef.current) {
