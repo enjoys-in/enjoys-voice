@@ -5,20 +5,9 @@ import { DatabaseService, TrunkService, AuditService } from '@/services';
 import type { AuditEvent } from '@/services';
 import { SipServer } from '@/sip';
 import { config } from '@/core';
-import { authRateLimit } from '../middleware/rate-limit';
 
 export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipServer, audit: AuditService): Router {
   const router = Router();
-
-  // Build the SIP config returned to clients. In production set PUBLIC_WS_URL /
-  // PUBLIC_SIP_WS_URL (e.g. wss://voice.example.com/...) to use a TLS proxy;
-  // otherwise legacy ws://<publicIp>:<port> URLs are used (local default).
-  const buildSipConfig = () => ({
-    wsUrl: config.server.publicWsUrl || `ws://${config.server.publicIp}:${config.server.wsPort}`,
-    sipWsUrl: config.server.publicSipWsUrl || `ws://${config.server.publicIp}:${config.sipWs.port}`,
-    domain: config.server.domain,
-    trunkEnabled: trunk.isEnabled,
-  });
 
   // ─── Health ──────────────────────────────────────────
   router.get('/health', (_req: Request, res: Response) => {
@@ -31,53 +20,8 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
     });
   });
 
-  // ─── Auth ────────────────────────────────────────────
-  router.post('/auth', authRateLimit, (req: Request, res: Response) => {
-    const { username, password } = req.body;
-    if (!username || !password) {
-      res.status(400).json({ error: 'Missing credentials' });
-      return;
-    }
-
-    const user = db.authenticate(username, password);
-    if (!user) {
-      res.status(401).json({ error: 'Invalid credentials' });
-      return;
-    }
-
-    res.json({
-      success: true,
-      user: { extension: user.extension, name: user.name, username: user.username, mobile: user.mobile },
-      sipConfig: buildSipConfig(),
-    });
-  });
-
-  // ─── Signup ──────────────────────────────────────────
-  router.post('/auth/signup', authRateLimit, (req: Request, res: Response) => {
-    const { name, mobile, password } = req.body;
-    if (!name || !mobile || !password) {
-      res.status(400).json({ error: 'Missing fields: name, mobile, password required' });
-      return;
-    }
-
-    const normalized = mobile.replace(/\D/g, '');
-    if (normalized.length < 7) {
-      res.status(400).json({ error: 'Invalid phone number (min 7 digits)' });
-      return;
-    }
-
-    const user = db.signup(name, mobile, password);
-    if (!user) {
-      res.status(409).json({ error: 'Phone number already registered' });
-      return;
-    }
-
-    res.status(201).json({
-      success: true,
-      user: { extension: user.extension, name: user.name, username: user.username, mobile: user.mobile },
-      sipConfig: buildSipConfig(),
-    });
-  });
+  // Authentication (login + signup) is owned solely by the Go API, which issues
+  // the JWT the SIP WebSocket verifies. Node deliberately exposes no /auth route.
 
   // ─── Lookup by phone ────────────────────────────────
   router.get('/lookup/:phone', (req: Request, res: Response) => {

@@ -85,7 +85,6 @@ export interface AppConfig {
     // server is unreachable, queued writes are skipped best-effort.
     url: string;
   };
-  sipUsers: Array<{ extension: string; username: string; password: string; name: string }>;
 }
 
 export const config: AppConfig = {
@@ -170,9 +169,4 @@ export const config: AppConfig = {
   redis: {
     url: process.env.REDIS_URL || 'redis://localhost:6379',
   },
-  sipUsers: [
-    { extension: '1001', username: 'user1', password: 'pass123', name: 'Alice' },
-    { extension: '1002', username: 'user2', password: 'pass123', name: 'Bob' },
-    { extension: '1003', username: 'user3', password: 'pass123', name: 'Charlie' },
-  ],
 };

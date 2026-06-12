@@ -1,4 +1,4 @@
-import { CallLog, SipUser, SipRegistration, Voicemail, config, DbEvent } from '@/core';
+import { CallLog, SipUser, SipRegistration, Voicemail, DbEvent } from '@/core';
 import { EventEmitter } from 'events';
 import {
   loadAllUsers,
@@ -18,24 +18,8 @@ export class DatabaseService extends EventEmitter {
   private registrations = new Map<string, SipRegistration>();
   /** phone number → extension lookup */
   private phoneIndex = new Map<string, string>();
-  /** Track used extensions for collision avoidance */
-  private usedExtensions = new Set<string>();
   /** mailbox extension → voicemail messages */
   private voicemails = new Map<string, Voicemail[]>();
-
-  constructor() {
-    super();
-    this.seed();
-  }
-
-  private seed(): void {
-    for (const u of config.sipUsers) {
-      const user: SipUser = { ...u, registered: false };
-      this.users.set(u.extension, user);
-      this.users.set(u.username, user);
-      this.usedExtensions.add(u.extension);
-    }
-  }
 
   /**
    * Hydrate the in-memory user store from the shared Postgres database so that
@@ -145,10 +129,9 @@ export class DatabaseService extends EventEmitter {
     const existing = this.users.get(identity.extension);
     const user: SipUser = existing
       ? { ...existing, ...identity }
-      : { ...identity, password: '', registered: false };
+      : { ...identity, registered: false };
     this.users.set(user.extension, user);
     this.users.set(user.username, user);
-    this.usedExtensions.add(user.extension);
     if (user.mobile) {
       this.phoneIndex.set(user.mobile.replace(/\D/g, ''), user.extension);
     }
@@ -185,58 +168,8 @@ export class DatabaseService extends EventEmitter {
     if (!user) return;
     this.users.delete(user.extension);
     this.users.delete(user.username);
-    this.usedExtensions.delete(user.extension);
     if (user.mobile) this.phoneIndex.delete(user.mobile.replace(/\D/g, ''));
     this.registrations.delete(user.extension);
-  }
-
-  // ─── Signup / Extension Generation ───────────────────
-
-  /**
-   * Generate a unique 7-digit extension from a phone number.
-   * Takes last 7 digits of the phone, if collision, increments.
-   */
-  private generateExtension(phone: string): string {
-    const digits = phone.replace(/\D/g, '');
-    // Use last 7 digits as base
-    let base = digits.slice(-7).padStart(7, '1');
-    let ext = base;
-    let attempts = 0;
-    while (this.usedExtensions.has(ext) && attempts < 1000) {
-      // Increment numerically
-      const num = (parseInt(ext, 10) + 1) % 10000000;
-      ext = num.toString().padStart(7, '0');
-      attempts++;
-    }
-    return ext;
-  }
-
-  /**
-   * Register a new user with phone number → auto-assigned 7-digit extension.
-   * Returns the created user or null if phone already registered.
-   */
-  signup(name: string, mobile: string, password: string): SipUser | null {
-    const normalized = mobile.replace(/\D/g, '');
-    if (this.phoneIndex.has(normalized)) return null; // already exists
-
-    const extension = this.generateExtension(normalized);
-    const username = normalized; // phone number is the username
-
-    const user: SipUser = {
-      extension,
-      username,
-      password,
-      name,
-      mobile: normalized,
-      registered: false,
-    };
-
-    this.users.set(extension, user);
-    this.users.set(username, user);
-    this.usedExtensions.add(extension);
-    this.phoneIndex.set(normalized, extension);
-
-    return user;
   }
 
   /** Lookup extension by phone number */
@@ -254,15 +187,6 @@ export class DatabaseService extends EventEmitter {
 
   getUser(extensionOrUsername: string): SipUser | undefined {
     return this.users.get(extensionOrUsername);
-  }
-
-  authenticate(username: string, password: string): SipUser | null {
-    for (const [, user] of this.users) {
-      if ((user.username === username || user.extension === username) && user.password === password) {
-        return user;
-      }
-    }
-    return null;
   }
 
   addUser(user: SipUser): void {

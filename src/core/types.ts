@@ -68,7 +68,6 @@ export interface Voicemail {
 export interface SipUser {
   extension: string;
   username: string;
-  password: string;
   name: string;
   mobile?: string;
   registered?: boolean;

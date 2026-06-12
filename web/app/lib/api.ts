@@ -14,17 +14,6 @@ const API_BASE = getApiBase();
 
 // ─── Request Types ──────────────────────────────────────
 
-export interface LoginRequest {
-  username: string;
-  password: string;
-}
-
-export interface SignupRequest {
-  name: string;
-  mobile: string;
-  password: string;
-}
-
 export interface BlockNumberRequest {
   number: string;
 }
@@ -49,24 +38,6 @@ export interface HealthResponse {
   trunkEnabled: boolean;
   uptime: number;
 }
-
-export interface LoginResponse {
-  success: boolean;
-  user: {
-    extension: string;
-    name: string;
-    username: string;
-    mobile?: string;
-  };
-  sipConfig: {
-    wsUrl: string;
-    sipWsUrl: string;
-    domain: string;
-    trunkEnabled: boolean;
-  };
-}
-
-export type SignupResponse = LoginResponse;
 
 export interface LookupResponse {
   extension: string;
@@ -186,19 +157,6 @@ async function request<T>(
 export const api = {
   // Health
   health: () => request<HealthResponse>("/health"),
-
-  // Auth
-  login: (data: LoginRequest) =>
-    request<LoginResponse>("/auth", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  signup: (data: SignupRequest) =>
-    request<SignupResponse>("/auth/signup", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
 
   // Lookup
   lookupByPhone: (phone: string) =>
