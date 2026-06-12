@@ -10,6 +10,7 @@ interface AuthState {
   isAuthenticated: boolean;
   login: (user: User, token: string, refreshToken: string, sipConfig: SipConfig) => void;
   setTokens: (token: string, refreshToken: string) => void;
+  setUser: (user: User) => void;
   logout: () => void;
 }
 
@@ -24,6 +25,7 @@ export const useAuthStore = create<AuthState>()(
       login: (user, token, refreshToken, sipConfig) =>
         set({ user, token, refreshToken, sipConfig, isAuthenticated: true }),
       setTokens: (token, refreshToken) => set({ token, refreshToken }),
+      setUser: (user) => set({ user }),
       logout: () => {
         // Lazy imports to avoid circular deps (hooks import from stores)
         import("../hooks/useCallHistory").then((m) => m.resetCallHistoryCache());

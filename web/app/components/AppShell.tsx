@@ -19,12 +19,14 @@ import { SplashScreen } from "./SplashScreen";
 import { useSipPhone } from "../hooks/useSipPhone";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useSettingsSync } from "../hooks/useSettingsSync";
+import { goApi } from "../lib/go-api";
 import { CallStatus } from "../types";
 
 export function AppShell() {
   const [activeTab, setActiveTab] = useState<TabId>("calls");
   const [hydrated, setHydrated] = useState(false);
-  const { isAuthenticated, user, sipConfig } = useAuthStore();
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const { isAuthenticated, user, sipConfig, setUser } = useAuthStore();
   const { activeCall } = useCallStore();
   const { settings } = useSettingsStore();
   const { fetchVoicemails, unreadCount } = useVoicemailStore();
@@ -55,6 +57,33 @@ export function AppShell() {
   useEffect(() => {
     setHydrated(true);
   }, []);
+
+  // Validate the persisted session against the server once hydrated. A stored
+  // `isAuthenticated` only means we *were* logged in — the access/refresh tokens
+  // may have expired or been revoked. goApi.auth.me() confirms the session is
+  // still good and refreshes the cached profile; goRequest auto-refreshes once
+  // and logs out if that fails, which flips us to the LoginScreen.
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!isAuthenticated) {
+      setSessionChecked(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await goApi.auth.me();
+        if (!cancelled) setUser(me);
+      } catch {
+        // goRequest already cleared the session on a hard auth failure.
+      } finally {
+        if (!cancelled) setSessionChecked(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, isAuthenticated, setUser]);
 
   // ─── Call recording (WebSocket-driven, no REST upload) ────────────────
   const finishRecording = useCallback(async () => {
@@ -98,7 +127,7 @@ export function AppShell() {
 
   // Connect WS + register SIP on auth
   useEffect(() => {
-    if (isAuthenticated && user && sipConfig) {
+    if (sessionChecked && isAuthenticated && user && sipConfig) {
       console.log(`🔌 Auto-connecting: SIP + WS for ${user.extension}`);
       connect(user.extension);
       register(user.extension, user.extension, sipConfig.sipWsUrl, sipConfig.domain, displayName);
@@ -108,7 +137,7 @@ export function AppShell() {
       disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, user?.extension]);
+  }, [sessionChecked, isAuthenticated, user?.extension]);
 
   // Refetch voicemails when a new one is left for this user.
   useEffect(() => {
@@ -130,9 +159,9 @@ export function AppShell() {
 
   const vmUnread = unreadCount();
 
-  // Show a branded splash while hydrating (avoids login-screen flicker for
-  // users who are already logged in).
-  if (!hydrated) return <SplashScreen />;
+  // Show a branded splash while hydrating or while validating an existing
+  // session (avoids a login-screen flash for already-logged-in users).
+  if (!hydrated || (isAuthenticated && !sessionChecked)) return <SplashScreen />;
 
   if (!isAuthenticated) {
     return <LoginScreen />;

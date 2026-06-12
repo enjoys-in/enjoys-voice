@@ -41,6 +41,9 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 		protected := api.Group("")
 		protected.Use(middleware.AuthMiddleware(tm))
 		{
+			// Current-session profile / validator (UI calls this on boot).
+			protected.GET("/auth/me", h.Auth.Me)
+
 			protected.GET("/lookup/:phone", h.User.Lookup)
 
 			// IVR flow builder persistence

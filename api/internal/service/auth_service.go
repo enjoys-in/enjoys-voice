@@ -49,6 +49,12 @@ func (s *authService) Login(ctx context.Context, username, password string) (*mo
 	return user, nil
 }
 
+// GetByExtension fetches a user by their extension. Backs the /auth/me session
+// check, which the UI calls on boot to confirm a persisted login is still valid.
+func (s *authService) GetByExtension(ctx context.Context, ext string) (*models.User, error) {
+	return s.userRepo.GetByExtension(ctx, ext)
+}
+
 func (s *authService) Signup(ctx context.Context, name, mobile, password string) (*models.User, error) {
 	normalized := strings.ReplaceAll(mobile, " ", "")
 	normalized = strings.ReplaceAll(normalized, "-", "")

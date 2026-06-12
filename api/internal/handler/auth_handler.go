@@ -111,6 +111,32 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	})
 }
 
+// Me returns the currently authenticated user, identified by the access-token
+// subject that AuthMiddleware put on the context. The UI calls this on boot to
+// validate a persisted session (a stored `isAuthenticated` flag only means the
+// user *was* logged in) and to refresh the cached profile.
+func (h *AuthHandler) Me(c *gin.Context) {
+	ext, _ := c.Get("extension")
+	extStr, _ := ext.(string)
+	if extStr == "" {
+		response.Unauthorized(c, "Not authenticated")
+		return
+	}
+
+	user, err := h.authSvc.GetByExtension(c.Request.Context(), extStr)
+	if err != nil {
+		response.Unauthorized(c, "Session no longer valid")
+		return
+	}
+
+	response.OK(c, gin.H{
+		"extension": user.Extension,
+		"name":      user.Name,
+		"username":  user.Username,
+		"mobile":    user.Mobile,
+	})
+}
+
 // setAuthCookies mirrors the token pair into httpOnly cookies so the browser
 // can authenticate with `credentials: "include"`. The access token also stays
 // in the JSON body for the Bearer-header flow; both transports are accepted.

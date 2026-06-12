@@ -207,6 +207,14 @@ export const goApi = {
         false
       );
     },
+    /**
+     * Current-session profile. The UI calls this on boot to confirm a persisted
+     * login is still valid and to refresh the cached user. A 401 here triggers
+     * goRequest's one-shot refresh; if that also fails the session is cleared.
+     */
+    me(): Promise<AuthUser> {
+      return goRequest<AuthUser>("/auth/me");
+    },
   },
 
   // Phone → user lookup
