@@ -314,10 +314,28 @@ export class DatabaseService extends EventEmitter {
   // ─── Call Logs ───────────────────────────────────────
 
   logCall(data: CallLog): void {
+    // Resolve each leg to the local extension that owns it (best-effort) so call
+    // history can be looked up by user with an exact match — including PSTN legs,
+    // where from/to hold an external number, not the extension. Undefined when a
+    // leg is external / not a local user.
+    data.fromExt = this.resolveExtension(data.from);
+    data.toExt = this.resolveExtension(data.to);
     this.callLogs.unshift(data);
     if (this.callLogs.length > 500) this.callLogs.pop();
     // Mirror to the shared Postgres call_records table via the write queue.
     this.emit(DbEvent.CallUpserted, data);
+  }
+
+  /**
+   * Resolve a call leg (an extension, username, or phone number) to the local
+   * user's extension, or undefined if it doesn't belong to a known user. Tries a
+   * direct extension/username hit first, then a phone-number match.
+   */
+  private resolveExtension(leg: string): string | undefined {
+    if (!leg) return undefined;
+    const direct = this.users.get(leg);
+    if (direct) return direct.extension;
+    return this.getUserByPhone(leg)?.extension;
   }
 
   updateCall(callId: string, updates: Partial<CallLog>): void {
@@ -333,7 +351,15 @@ export class DatabaseService extends EventEmitter {
   }
 
   getCallsByUser(extension: string): CallLog[] {
-    return this.callLogs.filter(c => c.from === extension || c.to === extension);
+    // Prefer the resolved owner extensions; fall back to the raw leg strings so
+    // any call written without a resolved owner still surfaces for the user.
+    return this.callLogs.filter(
+      c =>
+        c.fromExt === extension ||
+        c.toExt === extension ||
+        c.from === extension ||
+        c.to === extension,
+    );
   }
 
   // ─── Block List ──────────────────────────────────────

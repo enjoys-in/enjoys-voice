@@ -48,6 +48,10 @@ export interface CallLog {
   startTime: string;
   endTime?: string;
   duration?: number;
+  /** Local extension the `from` leg resolves to (undefined for external/PSTN). */
+  fromExt?: string;
+  /** Local extension the `to` leg resolves to (undefined for external/PSTN). */
+  toExt?: string;
 }
 
 export interface Voicemail {

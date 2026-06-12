@@ -11,6 +11,11 @@ type CallRecord struct {
 	StartedAt time.Time  `gorm:"not null" json:"started_at"`
 	EndedAt   *time.Time `json:"ended_at"`
 	CreatedAt time.Time  `json:"created_at"`
+	// Owning local extension each leg resolves to (Node stamps these at write
+	// time). Lets call history be queried by user with an exact match that also
+	// covers PSTN legs. Empty when the leg is external / not a local user.
+	FromExt string `gorm:"size:20;index" json:"from_ext"`
+	ToExt   string `gorm:"size:20;index" json:"to_ext"`
 }
 
 func (CallRecord) TableName() string { return "call_records" }

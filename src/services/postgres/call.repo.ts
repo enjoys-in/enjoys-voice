@@ -12,8 +12,16 @@ const ENSURE_SCHEMA_SQL = [
   `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS call_id VARCHAR(100)`,
   `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS direction VARCHAR(10)`,
   `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS from_name VARCHAR(200)`,
+  // Owning local extension each leg resolves to, so "all calls for a user" is an
+  // exact lookup (from_ext = ? OR to_ext = ?) that also covers PSTN legs, where
+  // "from"/"to" hold an external number rather than the extension. NULL = the leg
+  // is external / not a local user.
+  `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS from_ext VARCHAR(20)`,
+  `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS to_ext VARCHAR(20)`,
   // Arbiter for the upsert. NULL call_ids (legacy rows) are allowed to repeat.
   `CREATE UNIQUE INDEX IF NOT EXISTS uniq_call_records_call_id ON call_records(call_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_call_records_from_ext ON call_records(from_ext)`,
+  `CREATE INDEX IF NOT EXISTS idx_call_records_to_ext ON call_records(to_ext)`,
 ];
 
 export async function ensureCallSchema(): Promise<void> {
@@ -41,8 +49,8 @@ function durationSeconds(call: CallLog): number {
 export async function upsertCall(call: CallLog): Promise<void> {
   const pool = getPool();
   await pool.query(
-    `INSERT INTO call_records (call_id, "from", "to", from_name, direction, status, duration, started_at, ended_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO call_records (call_id, "from", "to", from_name, direction, status, duration, started_at, ended_at, from_ext, to_ext)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT (call_id) DO UPDATE SET
        status = EXCLUDED.status,
        duration = EXCLUDED.duration,
@@ -57,6 +65,8 @@ export async function upsertCall(call: CallLog): Promise<void> {
       durationSeconds(call),
       call.startTime,
       call.endTime ?? null,
+      call.fromExt ?? null,
+      call.toExt ?? null,
     ],
   );
 }

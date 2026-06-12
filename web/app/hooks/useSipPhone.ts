@@ -213,6 +213,7 @@ export function useSipPhone() {
     const contact = useContactStore.getState().findContact(target);
     const displayName = targetName || contact?.name || target;
     const inviter = new Inviter(ua, targetUri, {
+      
       sessionDescriptionHandlerOptions: {
         constraints: { audio: true, video: false },
         peerConnectionConfiguration: {

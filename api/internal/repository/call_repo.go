@@ -27,8 +27,11 @@ func (r *callRepo) GetAll(ctx context.Context) ([]models.CallRecord, error) {
 
 func (r *callRepo) GetByExtension(ctx context.Context, ext string) ([]models.CallRecord, error) {
 	var calls []models.CallRecord
+	// Match the resolved owner extensions first (covers PSTN legs, where from/to
+	// hold an external number), falling back to the raw leg strings for any row
+	// written without a resolved owner.
 	err := r.db.WithContext(ctx).
-		Where(`"from" = ? OR "to" = ?`, ext, ext).
+		Where(`from_ext = ? OR to_ext = ? OR "from" = ? OR "to" = ?`, ext, ext, ext, ext).
 		Order("started_at DESC").
 		Limit(100).
 		Find(&calls).Error
