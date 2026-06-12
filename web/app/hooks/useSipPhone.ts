@@ -7,10 +7,12 @@ import { useContactStore } from "../stores";
 import { getCachedSoundUrl } from "../lib/sound-cache";
 import { getIceServers } from "../lib/ice-config";
 import { toSipNumber } from "../lib/phone";
+import { CallDirection, CallStatus, SoundFile, Tone } from "../types";
 
 export function useSipPhone() {
   const [registered, setRegistered] = useState(false);
   const [sipConnected, setSipConnected] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
 
   const { startCall, updateCall, endCall, setTone } = useCallStore();
 
@@ -21,6 +23,11 @@ export function useSipPhone() {
   const toneAudioRef = useRef<HTMLAudioElement | null>(null);
   const toneIdRef = useRef(0); // monotonic ID to cancel stale playTone calls
   const currentNameRef = useRef<string>(""); // current SIP From display name
+
+  // ─── Recording (client-side; media is peer-to-peer, never hits server) ──
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   // ─── Tone Playback ───────────────────────────────────
 
@@ -138,19 +145,19 @@ export function useSipPhone() {
             callId,
             peerExtension: fromUri,
             peerName: fromName,
-            direction: "inbound",
-            status: "ringing",
+            direction: CallDirection.Inbound,
+            status: CallStatus.Ringing,
             startTime: Date.now(),
           });
-          setTone("ringtone");
-          playTone("/sounds/ringtone.wav", true);
+          setTone(Tone.Ringtone);
+          playTone(SoundFile.Ringtone, true);
 
           invitation.stateChange.addListener((state: SessionState) => {
             switch (state) {
               case SessionState.Established:
                 stopTone();
                 setupRemoteMedia(invitation);
-                updateCall({ status: "connected", startTime: Date.now() });
+                updateCall({ status: CallStatus.Connected, startTime: Date.now() });
                 break;
               case SessionState.Terminated:
                 stopTone();
@@ -221,35 +228,35 @@ export function useSipPhone() {
       callId,
       peerExtension: dialTarget,
       peerName: displayName,
-      direction: "outbound",
-      status: "dialing",
+      direction: CallDirection.Outbound,
+      status: CallStatus.Dialing,
       startTime: Date.now(),
     });
-    setTone("dialing");
+    setTone(Tone.Dialing);
     // Play ringback tone immediately while waiting for remote side
-    playTone("/sounds/ringback.wav", true);
+    playTone(SoundFile.Ringback, true);
 
     inviter.stateChange.addListener((state: SessionState) => {
       switch (state) {
         case SessionState.Establishing:
-          updateCall({ status: "ringing" });
-          setTone("ringback");
+          updateCall({ status: CallStatus.Ringing });
+          setTone(Tone.Ringback);
           // Switch to caller tune once we know remote is ringing
           stopTone();
-          playTone("/sounds/caller_tune.wav", true);
+          playTone(SoundFile.CallerTune, true);
           break;
         case SessionState.Established:
           stopTone();
           setupRemoteMedia(inviter);
-          updateCall({ status: "connected", startTime: Date.now() });
+          updateCall({ status: CallStatus.Connected, startTime: Date.now() });
           break;
         case SessionState.Terminated:
           stopTone();
           const currentCall = useCallStore.getState().activeCall;
-          if (currentCall && currentCall.status !== "connected") {
-            updateCall({ status: "declined" });
-            setTone("busy");
-            playTone("/sounds/busy_tone.wav");
+          if (currentCall && currentCall.status !== CallStatus.Connected) {
+            updateCall({ status: CallStatus.Declined });
+            setTone(Tone.Busy);
+            playTone(SoundFile.BusyTone);
             setTimeout(() => { stopTone(); endCall(); }, 3000);
           } else {
             endCall();
@@ -264,8 +271,8 @@ export function useSipPhone() {
     } catch (err) {
       console.error("Call failed:", err);
       stopTone();
-      playTone("/sounds/busy_tone.wav");
-      setTone("busy");
+      playTone(SoundFile.BusyTone);
+      setTone(Tone.Busy);
       setTimeout(() => { stopTone(); endCall(); }, 3000);
       sessionRef.current = null;
     }
@@ -325,15 +332,92 @@ export function useSipPhone() {
     }
   }, []);
 
+  // ─── Recording ───────────────────────────────────────
+  // Browser-to-browser audio is peer-to-peer (it never traverses the server),
+  // so we capture it locally by mixing the outgoing (mic) and incoming (peer)
+  // tracks from the RTCPeerConnection into one MediaRecorder.
+  const startRecording = useCallback((): boolean => {
+    const session = sessionRef.current;
+    if (!session || session.state !== SessionState.Established) return false;
+    if (mediaRecorderRef.current) return true; // already recording
+
+    const sdh = session.sessionDescriptionHandler as any;
+    const pc: RTCPeerConnection | undefined = sdh?.peerConnection;
+    if (!pc || typeof MediaRecorder === "undefined") return false;
+
+    try {
+      const AC: typeof AudioContext =
+        window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AC();
+      audioContextRef.current = ctx;
+      const dest = ctx.createMediaStreamDestination();
+
+      // Mix local mic + remote peer audio into a single destination stream.
+      const mix = (tracks: (MediaStreamTrack | null)[]) => {
+        const audio = tracks.filter((t): t is MediaStreamTrack => !!t && t.kind === "audio");
+        if (audio.length === 0) return;
+        ctx.createMediaStreamSource(new MediaStream(audio)).connect(dest);
+      };
+      mix(pc.getSenders().map((s) => s.track));
+      mix(pc.getReceivers().map((r) => r.track));
+
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : "";
+      const recorder = mime
+        ? new MediaRecorder(dest.stream, { mimeType: mime })
+        : new MediaRecorder(dest.stream);
+
+      recordedChunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data);
+      };
+      recorder.start(1000); // flush a chunk every second
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      return true;
+    } catch (err) {
+      console.error("startRecording failed:", err);
+      try { audioContextRef.current?.close(); } catch {}
+      audioContextRef.current = null;
+      return false;
+    }
+  }, []);
+
+  const stopRecording = useCallback((): Promise<{ blob: Blob; mime: string; ext: string } | null> => {
+    return new Promise((resolve) => {
+      const recorder = mediaRecorderRef.current;
+      if (!recorder) { resolve(null); return; }
+
+      recorder.onstop = () => {
+        const mime = recorder.mimeType || "audio/webm";
+        const ext = mime.includes("ogg") ? "ogg" : "webm";
+        const blob = new Blob(recordedChunksRef.current, { type: mime });
+        recordedChunksRef.current = [];
+        mediaRecorderRef.current = null;
+        try { audioContextRef.current?.close(); } catch {}
+        audioContextRef.current = null;
+        setIsRecording(false);
+        resolve(blob.size > 0 ? { blob, mime, ext } : null);
+      };
+      try { recorder.stop(); } catch { resolve(null); }
+    });
+  }, []);
+
   return {
     registered,
     sipConnected,
+    isRecording,
     register,
     disconnect,
     makeCall,
     answer,
     hangUp,
     sendDtmf,
+    startRecording,
+    stopRecording,
     stopTone,
   };
 }

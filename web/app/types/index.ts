@@ -1,3 +1,7 @@
+import type { CallDirection, CallRecordStatus, CallStatus } from "./enums";
+
+export * from "./enums";
+
 export interface User {
   extension: string;
   username: string;
@@ -19,8 +23,8 @@ export interface CallRecord {
   from: string;
   to: string;
   fromName: string;
-  status: "ringing" | "answered" | "ended" | "missed" | "failed";
-  direction: "inbound" | "outbound";
+  status: CallRecordStatus;
+  direction: CallDirection;
   startTime: string;
   endTime?: string;
   duration?: number;
@@ -30,8 +34,8 @@ export interface ActiveCall {
   callId: string;
   peerExtension: string;
   peerName: string;
-  direction: "outbound" | "inbound";
-  status: "dialing" | "ringing" | "connected" | "ended" | "declined" | "no_answer" | "blocked";
+  direction: CallDirection;
+  status: CallStatus;
   startTime: number;
 }
 

@@ -10,6 +10,7 @@ import { useCallHistory } from "../../hooks/useCallHistory";
 import { useAuthStore } from "../../stores";
 import { formatPhone } from "../../lib/phone";
 import type { CallRecordResponse } from "../../lib/api";
+import { CallRecordStatus } from "../../types";
 
 interface CallsScreenProps {
   onCall: (target: string, name?: string) => void;
@@ -73,7 +74,7 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
   );
 
   const getCallIcon = (call: CallRecordResponse) => {
-    if (call.status === "missed") return <PhoneMissed className="h-4 w-4 text-destructive" />;
+    if (call.status === CallRecordStatus.Missed) return <PhoneMissed className="h-4 w-4 text-destructive" />;
     if (isOutbound(call)) return <PhoneOutgoing className="h-4 w-4 text-emerald-500" />;
     return <PhoneIncoming className="h-4 w-4 text-blue-500" />;
   };
@@ -198,7 +199,7 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
                         >
                           <div className="flex items-center gap-2">
                             {getCallIcon(latest)}
-                            <span className={`text-sm font-medium truncate ${latest.status === "missed" ? "text-destructive" : ""}`}>
+                            <span className={`text-sm font-medium truncate ${latest.status === CallRecordStatus.Missed ? "text-destructive" : ""}`}>
                               {formatPhone(row.peerLabel)}
                             </span>
                             {count > 1 && (
@@ -235,7 +236,7 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
                           {row.calls.map((c) => (
                             <div key={c.id} className="flex items-center gap-2 py-1.5 text-xs">
                               {getCallIcon(c)}
-                              <span className={`capitalize ${c.status === "missed" ? "text-destructive" : "text-muted-foreground"}`}>
+                              <span className={`capitalize ${c.status === CallRecordStatus.Missed ? "text-destructive" : "text-muted-foreground"}`}>
                                 {c.status}
                               </span>
                               <span className="text-muted-foreground/70">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Phone } from "lucide-react";
 import { useAuthStore, useCallStore, useVoicemailStore } from "../stores";
 import { useSettingsStore } from "../stores";
@@ -20,6 +20,7 @@ import { useSipPhone } from "../hooks/useSipPhone";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useSettingsSync } from "../hooks/useSettingsSync";
 import { api } from "../lib/api";
+import { CallStatus } from "../types";
 
 export function AppShell() {
   const [activeTab, setActiveTab] = useState<TabId>("calls");
@@ -29,9 +30,13 @@ export function AppShell() {
   const { settings } = useSettingsStore();
   const { setVoicemails, unreadCount } = useVoicemailStore();
 
-  const { register, makeCall, hangUp, answer, sendDtmf } = useSipPhone();
-  const { connect, disconnect, onMessage } = useWebSocket();
+  const { register, makeCall, hangUp, answer, sendDtmf, isRecording, startRecording, stopRecording } = useSipPhone();
+  const { connect, disconnect, onMessage, send: wsSend } = useWebSocket();
   const settingsSync = useSettingsSync();
+
+  // Holds the call being recorded so we can still save it after the call ends
+  // (e.g. the remote party hangs up while recording is active).
+  const recordingCallRef = useRef<{ callId: string; peer: string } | null>(null);
 
   // The display name shown to the other party (From header).
   const displayName = settings.displayName?.trim() || user?.name || user?.extension;
@@ -51,6 +56,46 @@ export function AppShell() {
   useEffect(() => {
     setHydrated(true);
   }, []);
+
+  // ─── Call recording (WebSocket-driven, no REST upload) ────────────────
+  const finishRecording = useCallback(async () => {
+    const info = recordingCallRef.current;
+    recordingCallRef.current = null;
+    const rec = await stopRecording();
+    if (info) {
+      wsSend({ type: "recording", action: "stop", callId: info.callId, peer: info.peer });
+      if (rec) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const data = (reader.result as string).split(",")[1] || "";
+          wsSend({ type: "recording", action: "save", callId: info.callId, ext: rec.ext, mime: rec.mime, data });
+        };
+        reader.readAsDataURL(rec.blob);
+      }
+    }
+  }, [stopRecording, wsSend]);
+
+  const handleToggleRecording = useCallback(async () => {
+    if (!activeCall) return;
+    if (isRecording) {
+      await finishRecording();
+    } else if (startRecording()) {
+      recordingCallRef.current = { callId: activeCall.callId, peer: activeCall.peerExtension };
+      wsSend({ type: "recording", action: "start", callId: activeCall.callId, peer: activeCall.peerExtension });
+    }
+  }, [activeCall, isRecording, startRecording, finishRecording, wsSend]);
+
+  // Stop + save the recording before hanging up, or if the call ends remotely.
+  const handleHangUp = useCallback(async () => {
+    if (isRecording) await finishRecording();
+    hangUp();
+  }, [isRecording, finishRecording, hangUp]);
+
+  useEffect(() => {
+    const ended = !activeCall || activeCall.status === CallStatus.Ended || activeCall.status === CallStatus.Declined
+      || activeCall.status === CallStatus.NoAnswer || activeCall.status === CallStatus.Blocked;
+    if (isRecording && ended) finishRecording();
+  }, [activeCall, isRecording, finishRecording]);
 
   // Connect WS + register SIP on auth
   useEffect(() => {
@@ -98,9 +143,11 @@ export function AppShell() {
   if (activeCall && activeCall.status !== "ended") {
     return (
       <ActiveCallScreen
-        onHangUp={hangUp}
+        onHangUp={handleHangUp}
         onAnswer={answer}
         onSendDtmf={sendDtmf}
+        onToggleRecording={handleToggleRecording}
+        isRecording={isRecording}
       />
     );
   }

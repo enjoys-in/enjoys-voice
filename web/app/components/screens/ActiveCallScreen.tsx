@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Phone, PhoneOff, Mic, MicOff, Volume2, Hash, X } from "lucide-react";
+import { Phone, PhoneOff, Mic, MicOff, Volume2, Hash, X, Circle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCallStore, useSettingsStore } from "../../stores";
+import { CallDirection, CallStatus } from "../../types";
 
 interface ActiveCallScreenProps {
   onHangUp: () => void;
   onAnswer?: () => void;
   onSendDtmf?: (digit: string) => void;
+  onToggleRecording?: () => void;
+  isRecording?: boolean;
 }
 
 // DTMF dual-tone frequencies for local audio feedback while in a call.
@@ -50,7 +53,7 @@ function playDtmfTone(key: string) {
   setTimeout(() => ctx.close(), 200);
 }
 
-export function ActiveCallScreen({ onHangUp, onAnswer, onSendDtmf }: ActiveCallScreenProps) {
+export function ActiveCallScreen({ onHangUp, onAnswer, onSendDtmf, onToggleRecording, isRecording }: ActiveCallScreenProps) {
   const { activeCall, muted, speakerOn, toggleMute, toggleSpeaker } = useCallStore();
   const { settings } = useSettingsStore();
   const [elapsed, setElapsed] = useState(0);
@@ -59,7 +62,7 @@ export function ActiveCallScreen({ onHangUp, onAnswer, onSendDtmf }: ActiveCallS
 
   // Timer
   useEffect(() => {
-    if (!activeCall || activeCall.status !== "connected") {
+    if (!activeCall || activeCall.status !== CallStatus.Connected) {
       setElapsed(0);
       return;
     }
@@ -71,7 +74,7 @@ export function ActiveCallScreen({ onHangUp, onAnswer, onSendDtmf }: ActiveCallS
 
   // Reset the keypad whenever the call ends/changes.
   useEffect(() => {
-    if (!activeCall || activeCall.status !== "connected") {
+    if (!activeCall || activeCall.status !== CallStatus.Connected) {
       setShowKeypad(false);
       setDtmfEntered("");
     }
@@ -93,18 +96,18 @@ export function ActiveCallScreen({ onHangUp, onAnswer, onSendDtmf }: ActiveCallS
 
   const getStatusText = () => {
     switch (activeCall.status) {
-      case "dialing": return "Dialing...";
-      case "ringing": return "Ringing...";
-      case "connected": return formatTime(elapsed);
-      case "declined": return "Call declined";
-      case "no_answer": return "No answer";
-      case "blocked": return "Number blocked";
+      case CallStatus.Dialing: return "Dialing...";
+      case CallStatus.Ringing: return "Ringing...";
+      case CallStatus.Connected: return formatTime(elapsed);
+      case CallStatus.Declined: return "Call declined";
+      case CallStatus.NoAnswer: return "No answer";
+      case CallStatus.Blocked: return "Number blocked";
       default: return "Ended";
     }
   };
 
-  const isActive = activeCall.status === "connected";
-  const isPending = activeCall.status === "dialing" || activeCall.status === "ringing";
+  const isActive = activeCall.status === CallStatus.Connected;
+  const isPending = activeCall.status === CallStatus.Dialing || activeCall.status === CallStatus.Ringing;
 
   return (
     <div className="flex flex-col h-dvh bg-background items-center justify-between py-16 px-6">
@@ -118,6 +121,13 @@ export function ActiveCallScreen({ onHangUp, onAnswer, onSendDtmf }: ActiveCallS
         <p className={`text-sm font-medium ${isActive ? "text-emerald-500" : "text-muted-foreground"}`}>
           {getStatusText()}
         </p>
+        {/* Recording indicator */}
+        {isActive && isRecording && (
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-red-500">
+            <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+            REC
+          </span>
+        )}
         {/* Digits sent to the IVR during this call */}
         {dtmfEntered && (
           <p className="text-lg font-mono tracking-widest text-muted-foreground">{dtmfEntered}</p>
@@ -155,7 +165,7 @@ export function ActiveCallScreen({ onHangUp, onAnswer, onSendDtmf }: ActiveCallS
       {/* Controls */}
       <div className="space-y-8 w-full max-w-xs">
         {isActive && !showKeypad && (
-          <div className="grid grid-cols-3 gap-4 place-items-center">
+          <div className="grid grid-cols-4 gap-3 place-items-center">
             <Button
               size="lg"
               variant={muted ? "default" : "secondary"}
@@ -181,11 +191,22 @@ export function ActiveCallScreen({ onHangUp, onAnswer, onSendDtmf }: ActiveCallS
             >
               <Hash className="h-5 w-5" />
             </Button>
+            {onToggleRecording && (
+              <Button
+                size="lg"
+                variant={isRecording ? "default" : "secondary"}
+                className={`h-14 w-14 rounded-full ${isRecording ? "bg-red-600 hover:bg-red-700 text-white animate-pulse" : ""}`}
+                onClick={onToggleRecording}
+                aria-label={isRecording ? "Stop recording" : "Record call"}
+              >
+                <Circle className={`h-5 w-5 ${isRecording ? "fill-current" : ""}`} />
+              </Button>
+            )}
           </div>
         )}
 
         {/* Incoming ringing: Answer + Decline */}
-        {activeCall.direction === "inbound" && activeCall.status === "ringing" && onAnswer ? (
+        {activeCall.direction === CallDirection.Inbound && activeCall.status === CallStatus.Ringing && onAnswer ? (
           <div className="flex justify-center gap-8">
             <Button
               size="lg"

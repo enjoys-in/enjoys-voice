@@ -15,7 +15,7 @@ const DEFAULT_DEPARTMENTS: Department[] = [
 
 export class IVRSystem {
   private mrf: InstanceType<typeof Mrf>;
-  private ms: any = null;
+  private ms: Mrf.MediaServer | null = null;
   private departments: Department[];
   private activeCalls = new Map<string, IVRCallState>();
   private recordings: { path: string; callId: string; time: string }[] = [];
@@ -133,13 +133,19 @@ export class IVRSystem {
     }
 
     const id = crypto.randomUUID();
-    const fileName = `vm_${mailbox}_${Date.now()}.wav`;
-    const fsPath = `${config.voicemail.fsDir}/${fileName}`;
+    // Organize recordings as <mailbox>/<YYYYMMDD>/vm_<ts>.wav so messages are
+    // easy to browse per-user/per-day instead of piling up in one flat folder.
+    const now = new Date();
+    const dateDir = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+    const relDir = `${mailbox}/${dateDir}`;
+    const fileName = `vm_${Date.now()}.wav`;
+    const relPath = `${relDir}/${fileName}`;
+    const fsPath = `${config.voicemail.fsDir}/${relPath}`;
 
-    // Ensure the shared recordings directory exists (same bind mount the
+    // Ensure the shared recordings subdirectory exists (same bind mount the
     // FreeSWITCH container writes into), so the record app can create the file.
     try {
-      fs.mkdirSync(path.resolve(config.voicemail.hostDir), { recursive: true });
+      fs.mkdirSync(path.resolve(config.voicemail.hostDir, relDir), { recursive: true });
     } catch { /* best-effort */ }
 
     let endpoint: any;
@@ -147,7 +153,7 @@ export class IVRSystem {
     const startedAt = Date.now();
 
     try {
-      ({ endpoint, dialog } = await this.ms.connectCaller(req, res));
+      ({ endpoint, dialog } = await this.ms!.connectCaller(req, res));
 
       const greeting = `say:The person you are trying to reach is unavailable. `
         + `Please leave a message after the tone. Press zero when you are finished.`;
@@ -167,7 +173,7 @@ export class IVRSystem {
         mailbox,
         from: callerNumber,
         fromName: fromName || callerNumber,
-        file: fileName,
+        file: relPath,
         duration,
         createdAt: new Date().toISOString(),
         read: false,
@@ -222,13 +228,18 @@ export class IVRSystem {
     }
 
     try {
-      const { endpoint, dialog } = await this.ms.connectCaller(req, res);
-      // Language menu. playCollect plays the prompt AND collects a digit in one
-      // step, with barge-in (the caller can press a key before it finishes).
-      // Prompts are phrased as separate short sentences so the TTS engine
-      // inserts a natural pause between them instead of rushing one long line.
+      const { endpoint, dialog } = await this.ms!.connectCaller(req, res);
+
+      // One-time greeting. Played ONCE via play() so it is NOT repeated when
+      // the caller doesn't press a key in time — otherwise playCollect's retry
+      // would replay the whole prompt and the caller hears "welcome…welcome…".
+      await endpoint.play('say:Welcome to Enjoys Voice.');
+
+      // Language menu. playCollect plays the menu prompt AND collects a digit in
+      // one step, with barge-in (the caller can press a key before it finishes).
+      // Only the short menu (not the greeting) repeats on no-input retry.
       const { digits: lang } = await endpoint.playCollect({
-        file: 'say:Welcome to CallNet. Press 1 for English. Press 2 for Hindi.',
+        file: 'say:Press 1 for English. Press 2 for Hindi.',
         min: 1, max: 1, tries: 2, timeout: 8000, digitTimeout: 5000, terminators: '#',
       });
 

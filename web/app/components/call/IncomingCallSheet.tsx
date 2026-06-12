@@ -4,6 +4,7 @@ import { Phone, PhoneOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useCallStore } from "../../stores";
+import { CallDirection, CallStatus } from "../../types";
 
 interface IncomingCallSheetProps {
   onAnswer: () => void;
@@ -13,7 +14,7 @@ interface IncomingCallSheetProps {
 export function IncomingCallSheet({ onAnswer, onDecline }: IncomingCallSheetProps) {
   const { activeCall } = useCallStore();
 
-  const isIncoming = activeCall?.direction === "inbound" && activeCall?.status === "ringing";
+  const isIncoming = activeCall?.direction === CallDirection.Inbound && activeCall?.status === CallStatus.Ringing;
 
   if (!isIncoming) return null;
 

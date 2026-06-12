@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { api, type UserResponse, type CallRecordResponse, type HealthResponse } from "../lib/api";
+import { CallRecordStatus } from "../types";
 
 type Tab = "overview" | "users" | "calls" | "config";
 
@@ -209,8 +210,8 @@ function CallsTab({ calls }: { calls: CallRecordResponse[] }) {
                 <span className="text-muted-foreground text-xs">{new Date(c.startTime).toLocaleString()}</span>
                 <Badge variant="secondary" className="text-[10px]">{c.direction}</Badge>
                 <Badge
-                  variant={c.status === "answered" ? "default" : "secondary"}
-                  className={`text-[10px] ${c.status === "missed" ? "text-destructive" : ""}`}
+                  variant={c.status === CallRecordStatus.Answered ? "default" : "secondary"}
+                  className={`text-[10px] ${c.status === CallRecordStatus.Missed ? "text-destructive" : ""}`}
                 >
                   {c.status}
                 </Badge>

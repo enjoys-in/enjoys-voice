@@ -16,7 +16,7 @@
       max-timeouts="3"
       digit-len="1">
 
-    <!-- Welcome message plays: "Welcome to CallNet. For English press 1. Hindi ke liye 2 dabayein." -->
+    <!-- Welcome message plays: "Welcome to Enjoys Voice. For English press 1. Hindi ke liye 2 dabayein." -->
     <entry action="menu-sub" digits="1" param="callnet_english_menu"/>
     <entry action="menu-sub" digits="2" param="callnet_hindi_menu"/>
     <entry action="menu-top" digits="*"/>

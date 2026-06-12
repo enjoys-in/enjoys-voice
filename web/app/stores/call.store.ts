@@ -1,7 +1,6 @@
 import { create } from "zustand";
-import type { ActiveCall } from "../types";
-
-type ToneType = "dialing" | "ringback" | "ringtone" | "busy" | null;
+import type { ActiveCall, ToneType } from "../types";
+import { Tone } from "../types";
 
 interface CallStore {
   activeCall: ActiveCall | null;
@@ -23,7 +22,7 @@ export const useCallStore = create<CallStore>((set) => ({
   muted: false,
   speakerOn: false,
 
-  startCall: (call) => set({ activeCall: call, currentTone: "dialing" }),
+  startCall: (call) => set({ activeCall: call, currentTone: Tone.Dialing }),
   updateCall: (updates) =>
     set((state) => ({
       activeCall: state.activeCall ? { ...state.activeCall, ...updates } : null,

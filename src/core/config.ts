@@ -52,6 +52,11 @@ export interface AppConfig {
     hostDir: string;
     maxSec: number;
   };
+  callRecording: {
+    enabled: boolean;
+    // Directory the backend writes client-uploaded call recordings to.
+    hostDir: string;
+  };
   sounds: {
     basePath: string;
     ringback: string;
@@ -113,6 +118,10 @@ export const config: AppConfig = {
     fsDir: process.env.VOICEMAIL_FS_DIR || '/usr/local/freeswitch/recordings/voicemail',
     hostDir: process.env.VOICEMAIL_HOST_DIR || 'docker/recordings/voicemail',
     maxSec: parseInt(process.env.MAX_VOICEMAIL_SEC || '180'),
+  },
+  callRecording: {
+    enabled: process.env.CALL_RECORDING_ENABLED !== 'false',
+    hostDir: process.env.CALL_RECORDING_HOST_DIR || 'docker/recordings/calls',
   },
   sounds: {
     basePath: process.env.SOUNDS_PATH || '/usr/share/freeswitch/sounds',

@@ -4,6 +4,7 @@
  */
 
 import { getApiBase } from "./runtime-config";
+import type { CallDirection, CallRecordStatus } from "../types";
 
 // ─── Base Config ────────────────────────────────────────
 
@@ -91,8 +92,8 @@ export interface CallRecordResponse {
   from: string;
   to: string;
   fromName: string;
-  status: "ringing" | "answered" | "ended" | "missed" | "failed";
-  direction: "inbound" | "outbound";
+  status: CallRecordStatus;
+  direction: CallDirection;
   startTime: string;
   endTime?: string;
   duration?: number;
