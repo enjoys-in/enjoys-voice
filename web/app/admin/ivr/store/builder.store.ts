@@ -41,6 +41,21 @@ function newFlowId(): string {
   return `flow_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
+/**
+ * Deep-clone node data for copy/paste/duplicate. Menu options get fresh handle
+ * ids so a pasted menu never shares a source-handle id with its origin.
+ */
+function cloneNodeData(data: IvrNodeData): IvrNodeData {
+  const cloned = structuredClone(data);
+  if (cloned.kind === "menu") {
+    cloned.options = cloned.options.map((o) => ({
+      ...o,
+      id: `opt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    }));
+  }
+  return cloned;
+}
+
 // ─── factory: a brand-new flow with a single start node ─
 
 export function createEmptyFlow(name: string, extension: string): IvrFlow {
@@ -50,6 +65,7 @@ export function createEmptyFlow(name: string, extension: string): IvrFlow {
     type: "start",
     position: { x: 80, y: 200 },
     data: defaultNodeData("start", extension),
+    deletable: false,
   } as IvrNode;
   return {
     id: newFlowId(),
@@ -73,6 +89,7 @@ interface BuilderState {
   nodes: IvrNode[];
   edges: IvrEdge[];
   selectedNodeId: string | null;
+  clipboard: IvrNodeData | null;
   dirty: boolean;
   saving: boolean;
 
@@ -94,7 +111,15 @@ interface BuilderState {
   addNode: (kind: IvrNodeKind, position?: XYPosition) => void;
   updateNodeData: (id: string, patch: Partial<IvrNodeData>) => void;
   removeNode: (id: string) => void;
+  removeEdge: (id: string) => void;
   selectNode: (id: string | null) => void;
+
+  // clipboard / duplicate / bulk
+  copyNode: (id: string) => void;
+  cutNode: (id: string) => void;
+  pasteNode: (position?: XYPosition) => void;
+  duplicateNode: (id: string) => void;
+  clearAll: () => void;
 
   // menu-option ops (keep handles + edges in sync)
   addMenuOption: (nodeId: string, digit: DtmfDigit) => void;
@@ -117,6 +142,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   nodes: [],
   edges: [],
   selectedNodeId: null,
+  clipboard: null,
   dirty: false,
   saving: false,
 
@@ -126,7 +152,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       name: flow.name,
       extension: flow.extension,
       enabled: flow.enabled,
-      nodes: flow.nodes,
+      nodes: flow.nodes.map((n) =>
+        n.type === "start" ? ({ ...n, deletable: false } as IvrNode) : n,
+      ),
       edges: flow.edges,
       selectedNodeId: null,
       dirty: false,
@@ -239,7 +267,65 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       };
     }),
 
+  removeEdge: (id) =>
+    set((s) => ({ edges: s.edges.filter((e) => e.id !== id), dirty: true })),
+
   selectNode: (id) => set({ selectedNodeId: id }),
+
+  copyNode: (id) =>
+    set((s) => {
+      const node = s.nodes.find((n) => n.id === id);
+      if (!node || node.data.kind === "start") return s;
+      return { clipboard: cloneNodeData(node.data) };
+    }),
+
+  cutNode: (id) => {
+    const node = get().nodes.find((n) => n.id === id);
+    if (!node || node.data.kind === "start") return;
+    set({ clipboard: cloneNodeData(node.data) });
+    get().removeNode(id);
+  },
+
+  pasteNode: (position) =>
+    set((s) => {
+      if (!s.clipboard || s.clipboard.kind === "start") return s;
+      const data = cloneNodeData(s.clipboard);
+      const id = newNodeId(data.kind);
+      const node = {
+        id,
+        type: data.kind,
+        position: position ?? { x: 380, y: 120 + s.nodes.length * 28 },
+        data,
+      } as IvrNode;
+      return { nodes: [...s.nodes, node], selectedNodeId: id, dirty: true };
+    }),
+
+  duplicateNode: (id) =>
+    set((s) => {
+      const node = s.nodes.find((n) => n.id === id);
+      if (!node || node.data.kind === "start") return s;
+      const data = cloneNodeData(node.data);
+      const newId = newNodeId(data.kind);
+      const copy = {
+        id: newId,
+        type: data.kind,
+        position: { x: node.position.x + 48, y: node.position.y + 48 },
+        data,
+      } as IvrNode;
+      return { nodes: [...s.nodes, copy], selectedNodeId: newId, dirty: true };
+    }),
+
+  clearAll: () =>
+    set((s) => {
+      const start = s.nodes.find((n) => n.type === "start");
+      return {
+        nodes: start ? [start] : [],
+        edges: [],
+        selectedNodeId: null,
+        dirty: true,
+      };
+    }),
+
 
   addMenuOption: (nodeId, digit) =>
     set((s) => ({

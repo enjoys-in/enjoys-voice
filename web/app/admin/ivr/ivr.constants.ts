@@ -8,6 +8,7 @@ import {
   PhoneIncoming,
   ListTree,
   Volume2,
+  GitBranch,
   PhoneForwarded,
   Voicemail,
   PhoneOff,
@@ -16,6 +17,8 @@ import {
 
 import {
   emptyPrompt,
+  type ConditionOperator,
+  type ConditionVariable,
   type DtmfDigit,
   type IvrNodeData,
   type IvrNodeKind,
@@ -60,6 +63,14 @@ export const NODE_META: Record<IvrNodeKind, NodeMeta> = {
     accent: "text-violet-500 border-violet-500/40",
     addable: true,
   },
+  condition: {
+    kind: "condition",
+    title: "Condition",
+    description: "Branch if/else by matching a value (caller id, time, digits…).",
+    icon: GitBranch,
+    accent: "text-indigo-500 border-indigo-500/40",
+    addable: true,
+  },
   transfer: {
     kind: "transfer",
     title: "Transfer",
@@ -90,10 +101,33 @@ export const NODE_META: Record<IvrNodeKind, NodeMeta> = {
 export const PALETTE_KINDS: IvrNodeKind[] = [
   "menu",
   "play",
+  "condition",
   "transfer",
   "voicemail",
   "hangup",
 ];
+
+// ─── Condition labels (display) ─────────────────────
+
+export const VARIABLE_LABELS: Record<ConditionVariable, string> = {
+  caller_id: "Caller ID",
+  dialed_number: "Dialed number",
+  last_digit: "Last digit",
+  digits: "Collected digits",
+  time_of_day: "Time of day",
+  day_of_week: "Day of week",
+  custom: "Custom variable",
+};
+
+export const OPERATOR_LABELS: Record<ConditionOperator, string> = {
+  eq: "equals",
+  neq: "not equals",
+  contains: "contains",
+  starts_with: "starts with",
+  ends_with: "ends with",
+  regex: "matches regex",
+  in_range: "in range",
+};
 
 // ─── Defaults ───────────────────────────────────────────
 
@@ -137,6 +171,15 @@ export function defaultNodeData(kind: IvrNodeKind, extension = ""): IvrNodeData 
         label: "Play message",
         prompt: emptyPrompt("Thank you for calling."),
         bargeIn: true,
+      };
+    case "condition":
+      return {
+        kind: "condition",
+        label: "Condition",
+        variable: "caller_id",
+        operator: "contains",
+        value: "",
+        ignoreCase: true,
       };
     case "transfer":
       return {

@@ -29,12 +29,41 @@ export const IVR_NODE_KINDS = [
   "start",
   "menu",
   "play",
+  "condition",
   "transfer",
   "voicemail",
   "hangup",
 ] as const;
 
 export type IvrNodeKind = (typeof IVR_NODE_KINDS)[number];
+
+// ─── Condition (if / else matching) ─────────────────────
+
+/** Channel value a condition node can test against. */
+export const CONDITION_VARIABLES = [
+  "caller_id",
+  "dialed_number",
+  "last_digit",
+  "digits",
+  "time_of_day",
+  "day_of_week",
+  "custom",
+] as const;
+
+export type ConditionVariable = (typeof CONDITION_VARIABLES)[number];
+
+/** How the variable is compared to the target value. */
+export const CONDITION_OPERATORS = [
+  "eq",
+  "neq",
+  "contains",
+  "starts_with",
+  "ends_with",
+  "regex",
+  "in_range",
+] as const;
+
+export type ConditionOperator = (typeof CONDITION_OPERATORS)[number];
 
 // ─── Prompt (what the caller hears) ─────────────────────
 
@@ -107,6 +136,21 @@ export type PlayNodeData = {
   bargeIn: boolean;
 };
 
+export type ConditionNodeData = {
+  kind: "condition";
+  label: string;
+  /** Which channel value to test. */
+  variable: ConditionVariable;
+  /** Channel variable name when `variable` = "custom" (e.g. "vip_caller"). */
+  customVariable?: string;
+  /** Comparison operator. */
+  operator: ConditionOperator;
+  /** Target value. For `in_range` use "min,max"; for `regex` a pattern. */
+  value: string;
+  /** Case-insensitive string comparison. */
+  ignoreCase: boolean;
+};
+
 export type TransferNodeData = {
   kind: "transfer";
   label: string;
@@ -140,6 +184,7 @@ export type IvrNodeData =
   | StartNodeData
   | MenuNodeData
   | PlayNodeData
+  | ConditionNodeData
   | TransferNodeData
   | VoicemailNodeData
   | HangupNodeData;
@@ -149,6 +194,7 @@ export type IvrNodeData =
 export type StartNode = Node<StartNodeData, "start">;
 export type MenuNode = Node<MenuNodeData, "menu">;
 export type PlayNode = Node<PlayNodeData, "play">;
+export type ConditionNode = Node<ConditionNodeData, "condition">;
 export type TransferNode = Node<TransferNodeData, "transfer">;
 export type VoicemailNode = Node<VoicemailNodeData, "voicemail">;
 export type HangupNode = Node<HangupNodeData, "hangup">;
@@ -157,6 +203,7 @@ export type IvrNode =
   | StartNode
   | MenuNode
   | PlayNode
+  | ConditionNode
   | TransferNode
   | VoicemailNode
   | HangupNode;

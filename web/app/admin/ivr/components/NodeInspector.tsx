@@ -12,11 +12,30 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 import { useBuilderStore } from "../store/builder.store";
-import { NODE_META } from "../ivr.constants";
-import { DTMF_DIGITS, type DtmfDigit, type IvrNode } from "../ivr.types";
+import {
+  NODE_META,
+  OPERATOR_LABELS,
+  VARIABLE_LABELS,
+} from "../ivr.constants";
+import {
+  CONDITION_OPERATORS,
+  CONDITION_VARIABLES,
+  DTMF_DIGITS,
+  type ConditionOperator,
+  type ConditionVariable,
+  type DtmfDigit,
+  type IvrNode,
+} from "../ivr.types";
 import { PromptEditor } from "./PromptEditor";
 
 // ─── small field helpers ────────────────────────────────
@@ -56,9 +75,6 @@ function NumberField({
     </Field>
   );
 }
-
-const digitSelectClass =
-  "h-8 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
 // ─── inspector ──────────────────────────────────────────
 
@@ -203,21 +219,25 @@ function NodeFields({
 
             {data.options.map((opt) => (
               <div key={opt.id} className="flex items-center gap-2">
-                <select
+                <Select
                   value={opt.digit}
-                  onChange={(e) =>
+                  onValueChange={(digit) =>
                     updateMenuOption(node.id, opt.id, {
-                      digit: e.target.value as DtmfDigit,
+                      digit: digit as DtmfDigit,
                     })
                   }
-                  className={cn(digitSelectClass, "w-14 font-mono")}
                 >
-                  {DTMF_DIGITS.map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="h-8 w-16 font-mono">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DTMF_DIGITS.map((d) => (
+                      <SelectItem key={d} value={d} className="font-mono">
+                        {d}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Input
                   value={opt.label}
                   placeholder="Label (e.g. Sales)"
@@ -272,6 +292,106 @@ function NodeFields({
           </div>
         </>
       );
+
+    case "condition": {
+      const valueHint =
+        data.operator === "in_range"
+          ? "min,max (e.g. 9,17)"
+          : data.operator === "regex"
+            ? "pattern (e.g. ^1800)"
+            : "value to match";
+      return (
+        <>
+          <Field label="Variable to test">
+            <Select
+              value={data.variable}
+              onValueChange={(variable) =>
+                updateNodeData(node.id, {
+                  variable: variable as ConditionVariable,
+                })
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CONDITION_VARIABLES.map((v) => (
+                  <SelectItem key={v} value={v}>
+                    {VARIABLE_LABELS[v]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          {data.variable === "custom" && (
+            <Field label="Channel variable name">
+              <Input
+                value={data.customVariable ?? ""}
+                placeholder="e.g. vip_caller"
+                onChange={(e) =>
+                  updateNodeData(node.id, { customVariable: e.target.value })
+                }
+                className="text-sm font-mono"
+              />
+            </Field>
+          )}
+
+          <Field label="Operator">
+            <Select
+              value={data.operator}
+              onValueChange={(operator) =>
+                updateNodeData(node.id, {
+                  operator: operator as ConditionOperator,
+                })
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CONDITION_OPERATORS.map((op) => (
+                  <SelectItem key={op} value={op}>
+                    {OPERATOR_LABELS[op]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field label="Value">
+            <Input
+              value={data.value}
+              placeholder={valueHint}
+              onChange={(e) => updateNodeData(node.id, { value: e.target.value })}
+              className="text-sm font-mono"
+            />
+          </Field>
+
+          <div className="flex items-center justify-between">
+            <Label className="text-xs">Ignore case</Label>
+            <Switch
+              checked={data.ignoreCase}
+              onCheckedChange={(ignoreCase) =>
+                updateNodeData(node.id, { ignoreCase })
+              }
+            />
+          </div>
+
+          <p className="text-[11px] text-muted-foreground/70">
+            Wire the{" "}
+            <span className="font-medium text-emerald-600 dark:text-emerald-400">
+              if true
+            </span>{" "}
+            and{" "}
+            <span className="font-medium text-rose-600 dark:text-rose-400">
+              else
+            </span>{" "}
+            handles to the next blocks.
+          </p>
+        </>
+      );
+    }
 
     case "transfer":
       return (
