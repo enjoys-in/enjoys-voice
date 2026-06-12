@@ -78,7 +78,7 @@ export class SignalingServer {
     this.send(client.ws, {
       type: 'registered',
       user: { extension: user.extension, name: user.name, username: user.username },
-      sipWsUrl: `ws://${config.server.publicIp}:${config.sipWs.port}`,
+      sipWsUrl: config.server.publicSipWsUrl || `ws://${config.server.publicIp}:${config.sipWs.port}`,
     });
 
     this.broadcastPresence();

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const inter = Inter({
@@ -28,6 +29,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
+      <head>
+        {/* Runtime config injected at container start (see prod/web-entrypoint.sh). */}
+        <Script src="/runtime-config.js" strategy="beforeInteractive" />
+      </head>
       <body className={`${inter.variable} antialiased`}>
         {children}
       </body>

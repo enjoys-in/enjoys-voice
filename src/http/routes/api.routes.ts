@@ -8,6 +8,16 @@ import { authRateLimit } from '../middleware/rate-limit';
 export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipServer, audit: AuditService): Router {
   const router = Router();
 
+  // Build the SIP config returned to clients. In production set PUBLIC_WS_URL /
+  // PUBLIC_SIP_WS_URL (e.g. wss://voice.example.com/...) to use a TLS proxy;
+  // otherwise legacy ws://<publicIp>:<port> URLs are used (local default).
+  const buildSipConfig = () => ({
+    wsUrl: config.server.publicWsUrl || `ws://${config.server.publicIp}:${config.server.wsPort}`,
+    sipWsUrl: config.server.publicSipWsUrl || `ws://${config.server.publicIp}:${config.sipWs.port}`,
+    domain: config.server.domain,
+    trunkEnabled: trunk.isEnabled,
+  });
+
   // ─── Health ──────────────────────────────────────────
   router.get('/health', (_req: Request, res: Response) => {
     res.json({
@@ -36,12 +46,7 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
     res.json({
       success: true,
       user: { extension: user.extension, name: user.name, username: user.username, mobile: user.mobile },
-      sipConfig: {
-        wsUrl: `ws://${config.server.publicIp}:${config.server.wsPort}`,
-        sipWsUrl: `ws://${config.server.publicIp}:${config.sipWs.port}`,
-        domain: config.server.domain,
-        trunkEnabled: trunk.isEnabled,
-      },
+      sipConfig: buildSipConfig(),
     });
   });
 
@@ -68,12 +73,7 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
     res.status(201).json({
       success: true,
       user: { extension: user.extension, name: user.name, username: user.username, mobile: user.mobile },
-      sipConfig: {
-        wsUrl: `ws://${config.server.publicIp}:${config.server.wsPort}`,
-        sipWsUrl: `ws://${config.server.publicIp}:${config.sipWs.port}`,
-        domain: config.server.domain,
-        trunkEnabled: trunk.isEnabled,
-      },
+      sipConfig: buildSipConfig(),
     });
   });
 

@@ -6,6 +6,8 @@ export interface AppConfig {
     wsPort: number;
     publicIp: string;
     domain: string;
+    publicWsUrl: string;
+    publicSipWsUrl: string;
   };
   drachtio: {
     host: string;
@@ -58,6 +60,10 @@ export const config: AppConfig = {
     wsPort: parseInt(process.env.WS_PORT || '3002'),
     publicIp: process.env.PUBLIC_IP || '127.0.0.1',
     domain: process.env.DOMAIN || 'localhost',
+    // Optional full-URL overrides for production (e.g. wss:// behind a TLS proxy).
+    // When empty, legacy ws://<publicIp>:<port> URLs are used (local default).
+    publicWsUrl: process.env.PUBLIC_WS_URL || '',
+    publicSipWsUrl: process.env.PUBLIC_SIP_WS_URL || '',
   },
   drachtio: {
     host: process.env.DRACHTIO_HOST || '127.0.0.1',

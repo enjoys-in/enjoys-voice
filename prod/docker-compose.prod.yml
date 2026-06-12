@@ -1,0 +1,109 @@
+# ════════════════════════════════════════════════════════════════
+#  CallNet — PRODUCTION stack (VPS 77.237.241.24)
+#  Run from this folder:  docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+#  Build contexts point at the repo root (..) so the existing source is reused.
+#  This file is SEPARATE from docker/docker-compose.yml — local is untouched.
+# ════════════════════════════════════════════════════════════════
+name: callnet-prod
+
+services:
+  # ─── Frontend (Next.js) ────────────────────────────────────────
+  web:
+    build:
+      context: ..
+      dockerfile: prod/web.Dockerfile
+    container_name: callnet-web
+    restart: unless-stopped
+    # Config is injected at RUNTIME (see prod/web-entrypoint.sh) — no rebuild
+    # needed to change these; just edit .env and restart the container.
+    environment:
+      - PUBLIC_API_BASE=${PUBLIC_API_BASE}
+      - PUBLIC_ICE_SERVERS=${PUBLIC_ICE_SERVERS}
+    expose:
+      - "3000"
+    networks:
+      - voipnet
+
+  # ─── Backend API + SIP/B2BUA app (Bun) ─────────────────────────
+  api:
+    build:
+      context: ..
+      dockerfile: prod/api.Dockerfile
+    container_name: callnet-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    expose:
+      - "3001"   # REST API
+      - "3002"   # signaling WS
+      - "8085"   # FreeSWITCH ESL-outbound listener
+    depends_on:
+      - drachtio-server
+      - drachtio-freeswitch
+    networks:
+      - voipnet
+
+  # ─── drachtio SIP server (signaling) ───────────────────────────
+  drachtio-server:
+    image: drachtio/drachtio-server
+    container_name: callnet-drachtio
+    restart: unless-stopped
+    command: >
+      drachtio
+      --contact "sip:*;transport=udp,tcp"
+      --external-ip ${PUBLIC_IP}
+    ports:
+      - "5060:5060/udp"   # SIP UDP (trunk / external UAs)
+      - "5060:5060/tcp"   # SIP TCP
+    expose:
+      - "9022"            # control socket — internal only
+      - "5065"            # SIP-over-WS — reached via Caddy only
+    environment:
+      - DRACHTIO_SECRET=${DRACHTIO_SECRET}
+    volumes:
+      - ../docker/drachtio-server/config/drachtio.conf.xml:/etc/drachtio.conf.xml:ro
+    networks:
+      - voipnet
+
+  # ─── FreeSWITCH media server (MRF) ─────────────────────────────
+  drachtio-freeswitch:
+    image: safarov/freeswitch:latest
+    container_name: callnet-freeswitch
+    restart: unless-stopped
+    cap_add:
+      - SYS_NICE
+    ports:
+      - "16384-16403:16384-16403/udp"   # RTP media — public for browser audio
+    expose:
+      - "8021"   # ESL — internal only
+      - "5090"   # MRF SIP — reached by drachtio on the internal net
+    environment:
+      - SOUND_RATES=8000:16000
+      - SOUND_TYPES=music:en-us-callie
+    volumes:
+      - ../docker/freeswitch_configs:/etc/freeswitch
+      # Override ONLY the MRF profile with the public external IP (local untouched):
+      - ./freeswitch/drachtio_mrf.xml:/etc/freeswitch/sip_profiles/drachtio_mrf.xml:ro
+      - ../docker/freeswitch_sounds:/usr/share/freeswitch/sounds
+      - freeswitch-recordings:/usr/local/freeswitch/recordings
+    networks:
+      - voipnet
+
+  # ─── coturn (TURN/STUN for WebRTC across NAT) ──────────────────
+  coturn:
+    image: coturn/coturn:latest
+    container_name: callnet-coturn
+    restart: unless-stopped
+    network_mode: host          # TURN needs the real host IP + wide relay range
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+
+networks:
+  voipnet:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
+  freeswitch-recordings:

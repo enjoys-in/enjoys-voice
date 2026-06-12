@@ -1,0 +1,31 @@
+# ════════════════════════════════════════════════════════════════
+#  Caddy reverse proxy — automatic HTTPS (Let's Encrypt)
+#  {$DOMAIN} is read from the DOMAIN env var (set in .env / compose).
+# ════════════════════════════════════════════════════════════════
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# ── SIP over WebSocket (drachtio) → wss://DOMAIN/sip ──────────
+	# SIP.js connects here (PUBLIC_SIP_WS_URL). Caddy upgrades + proxies.
+	@sip path /sip /sip/*
+	handle @sip {
+		reverse_proxy drachtio-server:5065
+	}
+
+	# ── App signaling WebSocket → wss://DOMAIN/signal ─────────────
+	@signal path /signal /signal/*
+	handle @signal {
+		reverse_proxy api:3002
+	}
+
+	# ── REST API → https://DOMAIN/api/* (express mounts at /api) ──
+	handle /api/* {
+		reverse_proxy api:3001
+	}
+
+	# ── Frontend (Next.js) — everything else ─────────────────────
+	handle {
+		reverse_proxy web:3000
+	}
+}

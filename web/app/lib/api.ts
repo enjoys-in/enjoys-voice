@@ -3,12 +3,13 @@
  * All fetch calls are centralized here with full request/response typing.
  */
 
+import { getApiBase } from "./runtime-config";
+
 // ─── Base Config ────────────────────────────────────────
 
-const API_BASE =
-  typeof window !== "undefined"
-    ? `${window.location.protocol}//${window.location.hostname}:3001`
-    : "";
+// Sourced from RUNTIME config (window.__RUNTIME_CONFIG__.API_BASE) injected at
+// container start. Falls back to dev (window host:3001) when unset.
+const API_BASE = getApiBase();
 
 // ─── Request Types ──────────────────────────────────────
 
