@@ -73,6 +73,12 @@ export interface AppConfig {
     // empty, localhost/127.0.0.1 on any port is allowed for local dev.
     allowedOrigins: string[];
   };
+  database: {
+    // Postgres connection string for the SHARED database the Go API owns. Node
+    // hydrates its in-memory store from here so both processes see one source
+    // of truth. MUST match the Go API's DATABASE_URL.
+    url: string;
+  };
   sipUsers: Array<{ extension: string; username: string; password: string; name: string }>;
 }
 
@@ -149,6 +155,11 @@ export const config: AppConfig = {
       .split(',')
       .map((o) => o.trim())
       .filter(Boolean),
+  },
+  database: {
+    url:
+      process.env.DATABASE_URL ||
+      'postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable',
   },
   sipUsers: [
     { extension: '1001', username: 'user1', password: 'pass123', name: 'Alice' },

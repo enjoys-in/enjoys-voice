@@ -1,4 +1,5 @@
 import { CallLog, SipUser, SipRegistration, Voicemail, config } from '@/core';
+import { loadAllUsers } from './postgres';
 
 export class DatabaseService {
   private users = new Map<string, SipUser>();
@@ -21,6 +22,46 @@ export class DatabaseService {
       this.users.set(u.extension, user);
       this.users.set(u.username, user);
       this.usedExtensions.add(u.extension);
+    }
+  }
+
+  /**
+   * Hydrate the in-memory user store from the shared Postgres database so that
+   * users created through the Go API (which the SIP/WS layers don't otherwise
+   * know about) can register and be called. Identity fields are refreshed while
+   * any live state already in memory (registration, routing rules) is preserved,
+   * so this is safe to call again later (e.g. on a sync event). Returns the
+   * number of users loaded.
+   */
+  async hydrateFromPostgres(): Promise<number> {
+    const rows = await loadAllUsers();
+    for (const row of rows) {
+      this.upsertUser({
+        extension: row.extension,
+        username: row.username,
+        name: row.name,
+        mobile: row.mobile,
+      });
+    }
+    return rows.length;
+  }
+
+  /**
+   * Insert or update a user's identity in the in-memory maps, preserving any
+   * live/routing state on an existing entry. Keeps the extension and username
+   * lookups and the phone-number index in sync. Passwords are not stored — Node
+   * no longer authenticates with them.
+   */
+  private upsertUser(identity: { extension: string; username: string; name: string; mobile: string }): void {
+    const existing = this.users.get(identity.extension);
+    const user: SipUser = existing
+      ? { ...existing, ...identity }
+      : { ...identity, password: '', registered: false };
+    this.users.set(user.extension, user);
+    this.users.set(user.username, user);
+    this.usedExtensions.add(user.extension);
+    if (user.mobile) {
+      this.phoneIndex.set(user.mobile.replace(/\D/g, ''), user.extension);
     }
   }
 

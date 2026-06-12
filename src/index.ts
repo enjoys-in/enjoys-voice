@@ -30,6 +30,16 @@ class Application {
     console.log(`   Trunk:  ${config.trunk.enabled ? config.trunk.host : 'disabled'}`);
     console.log(`   IVR:    ${config.ivr.enabled ? 'enabled' : 'disabled'}`);
 
+    // Hydrate users from the shared Postgres DB so accounts created via the Go
+    // API can register and be called. Best-effort: if the DB is unreachable we
+    // keep the in-memory seed so local dev still boots.
+    try {
+      const n = await this.db.hydrateFromPostgres();
+      console.log(`   Users:  hydrated ${n} from Postgres`);
+    } catch (err: any) {
+      console.warn(`   Users:  ⚠️  Postgres hydration failed, using in-memory seed (${err?.message})`);
+    }
+
     // Wire SIP call events → WebSocket notifications
     this.sip.setNotifier((ext, event, data) => this.ws.notifyCallEvent(ext, event, data));
 
