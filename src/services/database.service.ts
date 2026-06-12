@@ -1,4 +1,4 @@
-import { CallLog, SipUser, SipRegistration, Voicemail, config } from '@/core';
+import { CallLog, SipUser, SipRegistration, Voicemail, config, DbEvent } from '@/core';
 import { EventEmitter } from 'events';
 import {
   loadAllUsers,
@@ -317,14 +317,14 @@ export class DatabaseService extends EventEmitter {
     this.callLogs.unshift(data);
     if (this.callLogs.length > 500) this.callLogs.pop();
     // Mirror to the shared Postgres call_records table via the write queue.
-    this.emit('call:upserted', data);
+    this.emit(DbEvent.CallUpserted, data);
   }
 
   updateCall(callId: string, updates: Partial<CallLog>): void {
     const call = this.callLogs.find(c => c.id === callId);
     if (call) {
       Object.assign(call, updates);
-      this.emit('call:upserted', call);
+      this.emit(DbEvent.CallUpserted, call);
     }
   }
 
@@ -422,7 +422,7 @@ export class DatabaseService extends EventEmitter {
     if (list.length > 100) list.pop();
     this.voicemails.set(vm.mailbox, list);
     // Mirror to the shared Postgres voicemails table via the write queue.
-    this.emit('voicemail:created', vm);
+    this.emit(DbEvent.VoicemailCreated, vm);
   }
 
   getVoicemails(mailbox: string): Voicemail[] {
@@ -437,7 +437,7 @@ export class DatabaseService extends EventEmitter {
     const vm = this.getVoicemail(mailbox, id);
     if (!vm) return false;
     vm.read = true;
-    this.emit('voicemail:read', { extension: mailbox, filename: vm.file });
+    this.emit(DbEvent.VoicemailRead, { extension: mailbox, filename: vm.file });
     return true;
   }
 
@@ -447,7 +447,7 @@ export class DatabaseService extends EventEmitter {
     const idx = list.findIndex(v => v.id === id);
     if (idx === -1) return false;
     const [removed] = list.splice(idx, 1);
-    this.emit('voicemail:deleted', { extension: mailbox, filename: removed.file });
+    this.emit(DbEvent.VoicemailDeleted, { extension: mailbox, filename: removed.file });
     return true;
   }
 

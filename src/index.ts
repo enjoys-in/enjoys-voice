@@ -1,4 +1,4 @@
-import { config } from '@/core';
+import { config, DbEvent, WriteJob } from '@/core';
 import {
   DatabaseService,
   TrunkService,
@@ -49,21 +49,21 @@ class Application {
     // path off the DB write latency and shares voicemails with the Go dashboard.
     this.writeQueue = new WriteQueue();
     this.writeQueue
-      .on('voicemail.create', (vm) => insertVoicemail(vm))
-      .on('voicemail.read', ({ extension, filename }) => markVoicemailReadByFile(extension, filename))
-      .on('voicemail.delete', ({ extension, filename }) => deleteVoicemailByFile(extension, filename))
-      .on('call.upsert', (call) => upsertCall(call));
-    this.db.on('voicemail:created', (vm) => {
-      void this.writeQueue.enqueue('voicemail.create', vm).catch(() => {});
+      .on(WriteJob.VoicemailCreate, (vm) => insertVoicemail(vm))
+      .on(WriteJob.VoicemailRead, ({ extension, filename }) => markVoicemailReadByFile(extension, filename))
+      .on(WriteJob.VoicemailDelete, ({ extension, filename }) => deleteVoicemailByFile(extension, filename))
+      .on(WriteJob.CallUpsert, (call) => upsertCall(call));
+    this.db.on(DbEvent.VoicemailCreated, (vm) => {
+      void this.writeQueue.enqueue(WriteJob.VoicemailCreate, vm).catch(() => {});
     });
-    this.db.on('voicemail:read', (p) => {
-      void this.writeQueue.enqueue('voicemail.read', p).catch(() => {});
+    this.db.on(DbEvent.VoicemailRead, (p) => {
+      void this.writeQueue.enqueue(WriteJob.VoicemailRead, p).catch(() => {});
     });
-    this.db.on('voicemail:deleted', (p) => {
-      void this.writeQueue.enqueue('voicemail.delete', p).catch(() => {});
+    this.db.on(DbEvent.VoicemailDeleted, (p) => {
+      void this.writeQueue.enqueue(WriteJob.VoicemailDelete, p).catch(() => {});
     });
-    this.db.on('call:upserted', (call) => {
-      void this.writeQueue.enqueue('call.upsert', call).catch(() => {});
+    this.db.on(DbEvent.CallUpserted, (call) => {
+      void this.writeQueue.enqueue(WriteJob.CallUpsert, call).catch(() => {});
     });
   }
 

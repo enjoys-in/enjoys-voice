@@ -15,6 +15,29 @@ export enum SipStatus {
   ServerError = 500,
 }
 
+/**
+ * Events emitted by DatabaseService (an EventEmitter). The wiring layer listens
+ * for these to mirror in-memory mutations to the shared Postgres database. The
+ * ":" naming distinguishes them from write-queue job types (see WriteJob).
+ */
+export enum DbEvent {
+  CallUpserted = 'call:upserted',
+  VoicemailCreated = 'voicemail:created',
+  VoicemailRead = 'voicemail:read',
+  VoicemailDeleted = 'voicemail:deleted',
+}
+
+/**
+ * Job types handled by the write-behind queue. These string values are
+ * persisted in Redis as part of each queued job, so they MUST remain stable.
+ */
+export enum WriteJob {
+  CallUpsert = 'call.upsert',
+  VoicemailCreate = 'voicemail.create',
+  VoicemailRead = 'voicemail.read',
+  VoicemailDelete = 'voicemail.delete',
+}
+
 export interface CallLog {
   id: string;
   from: string;
