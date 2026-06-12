@@ -1,8 +1,7 @@
 package handler
 
 import (
-	"net/http"
-
+	"github.com/enjoys-in/enjoys-voice/api/internal/response"
 	"github.com/enjoys-in/enjoys-voice/api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -19,13 +18,13 @@ func (h *BlockHandler) Get(c *gin.Context) {
 	ext := c.Param("ext")
 	numbers, err := h.blockSvc.GetByExtension(c.Request.Context(), ext)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch blocked numbers"})
+		response.Internal(c, "Failed to fetch blocked numbers")
 		return
 	}
 	if numbers == nil {
 		numbers = []string{}
 	}
-	c.JSON(http.StatusOK, gin.H{"blocked": numbers})
+	response.OK(c, gin.H{"blocked": numbers})
 }
 
 type blockRequest struct {
@@ -36,16 +35,16 @@ func (h *BlockHandler) Add(c *gin.Context) {
 	ext := c.Param("ext")
 	var req blockRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing number"})
+		response.BadRequest(c, "Missing number")
 		return
 	}
 
 	if err := h.blockSvc.Add(c.Request.Context(), ext, req.Number); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		response.Internal(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	response.Success(c, "Number blocked", nil)
 }
 
 func (h *BlockHandler) Remove(c *gin.Context) {
@@ -53,9 +52,9 @@ func (h *BlockHandler) Remove(c *gin.Context) {
 	number := c.Param("number")
 
 	if err := h.blockSvc.Remove(c.Request.Context(), ext, number); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		response.Internal(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	response.Success(c, "Number unblocked", nil)
 }

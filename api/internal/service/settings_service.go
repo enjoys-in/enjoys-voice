@@ -110,3 +110,39 @@ func (s *settingsService) WarmCache(ctx context.Context, ext string) error {
 	data, _ := json.Marshal(resp)
 	return s.cache.Set(ctx, cache.SettingsKey(ext), string(data), cache.DefaultTTL)
 }
+
+// GetPstnForward returns the PSTN forwarding view derived from UserSettings.
+func (s *settingsService) GetPstnForward(ctx context.Context, ext string) (*PstnForward, error) {
+	settings, err := s.settingsRepo.Get(ctx, ext)
+	if err != nil {
+		return &PstnForward{Enabled: false, Target: ""}, nil
+	}
+	return &PstnForward{Enabled: settings.PstnEnabled, Target: settings.PstnMobile}, nil
+}
+
+// SetPstnForward updates the PSTN forwarding fields on UserSettings, creating
+// the settings row if it does not exist yet.
+func (s *settingsService) SetPstnForward(ctx context.Context, ext string, enabled bool, target string) (*PstnForward, error) {
+	settings, err := s.settingsRepo.Get(ctx, ext)
+	if err != nil {
+		user, userErr := s.userRepo.GetByExtension(ctx, ext)
+		if userErr != nil {
+			return nil, errors.New("user not found")
+		}
+		settings = &models.UserSettings{UserID: user.ID, Extension: ext}
+	}
+
+	settings.PstnEnabled = enabled
+	settings.PstnMobile = target
+
+	if err := s.settingsRepo.Upsert(ctx, settings); err != nil {
+		return nil, err
+	}
+
+	// Refresh the settings cache so the SIP layer sees the change.
+	resp := settings.ToResponse()
+	data, _ := json.Marshal(resp)
+	_ = s.cache.Set(ctx, cache.SettingsKey(ext), string(data), cache.DefaultTTL)
+
+	return &PstnForward{Enabled: settings.PstnEnabled, Target: settings.PstnMobile}, nil
+}

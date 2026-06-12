@@ -39,6 +39,10 @@ func (s *userService) GetByExtension(ctx context.Context, ext string) (*models.U
 	return s.userRepo.GetByExtension(ctx, ext)
 }
 
+func (s *userService) LookupByPhone(ctx context.Context, phone string) (*models.User, error) {
+	return s.userRepo.GetByMobile(ctx, phone)
+}
+
 func (s *userService) Delete(ctx context.Context, ext string) error {
 	// Delete user (CASCADE handles related records)
 	if err := s.userRepo.Delete(ctx, ext); err != nil {

@@ -9,6 +9,7 @@
  */
 export interface RuntimeConfig {
   API_BASE?: string;
+  GO_API_BASE?: string;
   ICE_SERVERS?: RTCIceServer[] | string;
 }
 
@@ -31,6 +32,19 @@ export function getApiBase(): string {
   if (base) return base;
   if (typeof window !== "undefined") {
     return `${window.location.protocol}//${window.location.hostname}:3001`;
+  }
+  return "";
+}
+
+/**
+ * Base URL for the Go CRUD API (data routes ported off the Node server).
+ * Falls back to dev (host:3003) when unset — Node holds 3001/3002 in dev.
+ */
+export function getGoApiBase(): string {
+  const base = runtimeConfig().GO_API_BASE;
+  if (base) return base;
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:3003`;
   }
   return "";
 }

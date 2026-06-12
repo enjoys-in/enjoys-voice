@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/enjoys-in/enjoys-voice/api/internal/models"
 )
@@ -55,5 +56,31 @@ type RecordingRepository interface {
 type VoicemailRepository interface {
 	Create(ctx context.Context, vm *models.Voicemail) error
 	GetByExtension(ctx context.Context, ext string) ([]models.Voicemail, error)
+	GetByID(ctx context.Context, id uint) (*models.Voicemail, error)
 	MarkRead(ctx context.Context, id uint) error
+	Delete(ctx context.Context, id uint) error
+	UnreadCount(ctx context.Context, ext string) (int64, error)
+}
+
+type IvrFlowRepository interface {
+	GetAll(ctx context.Context) ([]models.IvrFlow, error)
+	GetByID(ctx context.Context, id string) (*models.IvrFlow, error)
+	GetByExtension(ctx context.Context, ext string) (*models.IvrFlow, error)
+	Upsert(ctx context.Context, flow *models.IvrFlow) error
+	Delete(ctx context.Context, id string) error
+}
+
+// AuditQuery filters audit log lookups. Zero-value fields are ignored.
+type AuditQuery struct {
+	Extension string
+	Event     string
+	From      *time.Time
+	To        *time.Time
+	Limit     int
+}
+
+type AuditRepository interface {
+	Create(ctx context.Context, log *models.AuditLog) error
+	Query(ctx context.Context, q AuditQuery) ([]models.AuditLog, error)
+	GetByExtension(ctx context.Context, ext string, limit int) ([]models.AuditLog, error)
 }

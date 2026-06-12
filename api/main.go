@@ -38,6 +38,8 @@ func main() {
 		&models.Sound{},
 		&models.Recording{},
 		&models.Voicemail{},
+		&models.IvrFlow{},
+		&models.AuditLog{},
 	); err != nil {
 		log.Fatalf("Failed to migrate: %v", err)
 	}
@@ -56,6 +58,9 @@ func main() {
 	blockRepo := repository.NewBlockRepository(db)
 	fwdRepo := repository.NewForwardingRepository(db)
 	soundRepo := repository.NewSoundRepository(db)
+	ivrRepo := repository.NewIvrFlowRepository(db)
+	auditRepo := repository.NewAuditRepository(db)
+	vmRepo := repository.NewVoicemailRepository(db)
 
 	// ─── Services ────────────────────────────────────────
 	authSvc := service.NewAuthService(userRepo, settingsRepo, valkey)
@@ -65,6 +70,9 @@ func main() {
 	blockSvc := service.NewBlockService(blockRepo, userRepo, valkey)
 	fwdSvc := service.NewForwardingService(fwdRepo, userRepo, valkey)
 	soundSvc := service.NewSoundService(soundRepo, userRepo, valkey)
+	ivrSvc := service.NewIvrService(ivrRepo, valkey)
+	auditSvc := service.NewAuditService(auditRepo)
+	vmSvc := service.NewVoicemailService(vmRepo)
 
 	// ─── Handlers ────────────────────────────────────────
 	handlers := &router.Handlers{
@@ -75,6 +83,9 @@ func main() {
 		Block:      handler.NewBlockHandler(blockSvc),
 		Forwarding: handler.NewForwardingHandler(fwdSvc),
 		Sound:      handler.NewSoundHandler(soundSvc, cfg.UploadDir),
+		Ivr:        handler.NewIvrHandler(ivrSvc),
+		Audit:      handler.NewAuditHandler(auditSvc),
+		Voicemail:  handler.NewVoicemailHandler(vmSvc, cfg.VoicemailDir),
 	}
 
 	// ─── Ensure upload dir ───────────────────────────────

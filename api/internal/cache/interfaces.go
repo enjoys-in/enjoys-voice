@@ -27,6 +27,7 @@ const (
 	KeyForwarding = "forwarding:"
 	KeyUser       = "user:"
 	KeySounds     = "sounds:"
+	KeyIvr        = "ivr:"
 
 	DefaultTTL = 24 * time.Hour
 )
@@ -36,3 +37,4 @@ func BlockedKey(ext string) string    { return KeyBlocked + ext }
 func ForwardingKey(ext string) string { return KeyForwarding + ext }
 func UserKey(ext string) string       { return KeyUser + ext }
 func SoundsKey(ext string) string     { return KeySounds + ext }
+func IvrKey(ext string) string        { return KeyIvr + ext }

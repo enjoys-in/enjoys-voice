@@ -1,8 +1,7 @@
 package handler
 
 import (
-	"net/http"
-
+	"github.com/enjoys-in/enjoys-voice/api/internal/response"
 	"github.com/enjoys-in/enjoys-voice/api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -29,47 +28,41 @@ type signupRequest struct {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing credentials"})
+		response.BadRequest(c, "Missing credentials")
 		return
 	}
 
 	user, err := h.authSvc.Login(c.Request.Context(), req.Username, req.Password)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		response.Unauthorized(c, "Invalid credentials")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"user": gin.H{
-			"extension": user.Extension,
-			"name":      user.Name,
-			"username":  user.Username,
-			"mobile":    user.Mobile,
-		},
+	response.Success(c, "Login successful", gin.H{
+		"extension": user.Extension,
+		"name":      user.Name,
+		"username":  user.Username,
+		"mobile":    user.Mobile,
 	})
 }
 
 func (h *AuthHandler) Signup(c *gin.Context) {
 	var req signupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing fields: name, mobile, password required"})
+		response.BadRequest(c, "Missing fields: name, mobile, password required")
 		return
 	}
 
 	user, err := h.authSvc.Signup(c.Request.Context(), req.Name, req.Mobile, req.Password)
 	if err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		response.Conflict(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"success": true,
-		"user": gin.H{
-			"extension": user.Extension,
-			"name":      user.Name,
-			"username":  user.Username,
-			"mobile":    user.Mobile,
-		},
+	response.Created(c, "Account created", gin.H{
+		"extension": user.Extension,
+		"name":      user.Name,
+		"username":  user.Username,
+		"mobile":    user.Mobile,
 	})
 }

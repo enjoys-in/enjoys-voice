@@ -3,5 +3,6 @@
 // (see prod/web-entrypoint.sh). Empty here = local dev defaults (localhost).
 window.__RUNTIME_CONFIG__ = {
   API_BASE: "",
+  GO_API_BASE: "",
   ICE_SERVERS: []
 };

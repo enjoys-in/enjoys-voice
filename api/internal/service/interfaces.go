@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/enjoys-in/enjoys-voice/api/internal/models"
+	"github.com/enjoys-in/enjoys-voice/api/internal/repository"
 )
 
 type AuthService interface {
@@ -14,12 +15,15 @@ type AuthService interface {
 type UserService interface {
 	GetAll(ctx context.Context) ([]models.User, error)
 	GetByExtension(ctx context.Context, ext string) (*models.User, error)
+	LookupByPhone(ctx context.Context, phone string) (*models.User, error)
 	Delete(ctx context.Context, ext string) error
 }
 
 type SettingsService interface {
 	Get(ctx context.Context, ext string) (*models.SettingsResponse, error)
 	Update(ctx context.Context, ext string, input *SettingsInput) (*models.SettingsResponse, error)
+	GetPstnForward(ctx context.Context, ext string) (*PstnForward, error)
+	SetPstnForward(ctx context.Context, ext string, enabled bool, target string) (*PstnForward, error)
 	WarmCache(ctx context.Context, ext string) error
 }
 
@@ -44,6 +48,32 @@ type SoundService interface {
 	Upload(ctx context.Context, ext string, soundType string, filename string, originalName string, path string) (*models.Sound, error)
 	GetByExtension(ctx context.Context, ext string) ([]models.Sound, error)
 	Delete(ctx context.Context, id uint, ext string) error
+}
+
+type IvrService interface {
+	List(ctx context.Context) ([]models.IvrFlow, error)
+	Get(ctx context.Context, id string) (*models.IvrFlow, error)
+	Save(ctx context.Context, flow *models.IvrFlow) error
+	Delete(ctx context.Context, id string) error
+}
+
+type AuditService interface {
+	Query(ctx context.Context, q repository.AuditQuery) ([]models.AuditLog, error)
+	GetByExtension(ctx context.Context, ext string, limit int) ([]models.AuditLog, error)
+	Record(ctx context.Context, ext, event, detail string) error
+}
+
+type VoicemailService interface {
+	List(ctx context.Context, ext string) ([]models.Voicemail, int64, error)
+	Get(ctx context.Context, ext string, id uint) (*models.Voicemail, error)
+	MarkRead(ctx context.Context, ext string, id uint) (int64, error)
+	Delete(ctx context.Context, ext string, id uint) (int64, error)
+}
+
+// PstnForward is the flat PSTN call-forwarding view derived from UserSettings.
+type PstnForward struct {
+	Enabled bool   `json:"enabled"`
+	Target  string `json:"target"`
 }
 
 // SettingsInput is the payload for updating settings

@@ -6,24 +6,28 @@ import (
 )
 
 type Config struct {
-	Port        string
-	DatabaseURL string
-	ValkeyAddr  string
-	ValkeyPass  string
-	ValkeyDB    int
-	JWTSecret   string
-	UploadDir   string
+	Port         string
+	DatabaseURL  string
+	ValkeyAddr   string
+	ValkeyPass   string
+	ValkeyDB     int
+	JWTSecret    string
+	UploadDir    string
+	VoicemailDir string
 }
 
 func Load() *Config {
 	return &Config{
-		Port:        getEnv("PORT", "3002"),
-		DatabaseURL: getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/enjoys_voice?sslmode=disable"),
-		ValkeyAddr:  getEnv("VALKEY_ADDR", "localhost:6379"),
-		ValkeyPass:  getEnv("VALKEY_PASSWORD", ""),
-		ValkeyDB:    getEnvInt("VALKEY_DB", 0),
-		JWTSecret:   getEnv("JWT_SECRET", "enjoys-voice-secret-change-me"),
-		UploadDir:   getEnv("UPLOAD_DIR", "./uploads/sounds"),
+		// 3003 by default: Node already owns 3001 (HTTP) and 3002 (WS) during
+		// the migration, so the Go API listens on the next free port.
+		Port:         getEnv("PORT", "3003"),
+		DatabaseURL:  getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"),
+		ValkeyAddr:   getEnv("VALKEY_ADDR", "localhost:6379"),
+		ValkeyPass:   getEnv("VALKEY_PASSWORD", ""),
+		ValkeyDB:     getEnvInt("VALKEY_DB", 0),
+		JWTSecret:    getEnv("JWT_SECRET", "enjoys-voice-secret-change-me"),
+		UploadDir:    getEnv("UPLOAD_DIR", "./uploads/sounds"),
+		VoicemailDir: getEnv("VOICEMAIL_DIR", "./recordings/voicemail"),
 	}
 }
 

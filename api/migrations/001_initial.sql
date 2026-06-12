@@ -94,6 +94,24 @@ CREATE TABLE IF NOT EXISTS voicemails (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS ivr_flows (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    extension VARCHAR(20) NOT NULL,
+    enabled BOOLEAN DEFAULT TRUE,
+    graph JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id SERIAL PRIMARY KEY,
+    extension VARCHAR(20),
+    event VARCHAR(64) NOT NULL,
+    detail TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_call_records_from ON call_records("from");
 CREATE INDEX IF NOT EXISTS idx_call_records_to ON call_records("to");
@@ -103,3 +121,7 @@ CREATE INDEX IF NOT EXISTS idx_sounds_ext ON sounds(extension);
 CREATE INDEX IF NOT EXISTS idx_recordings_ext ON recordings(extension);
 CREATE INDEX IF NOT EXISTS idx_voicemails_ext ON voicemails(extension);
 CREATE INDEX IF NOT EXISTS idx_user_settings_ext ON user_settings(extension);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ivr_flows_ext ON ivr_flows(extension);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_ext ON audit_logs(extension);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_event ON audit_logs(event);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
