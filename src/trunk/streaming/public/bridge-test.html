@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CallNet — Bridge test (listen / talk)</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
+    h1 { font-size: 20px; }
+    label { display: block; margin: 8px 0; }
+    input { width: 320px; padding: 6px 8px; }
+    button { padding: 8px 14px; margin: 6px 6px 6px 0; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    #log { background: #111; color: #0f0; padding: 12px; height: 240px; overflow: auto;
+           white-space: pre-wrap; border-radius: 6px; font: 12px/1.45 ui-monospace, monospace; }
+    .dot { display:inline-block; width:10px; height:10px; border-radius:50%; background:#999; margin-right:6px; }
+    .dot.on { background:#2c2; } .dot.err { background:#c22; }
+  </style>
+</head>
+<body>
+  <h1><span id="status" class="dot"></span>CallNet bridge test</h1>
+  <p>Listen to a live PSTN caller in the browser and talk back — no SIP phone needed.</p>
+
+  <label>Bridge WS
+    <input id="host" value="ws://localhost:3005" />
+  </label>
+  <label>Bridge ID <small>(must match the call's <code>bridgeId</code> parameter)</small>
+    <input id="bridgeId" value="demo" />
+  </label>
+
+  <div>
+    <button id="connect">Connect &amp; listen</button>
+    <button id="mic" disabled>Enable microphone</button>
+    <button id="hangup" disabled>Hang up</button>
+  </div>
+
+  <pre id="log"></pre>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const log = (m) => { const e = $("log"); e.textContent += m + "\n"; e.scrollTop = e.scrollHeight; };
+    const setDot = (cls) => { $("status").className = "dot " + (cls || ""); };
+
+    let ws, ctx, playTime = 0, micStream, proc;
+
+    // ── Connect to the bridge WS and start playing inbound caller audio ──
+    $("connect").onclick = () => {
+      const id = $("bridgeId").value.trim();
+      const host = $("host").value.trim().replace(/\/+$/, "");
+      if (!id) return log("Set a Bridge ID first.");
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      playTime = 0;
+      const url = `${host}/?id=${encodeURIComponent(id)}`;
+      log("connecting → " + url);
+      ws = new WebSocket(url);
+      ws.binaryType = "arraybuffer";
+      ws.onopen = () => { setDot("on"); log("connected — waiting for caller…"); $("mic").disabled = false; $("hangup").disabled = false; };
+      ws.onclose = (e) => { setDot(""); log("closed (" + e.code + ")"); $("mic").disabled = true; $("hangup").disabled = true; };
+      ws.onerror = () => { setDot("err"); log("ws error"); };
+      ws.onmessage = (e) => {
+        if (typeof e.data === "string") { log("control: " + e.data); return; } // {type:linked|stop}
+        playPcm16(new Int16Array(e.data)); // binary = caller audio, PCM16LE 8 kHz
+      };
+    };
+
+    // ── Play one PCM16 8 kHz chunk, scheduled back-to-back to avoid gaps ──
+    function playPcm16(int16) {
+      const f32 = new Float32Array(int16.length);
+      for (let i = 0; i < int16.length; i++) f32[i] = int16[i] / 32768;
+      const buf = ctx.createBuffer(1, f32.length, 8000);
+      buf.copyToChannel(f32, 0);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      const now = ctx.currentTime;
+      if (playTime < now) playTime = now + 0.02;
+      src.start(playTime);
+      playTime += buf.duration;
+    }
+
+    // ── Capture mic, downsample to 8 kHz PCM16, send to the caller ──
+    $("mic").onclick = async () => {
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+        });
+      } catch (err) { return log("mic denied: " + err.message); }
+      const src = ctx.createMediaStreamSource(micStream);
+      proc = ctx.createScriptProcessor(2048, 1, 1);
+      const mute = ctx.createGain(); mute.gain.value = 0; // don't echo our own mic locally
+      src.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+      proc.onaudioprocess = (e) => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        const down = downsample(e.inputBuffer.getChannelData(0), ctx.sampleRate, 8000);
+        ws.send(floatToInt16(down).buffer); // binary = mic audio, PCM16LE 8 kHz
+      };
+      log("microphone on — talk now");
+      $("mic").disabled = true;
+    };
+
+    function downsample(input, inRate, outRate) {
+      if (outRate >= inRate) return input;
+      const ratio = inRate / outRate;
+      const out = new Float32Array(Math.floor(input.length / ratio));
+      for (let i = 0; i < out.length; i++) {
+        const start = Math.floor(i * ratio), end = Math.floor((i + 1) * ratio);
+        let sum = 0, n = 0;
+        for (let j = start; j < end && j < input.length; j++) { sum += input[j]; n++; }
+        out[i] = n ? sum / n : 0;
+      }
+      return out;
+    }
+    function floatToInt16(f32) {
+      const out = new Int16Array(f32.length);
+      for (let i = 0; i < f32.length; i++) {
+        const s = Math.max(-1, Math.min(1, f32[i]));
+        out[i] = s < 0 ? s * 32768 : s * 32767;
+      }
+      return out;
+    }
+
+    $("hangup").onclick = () => {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "hangup" }));
+      if (micStream) micStream.getTracks().forEach((t) => t.stop());
+      if (proc) proc.disconnect();
+      if (ws) ws.close();
+    };
+  </script>
+</body>
+</html>

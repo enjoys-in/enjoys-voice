@@ -32,10 +32,17 @@ export function createStreamingWebhookRouter(): Router {
   // client is used ONLY to render TwiML, never to call the Twilio REST API.
   const twiml = new TwilioClient({ accountSid: "", authToken: "" });
 
-  const respond = (_req: Request, res: Response): void => {
+  const respond = (req: Request, res: Response): void => {
+    // bridgeId pairs this call with a browser listener (BrowserBridge keys on it).
+    // Pick it from ?bridgeId=, else the called number (To), else a demo default.
+    const bridgeId =
+      (typeof req.query.bridgeId === "string" && req.query.bridgeId) ||
+      (typeof req.body?.To === "string" && req.body.To) ||
+      "demo";
     const doc = twiml.buildStreamInstruction({
       wsUrl: buildMediaStreamUrl(),
       bidirectional: true,
+      parameters: { bridgeId },
     });
     res.type("text/xml").send(doc);
   };

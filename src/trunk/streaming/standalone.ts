@@ -16,6 +16,8 @@
 //   ai     answer with the voice agent      (Goal 2: speech -> AI -> speak back)
 
 import express from "express";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { MediaStreamServer } from "./media-stream.server";
 import { createStreamingWebhookRouter, buildMediaStreamUrl } from "./webhook";
 import { streamingConfig } from "./config";
@@ -79,6 +81,14 @@ const app = express();
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 app.use("/twilio", createStreamingWebhookRouter());
+
+// Bridge mode: serve the self-contained browser test page (listen / talk).
+if (mode === "bridge") {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  app.get("/bridge", (_req, res) => {
+    res.sendFile(path.join(here, "public", "bridge-test.html"));
+  });
+}
 app.get("/health", (_req, res) => {
   res.json({
     ok: true,
@@ -98,6 +108,11 @@ app.listen(streamingConfig.webhookPort, () => {
   );
   console.log(`   Stream URL → ${buildMediaStreamUrl()}`);
   console.log(`   Echo mode  → ${streamingConfig.echo ? "ON (two-way test)" : "off"}`);
+  if (mode === "bridge") {
+    console.log(
+      `   Bridge test page → http://localhost:${streamingConfig.webhookPort}/bridge`,
+    );
+  }
 });
 
 // Graceful shutdown so the ports free up cleanly on Ctrl-C.
