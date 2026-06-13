@@ -10,6 +10,12 @@ import {
   loadForwardingByExtension,
   loadPstnByExtension,
   loadRecentCalls,
+  insertVoicemail,
+  selectVoicemails,
+  selectVoicemail,
+  updateVoicemailRead,
+  removeVoicemail,
+  countUnreadVoicemails,
   type ForwardingRow,
 } from './postgres';
 
@@ -19,8 +25,6 @@ export class DatabaseService extends EventEmitter {
   private registrations = new Map<string, SipRegistration>();
   /** phone number → extension lookup */
   private phoneIndex = new Map<string, string>();
-  /** mailbox extension → voicemail messages */
-  private voicemails = new Map<string, Voicemail[]>();
 
   /**
    * Hydrate the in-memory user store from the shared Postgres database so that
@@ -364,44 +368,33 @@ export class DatabaseService extends EventEmitter {
   }
 
   // ─── Voicemail ───────────────────────────────────────
+  // Voicemails live only in the shared Postgres `voicemails` table (no in-memory
+  // copy): the IVR inserts on record, the HTTP API reads/updates/deletes on
+  // demand. So messages are durable across restarts and shared with the Go
+  // dashboard without any sync. These delegate straight to the repo.
 
-  addVoicemail(vm: Voicemail): void {
-    const list = this.voicemails.get(vm.mailbox) || [];
-    list.unshift(vm);
-    if (list.length > 100) list.pop();
-    this.voicemails.set(vm.mailbox, list);
-    // Mirror to the shared Postgres voicemails table via the write queue.
-    this.emit(DbEvent.VoicemailCreated, vm);
+  async addVoicemail(vm: Voicemail): Promise<void> {
+    await insertVoicemail(vm);
   }
 
-  getVoicemails(mailbox: string): Voicemail[] {
-    return this.voicemails.get(mailbox) || [];
+  getVoicemails(mailbox: string): Promise<Voicemail[]> {
+    return selectVoicemails(mailbox);
   }
 
-  getVoicemail(mailbox: string, id: string): Voicemail | undefined {
-    return this.voicemails.get(mailbox)?.find(v => v.id === id);
+  getVoicemail(mailbox: string, id: string): Promise<Voicemail | undefined> {
+    return selectVoicemail(mailbox, id);
   }
 
-  markVoicemailRead(mailbox: string, id: string): boolean {
-    const vm = this.getVoicemail(mailbox, id);
-    if (!vm) return false;
-    vm.read = true;
-    this.emit(DbEvent.VoicemailRead, { extension: mailbox, filename: vm.file });
-    return true;
+  markVoicemailRead(mailbox: string, id: string): Promise<boolean> {
+    return updateVoicemailRead(mailbox, id);
   }
 
-  deleteVoicemail(mailbox: string, id: string): boolean {
-    const list = this.voicemails.get(mailbox);
-    if (!list) return false;
-    const idx = list.findIndex(v => v.id === id);
-    if (idx === -1) return false;
-    const [removed] = list.splice(idx, 1);
-    this.emit(DbEvent.VoicemailDeleted, { extension: mailbox, filename: removed.file });
-    return true;
+  deleteVoicemail(mailbox: string, id: string): Promise<boolean> {
+    return removeVoicemail(mailbox, id);
   }
 
-  unreadVoicemailCount(mailbox: string): number {
-    return (this.voicemails.get(mailbox) || []).filter(v => !v.read).length;
+  unreadVoicemailCount(mailbox: string): Promise<number> {
+    return countUnreadVoicemails(mailbox);
   }
 }
 

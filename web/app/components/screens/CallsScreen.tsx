@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, RefreshCw, Trash2, ChevronRight } from "lucide-react";
+import { Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneOff, Voicemail, RefreshCw, Trash2, ChevronRight } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -92,6 +92,8 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
   );
 
   const getCallIcon = (call: CallRecord) => {
+    if (call.status === CallRecordStatus.Voicemail) return <Voicemail className="h-4 w-4 text-amber-500" />;
+    if (call.status === CallRecordStatus.Unreachable) return <PhoneOff className="h-4 w-4 text-destructive" />;
     if (call.status === CallRecordStatus.Missed) return <PhoneMissed className="h-4 w-4 text-destructive" />;
     if (isOutbound(call)) return <PhoneOutgoing className="h-4 w-4 text-emerald-500" />;
     return <PhoneIncoming className="h-4 w-4 text-blue-500" />;
@@ -219,7 +221,7 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
                         >
                           <div className="flex items-center gap-2">
                             {getCallIcon(latest)}
-                            <span className={`text-sm font-medium truncate ${latest.status === CallRecordStatus.Missed ? "text-destructive" : ""}`}>
+                            <span className={`text-sm font-medium truncate ${latest.status === CallRecordStatus.Missed || latest.status === CallRecordStatus.Unreachable ? "text-destructive" : ""}`}>
                               {formatPhone(row.peerLabel)}
                             </span>
                             {count > 1 && (
@@ -256,7 +258,7 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
                           {row.calls.map((c) => (
                             <div key={c.id} className="flex items-center gap-2 py-1.5 text-xs">
                               {getCallIcon(c)}
-                              <span className={`capitalize ${c.status === CallRecordStatus.Missed ? "text-destructive" : "text-muted-foreground"}`}>
+                              <span className={`capitalize ${c.status === CallRecordStatus.Missed || c.status === CallRecordStatus.Unreachable ? "text-destructive" : "text-muted-foreground"}`}>
                                 {c.status}
                               </span>
                               <span className="text-muted-foreground/70">

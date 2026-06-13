@@ -16,7 +16,8 @@ export const CallStatus = {
   Ended: "ended",
   Declined: "declined",
   NoAnswer: "no_answer",
-  Blocked: "blocked",
+  Blocked: "blocked", 
+ 
 } as const;
 export type CallStatus = (typeof CallStatus)[keyof typeof CallStatus];
 
@@ -34,6 +35,8 @@ export const CallRecordStatus = {
   Ended: "ended",
   Missed: "missed",
   Failed: "failed",
+  Voicemail: "voicemail",
+  Unreachable: "unreachable",
 } as const;
 export type CallRecordStatus = (typeof CallRecordStatus)[keyof typeof CallRecordStatus];
 

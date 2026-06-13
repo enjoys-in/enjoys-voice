@@ -12,6 +12,13 @@ export {
 export type { BlockedRow, ForwardingRow, PstnRow } from './detail.repo';
 export { UserSyncListener } from './notify';
 export { SettingsSyncListener } from './settings-notify';
-export { insertVoicemail, markVoicemailReadByFile, deleteVoicemailByFile } from './voicemail.repo';
+export {
+  insertVoicemail,
+  selectVoicemails,
+  selectVoicemail,
+  updateVoicemailRead,
+  removeVoicemail,
+  countUnreadVoicemails,
+} from './voicemail.repo';
 export { ensureCallSchema, upsertCall, loadRecentCalls } from './call.repo';
 export { ensureAuditSchema, insertAuditLogs } from './audit.repo';

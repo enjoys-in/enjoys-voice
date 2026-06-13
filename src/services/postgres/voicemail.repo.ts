@@ -3,42 +3,103 @@ import { config } from '@/core';
 import type { Voicemail } from '@/core';
 
 /**
- * Maps the Node voicemail shape onto the shared Postgres `voicemails` table the
- * Go dashboard reads. Field mapping: mailbox→extension, file→filename, and the
- * absolute on-disk path (recordings dir + relative file) →path. The Go schema
- * has no `fromName` column, so the caller's display name is intentionally not
- * persisted (the dashboard formats the number instead).
+ * Direct CRUD against the shared Postgres `voicemails` table — the single source
+ * of truth the Go dashboard also reads. Node keeps NO in-memory copy: the SIP
+ * IVR inserts a row when it records a message, and the HTTP API reads / updates
+ * / deletes rows on demand. A message is therefore reachable the instant it's
+ * saved and survives restarts. The `voicemails` SERIAL id is surfaced as the
+ * string `id` the routes address. The Go schema has no `fromName` column, so the
+ * caller's display name isn't persisted (the UI formats the number instead).
  */
+
+/** Map a `voicemails` row back onto the Voicemail shape the HTTP API returns. */
+function rowToVoicemail(r: {
+  id: number; extension: string; from: string; filename: string;
+  duration: number | string | null; read: boolean; created_at: Date | string;
+}): Voicemail {
+  return {
+    id: String(r.id),
+    mailbox: r.extension,
+    from: r.from,
+    fromName: '',
+    file: r.filename,
+    // pg returns BIGINT/NUMERIC as a string; normalise back to a number.
+    duration: r.duration != null ? Number(r.duration) : undefined,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+    read: !!r.read,
+  };
+}
+
+/** The container path FreeSWITCH records to, stored so Go can locate the file. */
 function absolutePath(file: string): string {
   return `${config.voicemail.fsDir.replace(/\/$/, '')}/${file}`;
 }
 
+/** Parse a route `:id` (the SERIAL id as a string) to a positive integer. */
+function parseId(id: string): number | undefined {
+  const n = Number(id);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
+const SELECT_COLS = `id, extension, "from", filename, duration, read, created_at`;
+
 export async function insertVoicemail(vm: Voicemail): Promise<void> {
-  const pool = getPool();
-  await pool.query(
+  await getPool().query(
     `INSERT INTO voicemails (extension, "from", filename, duration, path, read, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [vm.mailbox, vm.from, vm.file, vm.duration ?? 0, absolutePath(vm.file), vm.read, vm.createdAt],
   );
 }
 
-/**
- * Mark a voicemail read in Postgres. Node's in-memory id (a UUID) has no
- * counterpart in the SERIAL-keyed table, so rows are matched by the naturally
- * unique (extension, filename) pair instead.
- */
-export async function markVoicemailReadByFile(extension: string, filename: string): Promise<void> {
-  const pool = getPool();
-  await pool.query(`UPDATE voicemails SET read = TRUE WHERE extension = $1 AND filename = $2`, [
-    extension,
-    filename,
-  ]);
+/** All voicemails for a mailbox, newest first. */
+export async function selectVoicemails(extension: string): Promise<Voicemail[]> {
+  const { rows } = await getPool().query(
+    `SELECT ${SELECT_COLS} FROM voicemails
+      WHERE extension = $1
+      ORDER BY created_at DESC NULLS LAST, id DESC`,
+    [extension],
+  );
+  return rows.map(rowToVoicemail);
 }
 
-export async function deleteVoicemailByFile(extension: string, filename: string): Promise<void> {
-  const pool = getPool();
-  await pool.query(`DELETE FROM voicemails WHERE extension = $1 AND filename = $2`, [
-    extension,
-    filename,
-  ]);
+/** A single voicemail owned by the mailbox, or undefined. */
+export async function selectVoicemail(extension: string, id: string): Promise<Voicemail | undefined> {
+  const pid = parseId(id);
+  if (pid === undefined) return undefined;
+  const { rows } = await getPool().query(
+    `SELECT ${SELECT_COLS} FROM voicemails WHERE extension = $1 AND id = $2`,
+    [extension, pid],
+  );
+  return rows[0] ? rowToVoicemail(rows[0]) : undefined;
+}
+
+/** Mark one voicemail read. Returns false if no matching row was found. */
+export async function updateVoicemailRead(extension: string, id: string): Promise<boolean> {
+  const pid = parseId(id);
+  if (pid === undefined) return false;
+  const { rowCount } = await getPool().query(
+    `UPDATE voicemails SET read = TRUE WHERE extension = $1 AND id = $2`,
+    [extension, pid],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/** Delete one voicemail. Returns false if no matching row was found. */
+export async function removeVoicemail(extension: string, id: string): Promise<boolean> {
+  const pid = parseId(id);
+  if (pid === undefined) return false;
+  const { rowCount } = await getPool().query(
+    `DELETE FROM voicemails WHERE extension = $1 AND id = $2`,
+    [extension, pid],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/** Count unread voicemails for a mailbox. */
+export async function countUnreadVoicemails(extension: string): Promise<number> {
+  const { rows } = await getPool().query(
+    `SELECT COUNT(*)::int AS count FROM voicemails WHERE extension = $1 AND read = FALSE`,
+    [extension],
+  );
+  return rows[0]?.count ?? 0;
 }

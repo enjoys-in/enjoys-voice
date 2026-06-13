@@ -266,6 +266,13 @@ export const goApi = {
   getCallsByUser(ext: string): Promise<CallRecord[]> {
     return goRequest<CallRecord[]>(`/calls/${encodeURIComponent(ext)}`);
   },
+  // Clear a user's call history (the "clear recents" action). Purges the shared
+  // call_records rows owned by this extension on the server.
+  clearCallsByUser(ext: string): Promise<void> {
+    return goRequest<unknown>(`/calls/${encodeURIComponent(ext)}`, {
+      method: "DELETE",
+    }).then(() => undefined);
+  },
 
   // IVR flows
   ivr: {

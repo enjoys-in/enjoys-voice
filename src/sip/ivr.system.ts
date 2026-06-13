@@ -168,7 +168,7 @@ export class IVRSystem {
 
       const duration = Math.round((Date.now() - startedAt) / 1000);
 
-      this.db.addVoicemail({
+      await this.db.addVoicemail({
         id,
         mailbox,
         from: callerNumber,

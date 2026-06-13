@@ -23,9 +23,6 @@ export enum SipStatus {
  */
 export enum DbEvent {
   CallUpserted = 'call:upserted',
-  VoicemailCreated = 'voicemail:created',
-  VoicemailRead = 'voicemail:read',
-  VoicemailDeleted = 'voicemail:deleted',
 }
 
 /**
@@ -34,9 +31,6 @@ export enum DbEvent {
  */
 export enum WriteJob {
   CallUpsert = 'call.upsert',
-  VoicemailCreate = 'voicemail.create',
-  VoicemailRead = 'voicemail.read',
-  VoicemailDelete = 'voicemail.delete',
 }
 
 export interface CallLog {
@@ -44,7 +38,7 @@ export interface CallLog {
   from: string;
   to: string;
   fromName: string;
-  status: 'ringing' | 'answered' | 'ended' | 'missed' | 'failed';
+  status: 'ringing' | 'answered' | 'ended' | 'missed' | 'failed' | 'voicemail' | 'unreachable';
   direction: 'inbound' | 'outbound';
   startTime: string;
   endTime?: string;

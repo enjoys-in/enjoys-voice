@@ -7,9 +7,6 @@ import {
   UserSyncListener,
   SettingsSyncListener,
   WriteQueue,
-  insertVoicemail,
-  markVoicemailReadByFile,
-  deleteVoicemailByFile,
   ensureCallSchema,
   upsertCall,
 } from '@/services';
@@ -56,24 +53,11 @@ class Application {
         await this.db.hydrateFromPostgres();
       },
     });
-    // Write-behind queue: voicemail mutations are emitted as events, enqueued to
+    // Write-behind queue: call-record upserts are emitted as events, enqueued to
     // Valkey, and applied to the shared Postgres by a worker. This keeps the SIP
-    // path off the DB write latency and shares voicemails with the Go dashboard.
+    // path off the DB write latency. (Voicemails write to Postgres directly.)
     this.writeQueue = new WriteQueue();
-    this.writeQueue
-      .on(WriteJob.VoicemailCreate, (vm) => insertVoicemail(vm))
-      .on(WriteJob.VoicemailRead, ({ extension, filename }) => markVoicemailReadByFile(extension, filename))
-      .on(WriteJob.VoicemailDelete, ({ extension, filename }) => deleteVoicemailByFile(extension, filename))
-      .on(WriteJob.CallUpsert, (call) => upsertCall(call));
-    this.db.on(DbEvent.VoicemailCreated, (vm) => {
-      void this.writeQueue.enqueue(WriteJob.VoicemailCreate, vm).catch(() => {});
-    });
-    this.db.on(DbEvent.VoicemailRead, (p) => {
-      void this.writeQueue.enqueue(WriteJob.VoicemailRead, p).catch(() => {});
-    });
-    this.db.on(DbEvent.VoicemailDeleted, (p) => {
-      void this.writeQueue.enqueue(WriteJob.VoicemailDelete, p).catch(() => {});
-    });
+    this.writeQueue.on(WriteJob.CallUpsert, (call) => upsertCall(call));
     this.db.on(DbEvent.CallUpserted, (call) => {
       void this.writeQueue.enqueue(WriteJob.CallUpsert, call).catch(() => {});
     });

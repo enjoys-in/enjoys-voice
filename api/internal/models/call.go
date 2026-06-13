@@ -6,7 +6,7 @@ type CallRecord struct {
 	ID        uint       `gorm:"primaryKey" json:"id"`
 	From      string     `gorm:"size:20;not null;index" json:"from"`
 	To        string     `gorm:"size:20;not null;index" json:"to"`
-	Status    string     `gorm:"size:20;not null" json:"status"` // ringing, answered, ended, missed, failed
+	Status    string     `gorm:"size:20;not null" json:"status"` // ringing, answered, ended, missed, failed, voicemail, unreachable
 	Duration  int        `gorm:"default:0" json:"duration"`      // seconds
 	StartedAt time.Time  `gorm:"not null" json:"started_at"`
 	EndedAt   *time.Time `json:"ended_at"`

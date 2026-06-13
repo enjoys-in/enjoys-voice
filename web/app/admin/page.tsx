@@ -227,7 +227,7 @@ function CallsTab({ calls, loading }: { calls: CallRecord[]; loading: boolean })
                 <Badge variant="secondary" className="text-[10px]">{c.direction}</Badge>
                 <Badge
                   variant={c.status === CallRecordStatus.Answered ? "default" : "secondary"}
-                  className={`text-[10px] ${c.status === CallRecordStatus.Missed ? "text-destructive" : ""}`}
+                  className={`text-[10px] ${c.status === CallRecordStatus.Missed || c.status === CallRecordStatus.Unreachable ? "text-destructive" : ""}`}
                 >
                   {c.status}
                 </Badge>

@@ -26,3 +26,7 @@ func (s *callService) GetByExtension(ctx context.Context, ext string) ([]models.
 func (s *callService) Create(ctx context.Context, call *models.CallRecord) error {
 	return s.callRepo.Create(ctx, call)
 }
+
+func (s *callService) DeleteByExtension(ctx context.Context, ext string) (int64, error) {
+	return s.callRepo.DeleteByExtension(ctx, ext)
+}

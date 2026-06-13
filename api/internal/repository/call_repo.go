@@ -37,3 +37,14 @@ func (r *callRepo) GetByExtension(ctx context.Context, ext string) ([]models.Cal
 		Find(&calls).Error
 	return calls, err
 }
+
+// DeleteByExtension removes every call-history row owned by ext (both resolved
+// owner columns and the raw leg strings, mirroring GetByExtension), so the
+// user's "clear recents" action actually purges the shared table. Returns the
+// number of rows deleted.
+func (r *callRepo) DeleteByExtension(ctx context.Context, ext string) (int64, error) {
+	res := r.db.WithContext(ctx).
+		Where(`from_ext = ? OR to_ext = ? OR "from" = ? OR "to" = ?`, ext, ext, ext, ext).
+		Delete(&models.CallRecord{})
+	return res.RowsAffected, res.Error
+}

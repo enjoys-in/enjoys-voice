@@ -380,10 +380,10 @@ export class SipServer {
    *   3. voicemail (if enabled and the media server is available),
    *   4. a spoken "the person is unavailable, try later" announcement,
    *   5. a plain SIP 480 when no media server is available.
-   * The call is always recorded as `missed` (unless answered by PSTN/voicemail)
-   * so it surfaces in the callee's recents. Relies on the caller's INVITE still
-   * being open (b2bOpts.passFailure = false), so voicemail/announcement can
-   * answer it.
+   * The call is recorded as `unreachable` (or `voicemail` when a message was
+   * left, `answered` when PSTN picked up) so it surfaces in the callee's
+   * recents. Relies on the caller's INVITE still being open
+   * (b2bOpts.passFailure = false), so voicemail/announcement can answer it.
    */
   private async routeUnreachable(
     req: any, res: any, calledExt: string, callId: string, callingNumber: string,
@@ -394,7 +394,7 @@ export class SipServer {
     if (targetUser?.mobile && this.trunk.isEnabled) {
       console.log(`📱 ${calledExt} unreachable → PSTN mobile ${targetUser.mobile}`);
       const ok = await this.trunk.routeCall(this.srf, req, res, targetUser.mobile);
-      this.db.updateCall(callId, { status: ok ? 'answered' : 'missed' });
+      this.db.updateCall(callId, { status: ok ? 'answered' : 'unreachable' });
       if (!ok) this.notifyFn?.(callingNumber, 'unavailable', { target: calledExt, reason: 'pstn_failed', callId });
       return;
     }
@@ -412,7 +412,9 @@ export class SipServer {
       console.log(`📭 ${calledExt} unreachable → voicemail`);
       const fromName = req.callingName || callingNumber;
       const saved = await this.ivr.recordVoicemail(req, res, calledExt, callingNumber, fromName);
-      this.db.updateCall(callId, { status: saved ? 'answered' : 'missed' });
+      // A left message is its own outcome (`voicemail`), not `answered` — the
+      // callee never picked up. If nothing was recorded it's `unreachable`.
+      this.db.updateCall(callId, { status: saved ? 'voicemail' : 'unreachable' });
       this.notifyFn?.(callingNumber, 'unavailable', { target: calledExt, reason: 'voicemail', callId });
       return;
     }
@@ -421,7 +423,7 @@ export class SipServer {
     if (this.ivr) {
       console.log(`📢 ${calledExt} unreachable → "unavailable" announcement`);
       await this.ivr.playUnavailable(req, res);
-      this.db.updateCall(callId, { status: 'missed' });
+      this.db.updateCall(callId, { status: 'unreachable' });
       this.notifyFn?.(callingNumber, 'unavailable', { target: calledExt, reason: 'announced', callId });
       return;
     }
@@ -429,7 +431,7 @@ export class SipServer {
     // 5) No media server → plain SIP failure. Still record the missed call.
     console.log(`📴 ${calledExt} unreachable → no media; sending 480`);
     this.notifyFn?.(callingNumber, 'unavailable', { target: calledExt, reason: 'offline', callId });
-    this.db.updateCall(callId, { status: 'missed' });
+    this.db.updateCall(callId, { status: 'unreachable' });
     if (!res.finalResponseSent) {
       res.send(SipStatus.TemporarilyUnavailable, 'User Unavailable', {
         headers: { 'Reason': 'SIP;cause=480;text="User is unreachable"' },

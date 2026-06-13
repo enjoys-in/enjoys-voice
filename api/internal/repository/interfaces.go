@@ -27,6 +27,7 @@ type CallRepository interface {
 	Create(ctx context.Context, call *models.CallRecord) error
 	GetAll(ctx context.Context) ([]models.CallRecord, error)
 	GetByExtension(ctx context.Context, ext string) ([]models.CallRecord, error)
+	DeleteByExtension(ctx context.Context, ext string) (int64, error)
 }
 
 type BlockRepository interface {

@@ -95,6 +95,7 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 			// Calls
 			protected.GET("/calls", h.Call.GetAll)
 			protected.GET("/calls/:ext", h.Call.GetByExtension)
+			protected.DELETE("/calls/:ext", h.Call.DeleteByExtension)
 
 			// Block list
 			protected.GET("/block/:ext", h.Block.Get)

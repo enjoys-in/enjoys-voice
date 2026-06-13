@@ -95,6 +95,16 @@ export interface AppConfig {
   };
 }
 
+// ─── Recordings base dirs ────────────────────────────────────────────────
+// FreeSWITCH (in Docker) writes to the CONTAINER base; the host sees the SAME
+// files through the compose bind mount (docker/docker-compose.yml):
+//   ./recordings  :  /usr/local/freeswitch/recordings   (host : container)
+// Only these TWO bases ever change to relocate recordings; the `voicemail/` and
+// `calls/` subdirs are fixed conventions shared by FreeSWITCH and the API, so
+// the file FreeSWITCH writes is exactly the file Node reads back and serves.
+const FS_RECORDINGS_DIR = process.env.FS_RECORDINGS_DIR || '/usr/local/freeswitch/recordings'; // container (FS write side)
+const HOST_RECORDINGS_DIR = process.env.RECORDINGS_DIR || 'docker/recordings';                  // host (API read side)
+
 export const config: AppConfig = {
   server: {
     httpPort: parseInt(process.env.HTTP_PORT || '3001'),
@@ -138,18 +148,20 @@ export const config: AppConfig = {
     businessHoursStart: parseInt(process.env.BIZ_HOURS_START || '9'),
     businessHoursEnd: parseInt(process.env.BIZ_HOURS_END || '18'),
     maxVoicemailSec: parseInt(process.env.MAX_VOICEMAIL_SEC || '180'),
-    recordingsDir: process.env.RECORDINGS_DIR || '/usr/local/freeswitch/recordings',
+    recordingsDir: FS_RECORDINGS_DIR,
     defaultLanguage: (process.env.IVR_DEFAULT_LANG || 'en') as 'en' | 'hi',
   },
   voicemail: {
     enabled: process.env.VOICEMAIL_ENABLED !== 'false',
-    fsDir: process.env.VOICEMAIL_FS_DIR || '/usr/local/freeswitch/recordings/voicemail',
-    hostDir: process.env.VOICEMAIL_HOST_DIR || 'docker/recordings/voicemail',
+    // Container path FreeSWITCH records to (where the `record` app writes).
+    fsDir: process.env.VOICEMAIL_FS_DIR || `${FS_RECORDINGS_DIR}/voicemail`,
+    // Host path Node reads from / serves at /api/n/voicemails/:ext/:id/audio.
+    hostDir: process.env.VOICEMAIL_HOST_DIR || `${HOST_RECORDINGS_DIR}/voicemail`,
     maxSec: parseInt(process.env.MAX_VOICEMAIL_SEC || '180'),
   },
   callRecording: {
     enabled: process.env.CALL_RECORDING_ENABLED !== 'false',
-    hostDir: process.env.CALL_RECORDING_HOST_DIR || 'docker/recordings/calls',
+    hostDir: process.env.CALL_RECORDING_HOST_DIR || `${HOST_RECORDINGS_DIR}/calls`,
   },
   sounds: {
     basePath: process.env.SOUNDS_PATH || '/usr/share/freeswitch/sounds',

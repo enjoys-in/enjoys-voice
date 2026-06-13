@@ -54,11 +54,19 @@ export function useCallHistory() {
 
   const refresh = useCallback(() => fetch(true), [fetch]);
 
-  const clearHistory = useCallback(() => {
+  const clearHistory = useCallback(async () => {
+    if (!user) return;
+    // Purge on the server first so the logs don't reappear on the next fetch;
+    // then clear the local cache + state. Local clear still runs on failure.
+    try {
+      await goApi.clearCallsByUser(user.extension);
+    } catch {
+      setError("Failed to clear call history");
+    }
     cachedCalls = [];
     lastFetchedAt = Date.now();
     setCalls([]);
-  }, []);
+  }, [user]);
 
   return { calls, loading, error, refresh, clearHistory };
 }

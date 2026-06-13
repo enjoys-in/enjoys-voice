@@ -96,3 +96,15 @@ func (h *CallHandler) GetByExtension(c *gin.Context) {
 	}
 	response.OK(c, toCallResponses(calls))
 }
+
+// DeleteByExtension → DELETE /calls/:ext : clears a user's call history
+// (the "clear recents" action). Removes every row owned by the extension.
+func (h *CallHandler) DeleteByExtension(c *gin.Context) {
+	ext := c.Param("ext")
+	deleted, err := h.callSvc.DeleteByExtension(c.Request.Context(), ext)
+	if err != nil {
+		response.Internal(c, "Failed to clear call history")
+		return
+	}
+	response.OK(c, gin.H{"deleted": deleted})
+}

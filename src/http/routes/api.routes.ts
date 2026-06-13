@@ -85,43 +85,60 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
   });
 
   // ─── Voicemail ───────────────────────────────────────
-  router.get('/voicemails/:ext', (req: Request, res: Response) => {
-    const list = db.getVoicemails(req.params.ext);
-    res.json({
-      voicemails: list,
-      unread: db.unreadVoicemailCount(req.params.ext),
-    });
+  router.get('/voicemails/:ext', async (req: Request, res: Response) => {
+    try {
+      const [voicemails, unread] = await Promise.all([
+        db.getVoicemails(req.params.ext),
+        db.unreadVoicemailCount(req.params.ext),
+      ]);
+      res.json({ voicemails, unread });
+    } catch {
+      res.status(500).json({ error: 'Failed to load voicemails' });
+    }
   });
 
-  router.get('/voicemails/:ext/:id/audio', (req: Request, res: Response) => {
-    const vm = db.getVoicemail(req.params.ext, req.params.id);
-    if (!vm) {
-      res.status(404).json({ error: 'Voicemail not found' });
-      return;
+  router.get('/voicemails/:ext/:id/audio', async (req: Request, res: Response) => {
+    try {
+      const vm = await db.getVoicemail(req.params.ext, req.params.id);
+      if (!vm) {
+        res.status(404).json({ error: 'Voicemail not found' });
+        return;
+      }
+      const filePath = path.resolve(config.voicemail.hostDir, vm.file);
+      if (!fs.existsSync(filePath)) {
+        res.status(404).json({ error: 'Recording file missing' });
+        return;
+      }
+      res.setHeader('Content-Type', 'audio/wav');
+      res.setHeader('Accept-Ranges', 'bytes');
+      fs.createReadStream(filePath).pipe(res);
+    } catch {
+      res.status(500).json({ error: 'Failed to stream voicemail' });
     }
-    const filePath = path.resolve(config.voicemail.hostDir, vm.file);
-    if (!fs.existsSync(filePath)) {
-      res.status(404).json({ error: 'Recording file missing' });
-      return;
-    }
-    res.setHeader('Content-Type', 'audio/wav');
-    res.setHeader('Accept-Ranges', 'bytes');
-    fs.createReadStream(filePath).pipe(res);
   });
 
-  router.post('/voicemails/:ext/:id/read', (req: Request, res: Response) => {
-    const ok = db.markVoicemailRead(req.params.ext, req.params.id);
-    res.json({ success: ok, unread: db.unreadVoicemailCount(req.params.ext) });
+  router.post('/voicemails/:ext/:id/read', async (req: Request, res: Response) => {
+    try {
+      const ok = await db.markVoicemailRead(req.params.ext, req.params.id);
+      const unread = await db.unreadVoicemailCount(req.params.ext);
+      res.json({ success: ok, unread });
+    } catch {
+      res.status(500).json({ error: 'Failed to update voicemail' });
+    }
   });
 
-  router.delete('/voicemails/:ext/:id', (req: Request, res: Response) => {
-    const vm = db.getVoicemail(req.params.ext, req.params.id);
-    const ok = db.deleteVoicemail(req.params.ext, req.params.id);
-    // Best-effort cleanup of the audio file.
-    if (ok && vm) {
-      try { fs.unlinkSync(path.resolve(config.voicemail.hostDir, vm.file)); } catch { /* noop */ }
+  router.delete('/voicemails/:ext/:id', async (req: Request, res: Response) => {
+    try {
+      const vm = await db.getVoicemail(req.params.ext, req.params.id);
+      const ok = await db.deleteVoicemail(req.params.ext, req.params.id);
+      // Best-effort cleanup of the audio file.
+      if (ok && vm) {
+        try { fs.unlinkSync(path.resolve(config.voicemail.hostDir, vm.file)); } catch { /* noop */ }
+      }
+      res.json({ success: ok });
+    } catch {
+      res.status(500).json({ error: 'Failed to delete voicemail' });
     }
-    res.json({ success: ok });
   });
 
   return router;
