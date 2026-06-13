@@ -72,3 +72,27 @@
 - [ ] Database: PostgreSQL for trunk persistence
 - [ ] Config hot-reload: update trunk config without restart
 - [ ] Integrate with Node server: Go handles trunks, Node handles WebRTC/WS clients
+
+## Sound Upload: IVR Normalization (ffmpeg)
+> Go API already has `POST /api/g/sounds/upload` + `GET /api/g/sounds/:ext` for
+> `caller_tune` / `ringtone`. Extend to `ivr` and normalize audio for FreeSWITCH.
+> Use a dedicated **ffmpeg Docker** (separate container/sidecar) rather than
+> baking ffmpeg into the Go API image — Go calls it to transcode uploads.
+- [ ] Add `ivr` to the accepted `type` whitelist in `sound_handler.go`
+- [ ] Stand up an ffmpeg container (or sidecar service) the Go API can invoke
+- [ ] On `ivr` upload: transcode to FreeSWITCH-canonical format
+      `ffmpeg -i <in> -ar 16000 -ac 1 -c:a pcm_s16le <ext>_ivr_<ts>.wav`
+      (8k narrowband vs 16k wideband — pick the FS target; store only the .wav)
+- [ ] Validate real format by magic bytes (`RIFF`/`WAVE`, `OggS`), not the
+      spoofable client `Content-Type`; whitelist output extension to `.wav`
+- [ ] Handle transcode subprocess: timeout, non-zero exit, sanitize paths
+- [ ] Store IVR sounds on a path the **FreeSWITCH** container can read
+      (bind mount), since IVR prompts are played server-side by FS — unlike
+      caller_tune/ringtone which the browser fetches and resamples itself
+- [ ] Fix IDOR: derive `extension` from the JWT (`c.GetString("extension")`),
+      not from `PostForm("extension")` — same ownership fix as voicemail
+- [ ] Wire the frontend `SettingsScreen` upload to actually POST to the Go
+      endpoint (currently local-only `URL.createObjectURL`); add `uploadSound`
+      to `go-api.ts` and settle the `type` key contract (snake_case on the wire)
+- [ ] (Optional) Expose a delete route — `sound_service.Delete` exists but is
+      not routed

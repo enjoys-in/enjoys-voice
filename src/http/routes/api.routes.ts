@@ -134,13 +134,13 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
 
   vm.delete('/:id', async (req: Request, res: Response) => {
     try {
-      const voicemail = await db.getVoicemail(req.params.ext, req.params.id);
-      const ok = await db.deleteVoicemail(req.params.ext, req.params.id);
-      // Best-effort cleanup of the audio file.
-      if (ok && voicemail) {
-        try { fs.unlinkSync(path.resolve(config.voicemail.hostDir, voicemail.file)); } catch { /* noop */ }
+      // Single DELETE ... RETURNING filename: removes the row AND hands back the
+      // file to unlink, so no separate SELECT is needed. undefined => no such row.
+      const filename = await db.deleteVoicemail(req.params.ext, req.params.id);
+      if (filename) {
+        try { fs.unlinkSync(path.resolve(config.voicemail.hostDir, filename)); } catch { /* noop */ }
       }
-      res.json({ success: ok });
+      res.json({ success: !!filename });
     } catch {
       res.status(500).json({ error: 'Failed to delete voicemail' });
     }

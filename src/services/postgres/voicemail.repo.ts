@@ -96,15 +96,19 @@ export async function updateVoicemailRead(extension: string, id: string): Promis
   return (rowCount ?? 0) > 0;
 }
 
-/** Delete one voicemail. Returns false if no matching row was found. */
-export async function removeVoicemail(extension: string, id: string): Promise<boolean> {
+/**
+ * Delete one voicemail and return its filename in the SAME query so the caller
+ * can clean up the audio file on disk without a preceding SELECT. Returns
+ * undefined if no matching row was found (nothing to delete or unlink).
+ */
+export async function removeVoicemail(extension: string, id: string): Promise<string | undefined> {
   const pid = parseId(id);
-  if (pid === undefined) return false;
-  const { rowCount } = await getPool().query(
-    `DELETE FROM voicemails WHERE extension = $1 AND id = $2`,
+  if (pid === undefined) return undefined;
+  const { rows } = await getPool().query(
+    `DELETE FROM voicemails WHERE extension = $1 AND id = $2 RETURNING filename`,
     [extension, pid],
   );
-  return (rowCount ?? 0) > 0;
+  return rows[0]?.filename as string | undefined;
 }
 
 /** Count unread voicemails for a mailbox. */

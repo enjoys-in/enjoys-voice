@@ -390,7 +390,8 @@ export class DatabaseService extends EventEmitter {
     return updateVoicemailRead(mailbox, id);
   }
 
-  deleteVoicemail(mailbox: string, id: string): Promise<boolean> {
+  /** Delete a voicemail; resolves to the deleted row's filename (for cleanup) or undefined. */
+  deleteVoicemail(mailbox: string, id: string): Promise<string | undefined> {
     return removeVoicemail(mailbox, id);
   }
 
