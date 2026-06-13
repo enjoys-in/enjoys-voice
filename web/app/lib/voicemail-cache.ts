@@ -1,4 +1,24 @@
+import { getAccessToken, refreshAccessToken } from "./go-api";
+
 const CACHE_NAME = "voicemails-v1";
+
+/**
+ * Fetch a (JWT-protected) voicemail recording with the shared access token,
+ * refreshing once on a 401 — same scheme as the Go/Node JSON clients. Kept
+ * separate from the JSON request helpers because this returns the raw Response
+ * (streamed into Cache Storage / a Blob), not a parsed envelope.
+ */
+async function fetchVoicemailAudio(url: string, retryOn401 = true): Promise<Response> {
+  const token = getAccessToken();
+  const res = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (res.status === 401 && retryOn401) {
+    const newToken = await refreshAccessToken();
+    if (newToken) return fetchVoicemailAudio(url, false);
+  }
+  return res;
+}
 
 /**
  * Resolve a voicemail audio URL through Cache Storage, falling back to network.
@@ -23,8 +43,8 @@ export async function getCachedVoicemailUrl(url: string): Promise<string> {
       return URL.createObjectURL(blob);
     }
 
-    // First time: fetch and cache for next time.
-    const response = await fetch(url);
+    // First time: fetch (authenticated) and cache for next time.
+    const response = await fetchVoicemailAudio(url);
     if (response.ok) {
       await cache.put(url, response.clone());
       const blob = await response.blob();

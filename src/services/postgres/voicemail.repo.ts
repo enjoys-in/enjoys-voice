@@ -51,15 +51,27 @@ export async function insertVoicemail(vm: Voicemail): Promise<void> {
   );
 }
 
-/** All voicemails for a mailbox, newest first. */
-export async function selectVoicemails(extension: string): Promise<Voicemail[]> {
+/**
+ * Fetch a mailbox's voicemails (newest first) AND its unread count in ONE
+ * round-trip. A window `COUNT(*) FILTER (WHERE read = FALSE) OVER ()` tags every
+ * row with the same unread total, so the list endpoint no longer needs a second
+ * COUNT query. An empty result simply means zero messages and zero unread.
+ */
+export async function selectVoicemailsWithUnread(
+  extension: string,
+): Promise<{ voicemails: Voicemail[]; unread: number }> {
   const { rows } = await getPool().query(
-    `SELECT ${SELECT_COLS} FROM voicemails
+    `SELECT ${SELECT_COLS},
+            COUNT(*) FILTER (WHERE read = FALSE) OVER ()::int AS unread_total
+       FROM voicemails
       WHERE extension = $1
       ORDER BY created_at DESC NULLS LAST, id DESC`,
     [extension],
   );
-  return rows.map(rowToVoicemail);
+  return {
+    voicemails: rows.map(rowToVoicemail),
+    unread: rows[0]?.unread_total ?? 0,
+  };
 }
 
 /** A single voicemail owned by the mailbox, or undefined. */

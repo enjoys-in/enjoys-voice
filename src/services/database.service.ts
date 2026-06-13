@@ -11,7 +11,7 @@ import {
   loadPstnByExtension,
   loadRecentCalls,
   insertVoicemail,
-  selectVoicemails,
+  selectVoicemailsWithUnread,
   selectVoicemail,
   updateVoicemailRead,
   removeVoicemail,
@@ -377,8 +377,9 @@ export class DatabaseService extends EventEmitter {
     await insertVoicemail(vm);
   }
 
-  getVoicemails(mailbox: string): Promise<Voicemail[]> {
-    return selectVoicemails(mailbox);
+  /** A mailbox's voicemails (newest first) plus its unread count, in one query. */
+  getVoicemailsWithUnread(mailbox: string): Promise<{ voicemails: Voicemail[]; unread: number }> {
+    return selectVoicemailsWithUnread(mailbox);
   }
 
   getVoicemail(mailbox: string, id: string): Promise<Voicemail | undefined> {

@@ -4,6 +4,7 @@
  */
 
 import { getApiBase } from "./runtime-config";
+import { getAccessToken, refreshAccessToken } from "./go-api";
 
 // ─── Base Config ────────────────────────────────────────
 
@@ -100,14 +101,27 @@ export class ApiError extends Error {
 
 async function request<T>(
   endpoint: string,
-  options?: RequestInit
+  options?: RequestInit,
+  retryOn401 = true
 ): Promise<T> {
   // Node engine is served under /api/n (see Caddy path routing); dev also uses
-  // port 3001 via getApiBase(), so the prefix is consistent in both.
+  // port 3001 via getApiBase(), so the prefix is consistent in both. The Node
+  // voicemail routes are JWT-protected, so attach the shared access token (same
+  // token the Go client uses) and refresh-once on a 401, mirroring goRequest.
+  const token = getAccessToken();
   const res = await fetch(`${API_BASE}/api/n${endpoint}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options?.headers as Record<string, string> | undefined),
+    },
   });
+
+  if (res.status === 401 && retryOn401) {
+    const newToken = await refreshAccessToken();
+    if (newToken) return request<T>(endpoint, options, false);
+  }
 
   if (!res.ok) {
     const body = await res.json().catch(() => undefined);

@@ -14,7 +14,7 @@ export { UserSyncListener } from './notify';
 export { SettingsSyncListener } from './settings-notify';
 export {
   insertVoicemail,
-  selectVoicemails,
+  selectVoicemailsWithUnread,
   selectVoicemail,
   updateVoicemailRead,
   removeVoicemail,

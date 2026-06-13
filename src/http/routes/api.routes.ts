@@ -4,6 +4,7 @@ import path from 'path';
 import { DatabaseService, TrunkService } from '@/services';
 import { SipServer } from '@/sip';
 import { config } from '@/core';
+import { requireAuth, requireSelfExtension } from '../middleware/auth';
 
 export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipServer): Router {
   const router = Router();
@@ -85,26 +86,30 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
   });
 
   // ─── Voicemail ───────────────────────────────────────
-  router.get('/voicemails/:ext', async (req: Request, res: Response) => {
+  // Per-user and JWT-protected, mirroring the Go API's protected group: every
+  // route requires a valid access token AND the caller may only touch their own
+  // mailbox (:ext must equal the token's extension). Mounted as a sub-router so
+  // the guards apply once; mergeParams exposes :ext / :id from the mount path.
+  const vm = Router({ mergeParams: true });
+  vm.use(requireAuth, requireSelfExtension);
+
+  vm.get('/', async (req: Request, res: Response) => {
     try {
-      const [voicemails, unread] = await Promise.all([
-        db.getVoicemails(req.params.ext),
-        db.unreadVoicemailCount(req.params.ext),
-      ]);
+      const { voicemails, unread } = await db.getVoicemailsWithUnread(req.params.ext);
       res.json({ voicemails, unread });
     } catch {
       res.status(500).json({ error: 'Failed to load voicemails' });
     }
   });
 
-  router.get('/voicemails/:ext/:id/audio', async (req: Request, res: Response) => {
+  vm.get('/:id/audio', async (req: Request, res: Response) => {
     try {
-      const vm = await db.getVoicemail(req.params.ext, req.params.id);
-      if (!vm) {
+      const voicemail = await db.getVoicemail(req.params.ext, req.params.id);
+      if (!voicemail) {
         res.status(404).json({ error: 'Voicemail not found' });
         return;
       }
-      const filePath = path.resolve(config.voicemail.hostDir, vm.file);
+      const filePath = path.resolve(config.voicemail.hostDir, voicemail.file);
       if (!fs.existsSync(filePath)) {
         res.status(404).json({ error: 'Recording file missing' });
         return;
@@ -117,7 +122,7 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
     }
   });
 
-  router.post('/voicemails/:ext/:id/read', async (req: Request, res: Response) => {
+  vm.post('/:id/read', async (req: Request, res: Response) => {
     try {
       const ok = await db.markVoicemailRead(req.params.ext, req.params.id);
       const unread = await db.unreadVoicemailCount(req.params.ext);
@@ -127,19 +132,21 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
     }
   });
 
-  router.delete('/voicemails/:ext/:id', async (req: Request, res: Response) => {
+  vm.delete('/:id', async (req: Request, res: Response) => {
     try {
-      const vm = await db.getVoicemail(req.params.ext, req.params.id);
+      const voicemail = await db.getVoicemail(req.params.ext, req.params.id);
       const ok = await db.deleteVoicemail(req.params.ext, req.params.id);
       // Best-effort cleanup of the audio file.
-      if (ok && vm) {
-        try { fs.unlinkSync(path.resolve(config.voicemail.hostDir, vm.file)); } catch { /* noop */ }
+      if (ok && voicemail) {
+        try { fs.unlinkSync(path.resolve(config.voicemail.hostDir, voicemail.file)); } catch { /* noop */ }
       }
       res.json({ success: ok });
     } catch {
       res.status(500).json({ error: 'Failed to delete voicemail' });
     }
   });
+
+  router.use('/voicemails/:ext', vm);
 
   return router;
 }

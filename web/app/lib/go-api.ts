@@ -49,12 +49,17 @@ function authTokens(): { token: string | null; refreshToken: string | null } {
   }
 }
 
+/** The current access token (or null), for clients that authenticate manually. */
+export function getAccessToken(): string | null {
+  return authTokens().token;
+}
+
 // De-duplicates concurrent refreshes: while one /auth/refresh is in flight, all
 // callers await the same promise instead of firing a stampede of refreshes.
 let refreshInFlight: Promise<string | null> | null = null;
 
 /** Exchanges the stored refresh token for a new access token; updates the store. */
-function refreshAccessToken(): Promise<string | null> {
+export function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     const { refreshToken } = authTokens();
