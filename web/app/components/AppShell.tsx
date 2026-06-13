@@ -18,6 +18,7 @@ import {
 } from "./screens/ScreenSkeletons";
 import { useSipPhone } from "../hooks/useSipPhone";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { useBrowserBridge } from "../hooks/useBrowserBridge";
 import { goApi } from "../lib/go-api";
 import { CallStatus, CallDirection } from "../types";
 
@@ -56,6 +57,7 @@ export function AppShell() {
 
   const { register, makeCall, hangUp, answer, sendDtmf, isRecording, startRecording, stopRecording } = useSipPhone();
   const { connect, disconnect, onMessage, send: wsSend } = useWebSocket();
+  const bridge = useBrowserBridge();
 
   // Mark a tab visited (so it mounts and stays mounted) as we switch to it.
   const handleTabChange = useCallback((tab: TabId) => {
@@ -177,6 +179,20 @@ export function AppShell() {
     return off;
   }, [onMessage, refreshVoicemails]);
 
+  // Connect the PSTN→browser bridge for users who route inbound PSTN to their
+  // browser. Gated on the user's own setting so we don't open a socket (and a
+  // 3s reconnect loop) when the feature isn't in use. A forwarded call arrives
+  // as a `linked` event and surfaces as an inbound call via the shared store.
+  useEffect(() => {
+    if (sessionChecked && isAuthenticated && user && settings.pstnForwardToBrowser) {
+      bridge.connect(user.extension);
+    } else {
+      bridge.disconnect();
+    }
+    return () => bridge.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionChecked, isAuthenticated, user?.extension, settings.pstnForwardToBrowser]);
+
   // Re-register when the user changes their display name in settings
   useEffect(() => {
     if (isAuthenticated && user && sipConfig) {
@@ -250,6 +266,16 @@ export function AppShell() {
 
   const vmUnread = unreadCount();
 
+  // Route call-control actions to the right transport. Bridge (PSTN→browser)
+  // calls are driven by the bridge hook; all other calls are SIP sessions.
+  // DTMF / recording don't apply to bridge calls, so they're no-ops there.
+  const callIsBridge = activeCall?.source === "bridge";
+  const onAnswerCall = callIsBridge ? bridge.answer : answer;
+  const onDeclineCall = callIsBridge ? bridge.hangup : hangUp;
+  const onHangUpCall = callIsBridge ? bridge.hangup : handleHangUp;
+  const onSendDtmfCall = callIsBridge ? () => {} : sendDtmf;
+  const onToggleRecordingCall = callIsBridge ? () => {} : handleToggleRecording;
+
   // Show a branded splash while hydrating or while validating an existing
   // session (avoids a login-screen flash for already-logged-in users).
   if (!hydrated || (isAuthenticated && !sessionChecked)) return <SplashScreen />;
@@ -262,11 +288,11 @@ export function AppShell() {
   if (activeCall && activeCall.status !== "ended") {
     return (
       <ActiveCallScreen
-        onHangUp={handleHangUp}
-        onAnswer={answer}
-        onSendDtmf={sendDtmf}
-        onToggleRecording={handleToggleRecording}
-        isRecording={isRecording}
+        onHangUp={onHangUpCall}
+        onAnswer={onAnswerCall}
+        onSendDtmf={onSendDtmfCall}
+        onToggleRecording={onToggleRecordingCall}
+        isRecording={callIsBridge ? false : isRecording}
       />
     );
   }
@@ -282,7 +308,7 @@ export function AppShell() {
         <AppHeader />
 
         {/* Incoming call toast/sheet */}
-        <IncomingCallSheet onAnswer={answer} onDecline={hangUp} />
+        <IncomingCallSheet onAnswer={onAnswerCall} onDecline={onDeclineCall} />
 
         {/* Screen content. Each tab mounts on first visit (Suspense streams in
             the code-split chunk + skeleton), then stays mounted but hidden so
