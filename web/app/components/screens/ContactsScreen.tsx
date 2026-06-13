@@ -144,7 +144,7 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
               <ListItem
                 key={contact.extension}
                 onLongPress={() => setBlockTarget({ ext: contact.extension, name: contact.name })}
-                onClick={() => contact.online && onCall(contact.extension, contact.name)}
+                onClick={() => onCall(contact.extension, contact.name)}
                 leading={
                   <div className="relative">
                     <Avatar className="h-10 w-10">
@@ -187,7 +187,7 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
                       variant="ghost"
                       className="h-7 w-7"
                       onClick={(e) => { e.stopPropagation(); onCall(contact.extension, contact.name); }}
-                      disabled={!contact.online}
+                      title="Call"
                     >
                       <Phone className="h-3.5 w-3.5 text-emerald-500" />
                     </Button>

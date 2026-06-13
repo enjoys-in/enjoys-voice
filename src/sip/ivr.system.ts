@@ -148,8 +148,8 @@ export class IVRSystem {
       fs.mkdirSync(path.resolve(config.voicemail.hostDir, relDir), { recursive: true });
     } catch { /* best-effort */ }
 
-    let endpoint: any;
-    let dialog: any;
+    let endpoint: Mrf.Endpoint | undefined;
+    let dialog: Srf.Dialog | undefined;
     const startedAt = Date.now();
 
     try {
@@ -163,10 +163,19 @@ export class IVRSystem {
 
       // Stop recording when the caller presses 0 (or #).
       await endpoint.execute('set', 'playback_terminators=0#');
-      // record: <path> <max-secs> <silence-threshold> <silence-hits>
-      await endpoint.execute('record', `${fsPath} ${config.voicemail.maxSec} 200 5`);
+      // Typed record() helper (same underlying `record` app as execute('record',…))
+      // but it hands back FreeSWITCH's own stats. We use recordSeconds for the
+      // duration so it reflects ONLY the message — not the greeting/beep that
+      // played first, which wall-clock (Date.now() - startedAt) would include.
+      const rec = await endpoint.record(fsPath, {
+        timeLimitSecs: config.voicemail.maxSec,
+        silenceThresh: 200,
+        silenceHits: 5,
+      });
 
-      const duration = Math.round((Date.now() - startedAt) / 1000);
+      const duration = rec.recordSeconds
+        ? Math.round(Number(rec.recordSeconds))
+        : Math.round((Date.now() - startedAt) / 1000);
 
       await this.db.addVoicemail({
         id,
@@ -222,7 +231,7 @@ export class IVRSystem {
       await this.prepareVoice(endpoint);
       const text = message
         || 'The person you are trying to reach is not available right now. '
-         + 'Please try again later.';
+        + 'Please try again later.';
       await this.playSafe(endpoint, `say:${text}`);
     } catch (err: any) {
       console.error('❌ Announcement error:', err?.message || err);
