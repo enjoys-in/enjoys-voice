@@ -70,7 +70,7 @@ export class SipServer {
     this.registerHandlers();
 
     this.srf.connect(config.drachtio);
-
+ 
     this.srf.on('connect', (_err: any, hp: string) => {
       this.connected = true;
       console.log(`✅ SIP: Connected to drachtio (${hp})`);
