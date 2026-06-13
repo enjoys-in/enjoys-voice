@@ -1,8 +1,8 @@
 // Media-streaming runtime: builds the WebSocket side (MediaStreamServer + the
 // optional BrowserBridge) and selects handlers by MEDIA_STREAM_MODE.
 //
-// Shared by the live app (src/index.ts) and the standalone test harness so the
-// handler/mode wiring lives in exactly one place. The HTTP side (the Twilio
+// Shared by the live app (src/index.ts) so the handler/mode wiring lives in
+// exactly one place. The HTTP side (the Twilio
 // voice webhook) is a separate, pure Router mounted on whatever Express server
 // is already running — see webhook.ts / createStreamingWebhookRouter().
 

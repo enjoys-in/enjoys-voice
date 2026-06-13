@@ -5,8 +5,8 @@
 // audio WebSocket to our MediaStreamServer. The TwiML itself is built by the
 // existing TwilioClient.buildStreamInstruction (pure; no network/credentials).
 //
-// ISOLATION: this Router is NOT mounted on the live HttpServer. The standalone
-// runner mounts it on its own port; later we mount it under /api/n instead.
+// ISOLATION: this Router is mounted on the live HttpServer (at /api/n/media)
+// only when MEDIA_STREAM_ENABLED is set, so default deployments are unaffected.
 
 import { Router, type Request, type Response } from "express";
 import path from "node:path";
