@@ -19,7 +19,7 @@ import {
 import { useSipPhone } from "../hooks/useSipPhone";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { goApi } from "../lib/go-api";
-import { CallStatus } from "../types";
+import { CallStatus, CallDirection } from "../types";
 
 // Tab screens are code-split and mounted on first visit, so each tab's bundle
 // AND its data fetch only happen when the user actually opens that tab — the
@@ -184,6 +184,69 @@ export function AppShell() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayName]);
+
+  // Ask once for permission to show desktop notifications (so we can alert the
+  // user about an incoming call when this tab is in the background). Only
+  // prompts when the state is still "default" — never re-nags a granted/denied
+  // choice, and is a no-op where the API is unavailable (insecure context, etc).
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission === "default") {
+      Notification.requestPermission().catch(() => { /* ignore */ });
+    }
+  }, [isAuthenticated]);
+
+  // Incoming-call browser alerts. While an inbound call is ringing we (1) flash
+  // the tab title between the caller and the original title so a background tab
+  // visibly signals the call, and (2) raise a desktop notification ONLY when
+  // this tab is hidden (the user is on another tab/app) and they've granted
+  // permission — when the tab is focused the IncomingCallSheet is already shown.
+  // Everything is torn down as soon as the call stops ringing (answered/ended).
+  useEffect(() => {
+    const isIncoming =
+      activeCall?.direction === CallDirection.Inbound &&
+      activeCall?.status === CallStatus.Ringing;
+    if (!isIncoming) return;
+
+    const caller = activeCall.peerName || activeCall.peerExtension || "Someone";
+    const originalTitle = document.title;
+
+    // 1) Flash the title bar once per second.
+    let showCaller = true;
+    const flash = () => {
+      document.title = showCaller ? `\uD83D\uDCDE ${caller} is calling you\u2026` : originalTitle;
+      showCaller = !showCaller;
+    };
+    flash();
+    const titleTimer = window.setInterval(flash, 1000);
+
+    // 2) Desktop notification — hidden tab + granted permission only.
+    let notification: Notification | undefined;
+    if (
+      typeof Notification !== "undefined" &&
+      Notification.permission === "granted" &&
+      document.visibilityState === "hidden"
+    ) {
+      try {
+        notification = new Notification("Incoming call", {
+          body: `${caller} is calling you`,
+          tag: "incoming-call",
+          icon: "/favicon.ico",
+        });
+        notification.onclick = () => {
+          window.focus();
+          notification?.close();
+        };
+      } catch { /* notifications unsupported / blocked — ignore */ }
+    }
+
+    return () => {
+      window.clearInterval(titleTimer);
+      document.title = originalTitle;
+      notification?.close();
+    };
+  }, [activeCall?.direction, activeCall?.status, activeCall?.peerName, activeCall?.peerExtension]);
 
   const vmUnread = unreadCount();
 

@@ -96,3 +96,26 @@
       to `go-api.ts` and settle the `type` key contract (snake_case on the wire)
 - [ ] (Optional) Expose a delete route — `sound_service.Delete` exists but is
       not routed
+
+## Do Not Disturb (DND)
+> When a user enables DND, an inbound call must NOT ring their device. Treat it
+> as "no answer" (silent) — never a hard decline/unreachable. Route straight to
+> voicemail; fall back to a plain SIP 480 only when voicemail is disabled. DND
+> also SKIPS the PSTN-mobile leg and the "person is unavailable" announcement
+> (those are for genuine unreachability, not an intentional silence).
+- [ ] Go: add `DND bool` (default false) to `UserSettings` + `SettingsResponse`
+      (`api/internal/models/settings.go`), a migration column, and accept it in
+      the settings update handler/service
+- [ ] Node: add `dnd?: boolean` to `SipUser` (`src/core/types.ts`) and populate
+      it on the in-memory user via the same settings LISTEN/NOTIFY sync that
+      already carries mobile/forwarding (`database.service.ts`)
+- [ ] Node: in `InternalHandler.handle` (`src/sip/routes/internal.handler.ts`),
+      when `reg && targetUser.dnd` → go STRAIGHT to voicemail (skip ringing /
+      B2BUA). Do NOT reuse `routeUnreachable` as-is (it does PSTN-first +
+      announcement). Add a small DND branch: voicemail if
+      `config.voicemail.enabled && ivr`, else send SIP 480.
+- [ ] Record the call as `voicemail` (message left) or `missed`/`unreachable`
+      (no message) so it still shows in the callee's recents
+- [ ] Frontend: add `dnd` to the settings store + a toggle in `SettingsScreen`
+      and persist via the Go settings update (`go-api.ts`)
+
