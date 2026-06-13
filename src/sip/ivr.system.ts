@@ -155,9 +155,9 @@ export class IVRSystem {
     try {
       ({ endpoint, dialog } = await this.ms!.connectCaller(req, res));
 
-      const greeting = `say:The person you are trying to reach is unavailable. `
+      const greeting = `The person you are trying to reach is unavailable. `
         + `Please leave a message after the tone. Press zero when you are finished.`;
-      await endpoint.play(greeting);
+      await endpoint.speak({ ttsEngine: 'flite', voice: 'slt', text: greeting });
       // Short beep tone.
       await endpoint.play('tone_stream://%(500,0,800)');
 
