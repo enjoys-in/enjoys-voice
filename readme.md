@@ -1,122 +1,207 @@
-# CallNet - WebRTC Phone System
+# Enjoys Voice — WebRTC Phone System
 
-Real browser-based phone calls with microphone audio, SIP trunking, and Twilio integration.
+Real browser-based phone calls with microphone audio, an IVR flow builder, voicemail,
+call recording, and SIP trunking for PSTN.
 
 ## Architecture
 
+A **hybrid backend**: a Bun/TypeScript SIP engine owns the live telephony, a Go REST
+API owns authentication and durable data, and a Next.js PWA talks to both. Postgres is
+the shared database; Valkey/Redis is the shared cache.
+
 ```
-┌─────────────────┐     WebSocket      ┌──────────────────┐
-│   Browser (UI)  │◄──────────────────►│   API Server     │
-│  Next.js + WebRTC│    Signaling       │  Express + WS    │
-│  Real Mic Audio  │                    │  Port 3001/3002  │
-└────────┬────────┘                    └───────┬──────────┘
-         │                                      │
-         │  WebRTC (P2P audio)                  │ SIP (drachtio)
-         │                                      │
-         ▼                                      ▼
-   ┌───────────┐                         ┌────────────┐
-   │ STUN/TURN │                         │  Twilio    │
-   │  Google   │                         │  SIP Trunk │
-   └───────────┘                         └────────────┘
+                         ┌─────────────────────────────┐
+                         │      Browser (Web PWA)       │
+                         │   Next.js 15 · React 19      │
+                         │   SIP.js · WebRTC · Zustand  │
+                         └───┬─────────┬─────────┬──────┘
+            SIP over WS:5065 │  WS:3002│ HTTP    │ HTTP
+            (media/calls)    │ (signal)│ :3001   │ :3003
+                             ▼         ▼         ▼
+            ┌────────────────────────────────┐ ┌────────────────────┐
+            │   Node SIP Engine (Bun/TS)     │ │   Go REST API      │
+            │   • SIP signalling + routing   │ │   • Auth / JWT     │
+            │   • Presence, live call status │ │   • Account mgmt   │
+            │   • IVR runtime, recording     │ │   • IVR flow store │
+            │   • Voicemail capture          │ │   • Shared CRUD    │
+            │   HTTP :3001 · WS :3002        │ │   HTTP :3003       │
+            └───────┬────────────────────────┘ └─────────┬──────────┘
+                    │ TCP:9022 (control)                  │
+                    ▼                       ┌─────────────┴───────────┐
+            ┌───────────────┐  ┌──────────┐ │ Postgres :5432          │
+            │   Drachtio    │◄►│FreeSWITCH│ │ Valkey/Redis :6379      │
+            │  SIP proxy    │  │  media   │ │ (shared by both back-   │
+            │  5060 / 5065  │  │ 8021 ESL │ │  ends)                  │
+            └───────────────┘  └──────────┘ └─────────────────────────┘
 ```
 
-## Modes
+### Who owns what
 
-### Online Mode (Twilio)
-- External PSTN calls via Twilio Elastic SIP Trunk
-- Use your Twilio number to call any phone worldwide
-- Set `TWILIO_ENABLED=true` in `.env`
+| Concern | Service | Port |
+|---|---|---|
+| Auth (login / signup / refresh / `me` / rename) | **Go API** | 3003 |
+| IVR flow builder persistence | **Go API** | 3003 |
+| Account / settings CRUD (shared Postgres) | **Go API** | 3003 |
+| SIP signalling, call routing, presence | **Node engine** | SIP 5060/5065 |
+| Live status, users, call history (recents) | **Node engine** | HTTP 3001 |
+| Presence / call-event signalling, recording relay | **Node engine** | WS 3002 |
+| IVR runtime, voicemail capture | **Node engine** | — |
+| Web UI (PWA) | **Next.js** | 3000 |
 
-### Offline Mode (Default)
-- Internal calls between registered users via WebRTC P2P
-- No external dependency needed
-- Works on localhost for testing
+## Tech Stack
 
-## Quick Start
+- **Node engine** (`src/`) — Bun, TypeScript, Express, `ws`, drachtio-srf / drachtio-fsmrf, `pg`, `redis`
+- **Go API** (`api/`) — Go, gin, gorm, go-redis, golang-jwt, bcrypt
+- **Web** (`web/`) — Next.js 15, React 19, SIP.js, Zustand, Tailwind, shadcn/ui
+- **Infra** — Postgres, Valkey/Redis, Drachtio, FreeSWITCH (via Docker)
 
-### 1. Start API Server
+## Ports
+
+| Port | Service |
+|------|---------|
+| 3000 | Web UI (Next.js) |
+| 3001 | Node HTTP API (live status, calls, voicemail) |
+| 3002 | Node WebSocket (signalling) |
+| 3003 | Go REST API (auth, IVR, CRUD) |
+| 5060 | SIP (Drachtio, UDP/TCP) |
+| 5065 | SIP over WebSocket (browser SIP.js) |
+| 5432 | Postgres |
+| 6379 | Valkey/Redis |
+| 8021 | FreeSWITCH ESL (internal) |
+| 9022 | Drachtio admin (internal) |
+
+## Quick Start (local dev)
+
+### 1. Infrastructure (Postgres + Redis)
+```bash
+cd docker
+docker compose up -d postgres redis
+```
+Database migrations in `api/migrations/` are applied by the Go API on boot (they are
+idempotent and also seed the test users below).
+
+### 2. Go REST API (auth + data) — port 3003
 ```bash
 cd api
-cp .env.example .env    # edit with your settings
+go run .
+```
+
+### 3. Node SIP Engine (telephony) — ports 3001 / 3002 / SIP
+```bash
+cp .env.example .env    # edit with your settings (see SETUP.md)
 bun install
 bun run dev
 ```
 
-### 2. Start Web UI
+### 4. Web UI — port 3000
 ```bash
-cd api/web
-npm install
-npm run dev
+cd web
+bun install            # or: npm install
+bun dev                # or: npm run dev
 ```
 
-### 3. Test Calling
+### 5. Make a test call
 1. Open http://localhost:3000
-2. Login as `user1` / `pass123`
-3. Open a 2nd browser tab, login as `user2` / `pass123`
-4. In the Contacts tab, click the call button next to the other user
-5. Accept the incoming call in the other tab
-6. Both tabs now have a live audio call using your real microphone
+2. Log in as `1001` / `password123`
+3. In a second browser tab, log in as `1002` / `password123`
+4. In **Contacts**, click the call button next to the other user
+5. Accept the incoming call in the other tab — you now have a live WebRTC audio call
 
-## Default Users
+> Login is by **username (= extension)** + password. The same credentials work via
+> `POST :3003/api/auth`.
 
-| Extension | Username | Password | Name    |
-|-----------|----------|----------|---------|
-| 1001      | user1    | pass123  | Alice   |
-| 1002      | user2    | pass123  | Bob     |
-| 1003      | user3    | pass123  | Charlie |
+## Test Users
 
-## API Endpoints
+Password for all three is `password123`; log in by **username (= extension)**. These
+match the running dev database; the seed lives in
+[api/migrations/001_initial.sql](api/migrations/001_initial.sql).
 
-| Method | Path          | Description                  |
-|--------|---------------|------------------------------|
-| GET    | /api/health   | Server status                |
-| GET    | /api/users    | List SIP users               |
-| POST   | /api/users    | Create SIP user              |
-| POST   | /api/auth     | Login and get SIP config     |
-| GET    | /api/calls    | Call history                 |
-| POST   | /api/call     | Initiate outbound call       |
-| GET    | /api/trunk    | Trunk configuration          |
+| Extension / Username | Name           | Mobile     |
+|----------------------|----------------|------------|
+| 1001                 | Alice Anderson | 9000000001 |
+| 1002                 | Bob Brown      | 9000000002 |
+| 1003                 | Carol Clark    | 9000000003 |
 
-## Twilio Setup
+New accounts can be created via the signup screen or `POST :3003/api/auth/signup`
+(the extension is derived from the mobile number).
 
-1. Create a Twilio account at https://console.twilio.com
-2. Buy a phone number
-3. Go to Elastic SIP Trunking -> Create trunk
-4. Under Origination, add your server's public IP on port 5060
-5. Under Termination, set up credentials
-6. Fill in `.env`:
-   ```
-   TWILIO_ENABLED=true
-   TWILIO_ACCOUNT_SID=ACxxxxx
-   TWILIO_AUTH_TOKEN=xxxxx
-   TWILIO_SIP_DOMAIN=yourapp.pstn.twilio.com
-   TWILIO_CALLER_NUMBER=+15551234567
-   TWILIO_TRUNK_SIP_URI=yourtrunk.pstn.twilio.com
-   ```
+## Selected API Endpoints
 
-## Docker (Full SIP Stack)
+### Go API (`:3003/api`) — auth & data
+| Method | Path | Description |
+|--------|------|-------------|
+| POST   | `/auth` · `/auth/login` | Log in, returns JWT pair + SIP config |
+| POST   | `/auth/signup` | Create account |
+| POST   | `/auth/refresh` | Exchange refresh token for a new pair |
+| GET    | `/auth/me` | Current session profile (boot validator) |
+| PATCH  | `/auth/me` | Update the signed-in user's name |
+| GET/POST/PUT/DELETE | `/ivr/flows` | IVR flow builder persistence |
+| GET    | `/voicemails/:ext` | List voicemails |
 
-For production with full SIP infrastructure:
+### Node engine (`:3001/api`) — live telephony
+| Method | Path | Description |
+|--------|------|-------------|
+| GET    | `/health` | Engine status (SIP connected, IVR, trunk, uptime) |
+| GET    | `/users` | Registered SIP users + presence |
+| GET    | `/calls` · `/calls/:ext` | Call history (recents) |
+| GET/POST | `/block/:ext` | Block list |
+| GET/POST | `/forwarding/:ext` | Call forwarding rules |
+| POST   | `/ivr/transfer` | Transfer an active call |
+
+## SIP Trunk (PSTN)
+
+Outbound/inbound PSTN calls go through a SIP trunk (e.g. Twilio Elastic SIP Trunking).
+Configure it via `TRUNK_*` environment variables (leave `TRUNK_HOST` empty to disable
+and run internal-only):
+
 ```bash
-cd api/docker
+TRUNK_HOST=yourtrunk.pstn.twilio.com
+TRUNK_PORT=5060
+TRUNK_TRANSPORT=udp
+TRUNK_USERNAME=...
+TRUNK_PASSWORD=...
+TRUNK_CALLER_NUMBER=+15551234567
+```
+
+With no trunk configured the system runs in **internal-only mode** — calls between
+registered users via WebRTC, no external dependency. See [SETUP.md](SETUP.md) for the
+full trunk + FreeSWITCH walkthrough.
+
+## Docker (full SIP stack)
+
+```bash
+cd docker
 docker compose up -d
 ```
 
-This starts drachtio, FreeSWITCH, RTPEngine, and the app server.
+Starts Drachtio, FreeSWITCH, Postgres and Redis. Production compose and reverse-proxy
+config live in [prod/](prod/) (`docker-compose.prod.yml`, Caddy, coTURN).
+
+## Project Structure
+
+```
+.            Node SIP engine (Bun/TS)  — src/, package.json
+api/         Go REST API               — main.go, internal/, migrations/
+web/         Next.js web PWA           — app/, components/
+docker/      Local infra + SIP stack   — docker-compose.yml
+prod/        Production deploy          — Caddy, coTURN, compose
+```
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for call-flow diagrams and [SETUP.md](SETUP.md)
+for production deployment.
 
 ## Features
 
-- Real microphone audio via WebRTC
+- Real microphone audio via WebRTC (P2P or through FreeSWITCH)
 - DTMF dial pad with tone generation
-- Call timer and audio level visualizer
-- Mute/unmute controls
-- Incoming call notification with accept/reject
+- Call timer, audio-level visualizer, mute controls
+- Incoming-call notifications with accept/reject
 - Online user presence
-- Call history log
-- Twilio SIP trunk for PSTN calls
-- Offline mode for internal-only calling
-- User authentication
-- REST API for programmatic call control
+- Call history (recents) and voicemail with in-browser playback
+- IVR flow builder (visual, persisted in Postgres)
+- Call recording
+- JWT authentication with refresh + boot-time session validation
+- SIP trunk for PSTN; internal-only mode with no external dependency
 
 ## Reference Links
 - https://hub.docker.com/r/safarov/freeswitch/
