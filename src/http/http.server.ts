@@ -5,6 +5,7 @@ import { config } from '@/core';
 import { DatabaseService, TrunkService } from '@/services';
 import { SipServer } from '@/sip';
 import type { ITrunkProvider } from '@/trunk';
+import { streamingConfig, createStreamingWebhookRouter } from '@/trunk/streaming';
 import { createRoutes } from './routes/api.routes';
 import { apiRateLimit } from './middleware/rate-limit';
 
@@ -28,6 +29,17 @@ export class HttpServer {
   private configure(): void {
     this.app.use(cors());
     this.app.use(express.json());
+
+    // Twilio media-streaming voice webhook (+ /bridge test page), mounted on this
+    // same Express server instead of a standalone one. Opt-in via MEDIA_STREAM_
+    // ENABLED. Mounted BEFORE the rate limiter and /api/n dashboard router so the
+    // unauthenticated Twilio webhook isn't throttled or blocked by API guards.
+    //   Twilio Voice URL → https://<domain>/api/n/media/voice
+    //   Browser test page → https://<domain>/api/n/media/bridge
+    if (streamingConfig.enabled) {
+      this.app.use('/api/n/media', createStreamingWebhookRouter());
+    }
+
     this.app.use(apiRateLimit);
     // Mounted under /api/n (Node) so a single domain can route both backends via
     // Caddy ( /api/n/* -> Node, /api/g/* -> Go ). Dev also separates by port 3001.

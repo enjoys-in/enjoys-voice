@@ -9,6 +9,8 @@
 // runner mounts it on its own port; later we mount it under /api/n instead.
 
 import { Router, type Request, type Response } from "express";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { TwilioClient } from "../twilio";
 import { streamingConfig } from "./config";
 
@@ -49,6 +51,13 @@ export function createStreamingWebhookRouter(): Router {
 
   router.post("/voice", respond);
   router.get("/voice", respond);
+
+  // Browser test client (listen / talk). Served from this same router so it's
+  // reachable on whatever Express server mounts it — no standalone server needed.
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  router.get("/bridge", (_req, res) => {
+    res.sendFile(path.join(here, "public", "bridge-test.html"));
+  });
 
   return router;
 }

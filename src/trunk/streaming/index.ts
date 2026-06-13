@@ -9,6 +9,11 @@ export { streamingConfig } from "./config";
 export type { StreamingConfig } from "./config";
 export { MediaStreamServer } from "./media-stream.server";
 export { createStreamingWebhookRouter, buildMediaStreamUrl } from "./webhook";
+export {
+  createMediaStreamRuntime,
+  type MediaStreamRuntime,
+  type MediaStreamMode,
+} from "./runtime";
 export * as twilioProtocol from "./twilio.protocol";
 
 // Goal 1 — bridge caller audio to a browser listener (G.711 codec + WS pairing).

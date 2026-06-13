@@ -14,6 +14,11 @@ import { SipServer } from '@/sip';
 import { SignalingServer } from '@/websocket';
 import { HttpServer } from '@/http';
 import { createTrunkProvider, type ITrunkProvider } from '@/trunk';
+import {
+  streamingConfig,
+  createMediaStreamRuntime,
+  type MediaStreamRuntime,
+} from '@/trunk/streaming';
 
 class Application {
   private db: DatabaseService;
@@ -23,6 +28,7 @@ class Application {
   private sip: SipServer;
   private ws: SignalingServer;
   private http: HttpServer;
+  private media?: MediaStreamRuntime;
   private userSync: UserSyncListener;
   private settingsSync: SettingsSyncListener;
   private writeQueue: WriteQueue;
@@ -39,6 +45,12 @@ class Application {
     this.sip = new SipServer(this.db, this.trunk, registrationStore, this.audit);
     this.ws = new SignalingServer(this.db);
     this.http = new HttpServer(this.db, this.trunk, this.sip, this.twilioTrunk);
+    // Twilio media-streaming WS server (separate port, like SignalingServer). Its
+    // HTTP voice webhook rides on the existing HttpServer above. Opt-in via
+    // MEDIA_STREAM_ENABLED; MEDIA_STREAM_MODE selects log|bridge|ai.
+    if (streamingConfig.enabled) {
+      this.media = createMediaStreamRuntime();
+    }
     // Keep the in-memory user store in sync with Postgres in near real time:
     // any account created/edited/deleted via the Go API is reconciled here
     // without a restart. onReconnect re-hydrates to catch changes missed while
@@ -76,6 +88,9 @@ class Application {
     console.log(`   WS:     :${config.server.wsPort}`);
     console.log(`   Trunk:  ${config.trunk.enabled ? config.trunk.host : 'disabled'}`);
     console.log(`   Twilio: ${this.twilioTrunk?.isEnabled ? 'enabled' : 'disabled'}`);
+    console.log(
+      `   Media:  ${this.media ? `enabled (${this.media.mode}, ws :${streamingConfig.wsPort})` : 'disabled'}`,
+    );
     console.log(`   IVR:    ${config.ivr.enabled ? 'enabled' : 'disabled'}`);
 
     // Hydrate users from the shared Postgres DB so accounts created via the Go
@@ -125,10 +140,12 @@ class Application {
     await this.sip.start();
     this.ws.start();
     this.http.start();
+    this.media?.start();
   }
 
   /** Best-effort graceful shutdown: persist any buffered audit events before exit. */
   async shutdown(): Promise<void> {
+    this.media?.stop();
     await this.audit.stop();
   }
 }
