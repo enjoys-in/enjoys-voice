@@ -1,5 +1,5 @@
 /**
- * Client for the Go CRUD API (port 3002).
+ * Client for the Go CRUD API (port 3003).
  *
  * Every Go endpoint replies with a uniform envelope:
  *   { success: boolean, message: string, data: T }
@@ -157,30 +157,6 @@ export interface PstnForward {
   target: string;
 }
 
-export interface AuditLog {
-  id: number;
-  extension: string;
-  event: string;
-  detail: string;
-  createdAt: string;
-}
-
-export interface Voicemail {
-  id: number;
-  extension: string;
-  from: string;
-  filename: string;
-  duration: number;
-  path: string;
-  read: boolean;
-  created_at: string;
-}
-
-export interface VoicemailList {
-  voicemails: Voicemail[];
-  unread: number;
-}
-
 export interface GoLookupResponse {
   extension: string;
   name: string;
@@ -228,12 +204,12 @@ export const goApi = {
     },
   },
 
-  // Phone → user lookup
+  // Phone → user lookup (resolves a mobile/number to a user).
   lookupByPhone(phone: string): Promise<GoLookupResponse> {
     return goRequest<GoLookupResponse>(`/lookup/${encodeURIComponent(phone)}`);
   },
 
-  // PSTN call forwarding
+  // PSTN call forwarding (forward inbound PSTN to a browser/extension target).
   getPstnForward(ext: string): Promise<PstnForward> {
     return goRequest<PstnForward>(`/pstn-forward/${encodeURIComponent(ext)}`);
   },
@@ -242,51 +218,6 @@ export const goApi = {
       method: "POST",
       body: JSON.stringify(payload),
     });
-  },
-
-  // Audit log
-  getAudit(params?: {
-    user?: string;
-    event?: string;
-    from?: string;
-    to?: string;
-    limit?: number;
-  }): Promise<AuditLog[]> {
-    const qs = new URLSearchParams();
-    if (params?.user) qs.set("user", params.user);
-    if (params?.event) qs.set("event", params.event);
-    if (params?.from) qs.set("from", params.from);
-    if (params?.to) qs.set("to", params.to);
-    if (params?.limit) qs.set("limit", String(params.limit));
-    const suffix = qs.toString() ? `?${qs.toString()}` : "";
-    return goRequest<AuditLog[]>(`/audit${suffix}`);
-  },
-  getAuditByExtension(ext: string, limit?: number): Promise<AuditLog[]> {
-    const suffix = limit ? `?limit=${limit}` : "";
-    return goRequest<AuditLog[]>(
-      `/audit/${encodeURIComponent(ext)}${suffix}`
-    );
-  },
-
-  // Voicemails
-  getVoicemails(ext: string): Promise<VoicemailList> {
-    return goRequest<VoicemailList>(`/voicemails/${encodeURIComponent(ext)}`);
-  },
-  markVoicemailRead(ext: string, id: number): Promise<{ unread: number }> {
-    return goRequest<{ unread: number }>(
-      `/voicemails/${encodeURIComponent(ext)}/${id}/read`,
-      { method: "POST" }
-    );
-  },
-  deleteVoicemail(ext: string, id: number): Promise<{ unread: number }> {
-    return goRequest<{ unread: number }>(
-      `/voicemails/${encodeURIComponent(ext)}/${id}`,
-      { method: "DELETE" }
-    );
-  },
-  /** Direct URL for the raw WAV (not enveloped); use in <audio src>. */
-  voicemailAudioUrl(ext: string, id: number): string {
-    return `${GO_API_BASE}/api/voicemails/${encodeURIComponent(ext)}/${id}/audio`;
   },
 
   // IVR flows

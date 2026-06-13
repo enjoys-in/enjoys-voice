@@ -12,4 +12,4 @@ export {
 export type { BlockedRow, ForwardingRow, PstnRow } from './detail.repo';
 export { UserSyncListener } from './notify';
 export { insertVoicemail, markVoicemailReadByFile, deleteVoicemailByFile } from './voicemail.repo';
-export { ensureCallSchema, upsertCall } from './call.repo';
+export { ensureCallSchema, upsertCall, loadRecentCalls } from './call.repo';

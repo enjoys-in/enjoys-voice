@@ -96,8 +96,10 @@ class Application {
     // they just aren't mirrored to the shared DB until it recovers.
     try {
       await ensureCallSchema();
+      const n = await this.db.hydrateCallsFromPostgres();
+      console.log(`   Calls:  hydrated ${n} recents from Postgres`);
     } catch (err: any) {
-      console.warn(`   Calls:  ⚠️  call_records schema ensure failed (${err?.message})`);
+      console.warn(`   Calls:  ⚠️  call_records schema/hydrate failed (${err?.message})`);
     }
     this.writeQueue.start().catch((err: any) =>
       console.warn(`   Queue:  ⚠️  write queue failed to start (${err?.message})`),

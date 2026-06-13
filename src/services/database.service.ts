@@ -9,6 +9,7 @@ import {
   loadBlockedByExtension,
   loadForwardingByExtension,
   loadPstnByExtension,
+  loadRecentCalls,
   type ForwardingRow,
 } from './postgres';
 
@@ -41,6 +42,20 @@ export class DatabaseService extends EventEmitter {
     }
     await this.hydrateAllDetail();
     return rows.length;
+  }
+
+  /**
+   * Hydrate the in-memory call log from the shared Postgres call_records table
+   * so "recents" survive a restart. The in-memory log is what the HTTP API
+   * serves, but it starts empty on each boot — without this, history would be
+   * blank after a reboot even though the rows persist in Postgres. Replace-only:
+   * it overwrites whatever is in memory (called once at startup, before any new
+   * calls are logged). Returns the number of calls loaded.
+   */
+  async hydrateCallsFromPostgres(limit = 500): Promise<number> {
+    const calls = await loadRecentCalls(limit);
+    this.callLogs = calls;
+    return calls.length;
   }
 
   /**

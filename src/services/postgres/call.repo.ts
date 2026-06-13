@@ -70,3 +70,40 @@ export async function upsertCall(call: CallLog): Promise<void> {
     ],
   );
 }
+
+/** TIMESTAMPTZ comes back from pg as a Date; normalise to an ISO string. */
+function toIso(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+/**
+ * Load the most recent calls from the shared call_records table, newest first,
+ * mapped back to the in-memory CallLog shape. Backs the Node engine's boot-time
+ * rehydration of "recents": the in-memory log is the source the HTTP API reads,
+ * but it starts empty on each restart — without this, history would be blank
+ * after a reboot even though the rows persist here. Reads the additive columns
+ * ensureCallSchema guarantees exist, so call it after ensureCallSchema().
+ */
+export async function loadRecentCalls(limit = 500): Promise<CallLog[]> {
+  const { rows } = await getPool().query(
+    `SELECT id, call_id, "from", "to", from_name, direction, status,
+            duration, started_at, ended_at, from_ext, to_ext
+       FROM call_records
+      ORDER BY started_at DESC NULLS LAST, id DESC
+      LIMIT $1`,
+    [limit],
+  );
+  return rows.map((r): CallLog => ({
+    id: r.call_id ?? String(r.id),
+    from: r.from,
+    to: r.to,
+    fromName: r.from_name ?? '',
+    status: (r.status ?? 'ended') as CallLog['status'],
+    direction: (r.direction ?? 'inbound') as CallLog['direction'],
+    startTime: toIso(r.started_at),
+    endTime: r.ended_at ? toIso(r.ended_at) : undefined,
+    duration: r.duration ?? undefined,
+    fromExt: r.from_ext ?? undefined,
+    toExt: r.to_ext ?? undefined,
+  }));
+}
