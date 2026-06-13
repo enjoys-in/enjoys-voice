@@ -12,15 +12,54 @@ export class TrunkService {
     callerNumber: config.trunk.callerNumber,
     enabled: config.trunk.enabled,
     prefix: config.trunk.prefix,
+    inboundIps: config.trunk.inboundIps,
   };
 
   get isEnabled(): boolean {
     return this.trunk.enabled;
   }
 
-  /** Check if a source IP matches the trunk host (inbound from PSTN) */
+  /**
+   * Match an IPv4 address against an allowlist entry that is either an exact IP
+   * ("54.172.60.1") or CIDR ("54.172.60.0/30"). Returns false for malformed
+   * input instead of throwing, so a bad env entry can't crash call routing.
+   */
+  private static ipMatches(ip: string, entry: string): boolean {
+    if (!ip || !entry) return false;
+    if (!entry.includes('/')) return ip === entry;
+    const [range, bitsStr] = entry.split('/');
+    const bits = Number(bitsStr);
+    if (!Number.isInteger(bits) || bits < 0 || bits > 32) return false;
+    const toInt = (a: string): number | null => {
+      const parts = a.split('.');
+      if (parts.length !== 4) return null;
+      let n = 0;
+      for (const p of parts) {
+        const o = Number(p);
+        if (!Number.isInteger(o) || o < 0 || o > 255) return null;
+        n = (n << 8) | o;
+      }
+      return n >>> 0;
+    };
+    const ipInt = toInt(ip);
+    const rangeInt = toInt(range);
+    if (ipInt === null || rangeInt === null) return false;
+    const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+    return (ipInt & mask) === (rangeInt & mask);
+  }
+
+  /**
+   * True when the SIP source is a trusted inbound PSTN trunk: the legacy single
+   * trunk host, OR any entry in the configured inbound allowlist (exact IPs or
+   * CIDRs, e.g. a provider's SIP signaling edges). The allowlist is independent
+   * of the legacy trunk, so a provider-only inbound (e.g. Twilio Elastic SIP
+   * Trunk) works without TRUNK_HOST. Empty allowlist => no extra sources.
+   */
   isFromTrunk(sourceIp: string): boolean {
-    return this.trunk.enabled && sourceIp === this.trunk.host;
+    if (this.trunk.enabled && sourceIp === this.trunk.host) return true;
+    return this.trunk.inboundIps.some((entry) =>
+      TrunkService.ipMatches(sourceIp, entry),
+    );
   }
 
   getActive() {

@@ -34,6 +34,9 @@ export interface AppConfig {
     callerNumber: string;
     enabled: boolean;
     prefix: string;
+    // Source IPs/CIDRs (besides `host`) trusted as inbound PSTN trunk, e.g. a
+    // provider's SIP signaling edges (Twilio Elastic SIP Trunk). Empty = none.
+    inboundIps: string[];
   };
   ivr: {
     enabled: boolean;
@@ -141,6 +144,13 @@ export const config: AppConfig = {
     callerNumber: process.env.TRUNK_CALLER_NUMBER || '',
     enabled: !!process.env.TRUNK_HOST,
     prefix: process.env.TRUNK_PREFIX || '',
+    // Comma-separated IPs/CIDRs trusted as inbound trunk (e.g. Twilio's SIP
+    // signaling edges). Independent of TRUNK_HOST so a provider-only inbound
+    // works without a legacy trunk configured.
+    inboundIps: (process.env.TRUNK_INBOUND_IPS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
   },
   ivr: {
     enabled: process.env.IVR_ENABLED !== 'false',
