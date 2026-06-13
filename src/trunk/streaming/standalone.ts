@@ -10,12 +10,17 @@
 //   POST https://<public-host>/twilio/voice
 // Set MEDIA_STREAM_ECHO=true to hear your own voice back (two-way proof).
 //
-// The demo handlers below just LOG; the internal system replaces them later.
+// MEDIA_STREAM_MODE selects what happens to the caller's audio:
+//   log    (default) just log frames; the internal system replaces this later
+//   bridge send audio to a browser listener (Goal 1: a person listens/talks)
+//   ai     answer with the voice agent      (Goal 2: speech -> AI -> speak back)
 
 import express from "express";
 import { MediaStreamServer } from "./media-stream.server";
 import { createStreamingWebhookRouter, buildMediaStreamUrl } from "./webhook";
 import { streamingConfig } from "./config";
+import { BrowserBridge } from "./browser-bridge";
+import { createAiHandlers, createDefaultBrain } from "./ai/ai.handlers";
 import type { MediaStreamHandlers } from "./types";
 
 // Per-session inbound frame counters, so audio logging stays readable.
@@ -50,9 +55,24 @@ const demoHandlers: MediaStreamHandlers = {
     console.error(`❌ media error id=${session?.id ?? "?"}: ${err.message}`),
 };
 
+// ─── Pick the handler set by mode ────────────────────────────────────
+const mode = (process.env.MEDIA_STREAM_MODE || "log").toLowerCase();
+
+let handlers: MediaStreamHandlers = demoHandlers;
+let bridge: BrowserBridge | undefined;
+
+if (mode === "bridge") {
+  bridge = new BrowserBridge();
+  bridge.start(); // browser-facing audio WS on its own port
+  handlers = bridge.handlers();
+} else if (mode === "ai") {
+  handlers = createAiHandlers(createDefaultBrain());
+}
+
 // ─── Media WebSocket server ──────────────────────────────────────────
-const media = new MediaStreamServer(demoHandlers);
+const media = new MediaStreamServer(handlers);
 media.start();
+console.log(`   Mode       → ${mode}`);
 
 // ─── Voice webhook HTTP server ───────────────────────────────────────
 const app = express();
@@ -62,7 +82,9 @@ app.use("/twilio", createStreamingWebhookRouter());
 app.get("/health", (_req, res) => {
   res.json({
     ok: true,
+    mode,
     wsPort: streamingConfig.wsPort,
+    bridgeWsPort: mode === "bridge" ? streamingConfig.bridgeWsPort : undefined,
     streamUrl: buildMediaStreamUrl(),
     echo: streamingConfig.echo,
     authRequired: !!streamingConfig.authToken,
@@ -82,6 +104,7 @@ app.listen(streamingConfig.webhookPort, () => {
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.once(sig, () => {
     media.stop();
+    bridge?.stop();
     process.exit(0);
   });
 }

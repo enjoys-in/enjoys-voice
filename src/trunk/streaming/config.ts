@@ -24,6 +24,17 @@ export interface StreamingConfig {
   authToken: string;
   /** Dev only: echo caller audio straight back to prove two-way audio works. */
   echo: boolean;
+  /** Browser-bridge audio WebSocket port (the page connects here to listen/talk). */
+  bridgeWsPort: number;
+  /** AI voice-agent settings. */
+  ai: {
+    /** Speechmatics API key for real-time speech-to-text (createSpeechmaticsJWT). */
+    speechmaticsApiKey: string;
+    /** Speechmatics Realtime endpoint URL (region-specific); empty = library default. */
+    speechmaticsUrl: string;
+    /** ASR language (ISO code), e.g. "en". */
+    language: string;
+  };
 }
 
 export const streamingConfig: StreamingConfig = {
@@ -33,4 +44,10 @@ export const streamingConfig: StreamingConfig = {
   publicWsUrl: process.env.MEDIA_STREAM_PUBLIC_URL || "",
   authToken: process.env.MEDIA_STREAM_AUTH_TOKEN || "",
   echo: process.env.MEDIA_STREAM_ECHO === "true",
+  bridgeWsPort: parseInt(process.env.MEDIA_STREAM_BRIDGE_PORT || "3005"),
+  ai: {
+    speechmaticsApiKey: process.env.SPEECHMATICS_API_KEY || "",
+    speechmaticsUrl: process.env.SPEECHMATICS_RT_URL || "",
+    language: process.env.MEDIA_STREAM_AI_LANGUAGE || "en",
+  },
 };
