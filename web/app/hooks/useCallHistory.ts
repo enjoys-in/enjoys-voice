@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { api, type CallRecordResponse } from "../lib/api";
+import { goApi } from "../lib/go-api";
+import type { CallRecord } from "../types";
 import { useAuthStore } from "../stores";
 
 const STALE_MS = 30_000; // Only refetch if older than 30s
 let lastFetchedAt = 0;
-let cachedCalls: CallRecordResponse[] = [];
+let cachedCalls: CallRecord[] = [];
 
 export function resetCallHistoryCache() {
   lastFetchedAt = 0;
@@ -14,7 +15,7 @@ export function resetCallHistoryCache() {
 }
 
 export function useCallHistory() {
-  const [calls, setCalls] = useState<CallRecordResponse[]>(cachedCalls);
+  const [calls, setCalls] = useState<CallRecord[]>(cachedCalls);
   const [loading, setLoading] = useState(!cachedCalls.length);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuthStore();
@@ -29,13 +30,13 @@ export function useCallHistory() {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.getCallsByUser(user.extension);
+      const data = await goApi.getCallsByUser(user.extension);
       cachedCalls = data;
       lastFetchedAt = Date.now();
       setCalls(data);
     } catch (err) {
       try {
-        const data = await api.getCalls();
+        const data = await goApi.getCalls();
         cachedCalls = data;
         lastFetchedAt = Date.now();
         setCalls(data);

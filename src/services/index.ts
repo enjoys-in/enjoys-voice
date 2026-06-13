@@ -5,6 +5,7 @@ export { DialPlanService, RouteType } from './dialplan.service';
 export { createRegistrationStore, MemoryRegistrationStore, RedisRegistrationStore } from './registration';
 export type { RegistrationStore } from './registration';
 export { UserSyncListener } from './postgres';
+export { SettingsSyncListener } from './postgres';
 export { insertVoicemail, markVoicemailReadByFile, deleteVoicemailByFile } from './postgres';
 export { ensureCallSchema, upsertCall } from './postgres';
 export { WriteQueue } from './queue';

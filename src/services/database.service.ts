@@ -285,22 +285,6 @@ export class DatabaseService extends EventEmitter {
     }
   }
 
-  getCalls(): CallLog[] {
-    return this.callLogs;
-  }
-
-  getCallsByUser(extension: string): CallLog[] {
-    // Prefer the resolved owner extensions; fall back to the raw leg strings so
-    // any call written without a resolved owner still surfaces for the user.
-    return this.callLogs.filter(
-      c =>
-        c.fromExt === extension ||
-        c.toExt === extension ||
-        c.from === extension ||
-        c.to === extension,
-    );
-  }
-
   // ─── Block List ──────────────────────────────────────
 
   blockNumber(extension: string, numberToBlock: string): boolean {

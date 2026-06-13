@@ -4,7 +4,6 @@
  */
 
 import { getApiBase } from "./runtime-config";
-import type { CallDirection, CallRecordStatus } from "../types";
 
 // ─── Base Config ────────────────────────────────────────
 
@@ -14,14 +13,6 @@ const API_BASE = getApiBase();
 
 // ─── Request Types ──────────────────────────────────────
 
-export interface BlockNumberRequest {
-  number: string;
-}
-
-export interface SetForwardingRequest {
-  type: "busy" | "noAnswer" | "unavailable";
-  target: string | null;
-}
 
 export interface IvrTransferRequest {
   callId: string;
@@ -39,12 +30,6 @@ export interface HealthResponse {
   uptime: number;
 }
 
-export interface LookupResponse {
-  extension: string;
-  name: string;
-  mobile: string;
-}
-
 export interface UserResponse {
   extension: string;
   name: string;
@@ -56,18 +41,6 @@ export interface UserDetailResponse {
   extension: string;
   name: string;
   registered: boolean;
-}
-
-export interface CallRecordResponse {
-  id: string;
-  from: string;
-  to: string;
-  fromName: string;
-  status: CallRecordStatus;
-  direction: CallDirection;
-  startTime: string;
-  endTime?: string;
-  duration?: number;
 }
 
 export interface IvrStatusResponse {
@@ -90,16 +63,6 @@ export interface ConfigResponse {
   wsPort: number;
   ivrEnabled: boolean;
   ivrEntry: string;
-}
-
-export interface BlockListResponse {
-  blocked: string[];
-}
-
-export interface ForwardingResponse {
-  busy?: string | null;
-  noAnswer?: string | null;
-  unavailable?: string | null;
 }
 
 export interface VoicemailRecord {
@@ -160,20 +123,10 @@ export const api = {
   // Health
   health: () => request<HealthResponse>("/health"),
 
-  // Lookup
-  lookupByPhone: (phone: string) =>
-    request<LookupResponse>(`/lookup/${encodeURIComponent(phone)}`),
-
   // Users
   getUsers: () => request<UserResponse[]>("/users"),
 
   getUser: (ext: string) => request<UserDetailResponse>(`/users/${ext}`),
-
-  // Calls
-  getCalls: () => request<CallRecordResponse[]>("/calls"),
-
-  getCallsByUser: (ext: string) =>
-    request<CallRecordResponse[]>(`/calls/${ext}`),
 
   // IVR
   getIvrStatus: () => request<IvrStatusResponse>("/ivr/status"),
@@ -191,41 +144,6 @@ export const api = {
 
   // Config
   getConfig: () => request<ConfigResponse>("/config"),
-
-  // Block List
-  getBlockedNumbers: (ext: string) =>
-    request<BlockListResponse>(`/block/${ext}`),
-
-  blockNumber: (ext: string, data: BlockNumberRequest) =>
-    request<SuccessResponse>(`/block/${ext}`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  unblockNumber: (ext: string, number: string) =>
-    request<SuccessResponse>(`/block/${ext}/${number}`, {
-      method: "DELETE",
-    }),
-
-  // Call Forwarding
-  getForwarding: (ext: string) =>
-    request<ForwardingResponse>(`/forwarding/${ext}`),
-
-  setForwarding: (ext: string, data: SetForwardingRequest) =>
-    request<SuccessResponse>(`/forwarding/${ext}`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  // PSTN Forward to Browser
-  getPstnForward: (ext: string) =>
-    request<{ enabled: boolean; target?: string }>(`/pstn-forward/${ext}`),
-
-  setPstnForward: (ext: string, enabled: boolean, target?: string) =>
-    request<SuccessResponse>(`/pstn-forward/${ext}`, {
-      method: "POST",
-      body: JSON.stringify({ enabled, target: target || undefined }),
-    }),
 
   // Voicemail
   getVoicemails: (ext: string) =>

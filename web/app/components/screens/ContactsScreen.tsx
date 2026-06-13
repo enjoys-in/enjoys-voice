@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { Phone, Search, ShieldBan, Plus, Pencil, Trash2 } from "lucide-react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { Phone, Search, ShieldBan, Plus, Pencil, Trash2, RefreshCw } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -18,13 +18,40 @@ interface ContactsScreenProps {
 }
 
 export function ContactsScreen({ onCall }: ContactsScreenProps) {
-  const { searchQuery, setSearch, filteredContacts, addContact, updateContact, removeContact } = useContactStore();
+  const { searchQuery, setSearch, filteredContacts, addContact, updateContact, removeContact, fetchContacts, loading } = useContactStore();
   const { addBlockedNumber, settings } = useSettingsStore();
   const contacts = filteredContacts();
   const [blockTarget, setBlockTarget] = useState<{ ext: string; name: string } | null>(null);
   const [editContact, setEditContact] = useState<{ extension: string; name: string } | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ ext: string; name: string } | null>(null);
+  const [pulling, setPulling] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const startY = useRef(0);
+
+  // Seed the directory once on first open. No-op if WebSocket presence already
+  // populated it (or it was fetched earlier) — opening this tab never re-hits
+  // the API. Only the refresh button / pull-to-refresh below force a re-fetch.
+  useEffect(() => {
+    void fetchContacts();
+  }, [fetchContacts]);
+
+  const handleRefresh = useCallback(async () => {
+    setPulling(true);
+    await fetchContacts(true);
+    setPulling(false);
+  }, [fetchContacts]);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    startY.current = e.touches[0].clientY;
+  }, []);
+
+  const handleTouchEnd = useCallback(async (e: React.TouchEvent) => {
+    const diff = e.changedTouches[0].clientY - startY.current;
+    if (diff > 80 && scrollRef.current?.scrollTop === 0) {
+      await handleRefresh();
+    }
+  }, [handleRefresh]);
 
   const handleBlock = useCallback(() => {
     if (blockTarget) {
@@ -66,9 +93,21 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
       <div className="px-4 pt-6 pb-3 space-y-3">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Contacts</h1>
-          <Button size="sm" variant="outline" onClick={() => setShowAddDialog(true)}>
-            <Plus className="h-4 w-4 mr-1" /> Add
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              onClick={handleRefresh}
+              disabled={loading || pulling}
+              title="Refresh contacts"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading || pulling ? "animate-spin" : ""}`} />
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowAddDialog(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Add
+            </Button>
+          </div>
         </div>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -81,9 +120,20 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
         </div>
       </div>
 
+      {/* Pull indicator */}
+      {pulling && (
+        <div className="flex justify-center py-2">
+          <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
       {/* Contact list */}
-      <ScrollArea className="flex-1 px-4">
-        <div className="space-y-1">
+      <ScrollArea className="flex-1 px-4" ref={scrollRef}>
+        <div
+          className="space-y-1"
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+        >
           {contacts.length === 0 ? (
             <EmptyState
               title={searchQuery ? "No contacts found" : "No users online"}

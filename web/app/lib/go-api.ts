@@ -10,6 +10,7 @@
  */
 import { getGoApiBase } from "./runtime-config";
 import type { IvrFlow, IvrFlowSummary } from "../admin/ivr/ivr.types";
+import type { CallRecord } from "../types";
 
 const GO_API_BASE = getGoApiBase();
 
@@ -157,6 +158,12 @@ export interface PstnForward {
   target: string;
 }
 
+export interface GoForwarding {
+  busy?: string | null;
+  noAnswer?: string | null;
+  unavailable?: string | null;
+}
+
 export interface GoLookupResponse {
   extension: string;
   name: string;
@@ -218,6 +225,46 @@ export const goApi = {
       method: "POST",
       body: JSON.stringify(payload),
     });
+  },
+
+  // Block list (numbers a user has blocked from calling them).
+  getBlockedNumbers(ext: string): Promise<{ blocked: string[] }> {
+    return goRequest<{ blocked: string[] }>(`/block/${encodeURIComponent(ext)}`);
+  },
+  blockNumber(ext: string, data: { number: string }): Promise<void> {
+    return goRequest<null>(`/block/${encodeURIComponent(ext)}`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }).then(() => undefined);
+  },
+  unblockNumber(ext: string, number: string): Promise<void> {
+    return goRequest<null>(
+      `/block/${encodeURIComponent(ext)}/${encodeURIComponent(number)}`,
+      { method: "DELETE" }
+    ).then(() => undefined);
+  },
+
+  // Call forwarding (busy / no-answer / unavailable → target extension).
+  getForwarding(ext: string): Promise<GoForwarding> {
+    return goRequest<GoForwarding>(`/forwarding/${encodeURIComponent(ext)}`);
+  },
+  setForwarding(
+    ext: string,
+    data: { type: "busy" | "noAnswer" | "unavailable"; target: string | null }
+  ): Promise<void> {
+    return goRequest<null>(`/forwarding/${encodeURIComponent(ext)}`, {
+      method: "POST",
+      body: JSON.stringify({ type: data.type, target: data.target ?? "" }),
+    }).then(() => undefined);
+  },
+
+  // Call history (read-only). The Node SIP engine writes the shared
+  // call_records table; the Go API reads it and returns the CallRecord shape.
+  getCalls(): Promise<CallRecord[]> {
+    return goRequest<CallRecord[]>(`/calls`);
+  },
+  getCallsByUser(ext: string): Promise<CallRecord[]> {
+    return goRequest<CallRecord[]>(`/calls/${encodeURIComponent(ext)}`);
   },
 
   // IVR flows

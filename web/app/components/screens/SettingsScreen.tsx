@@ -11,7 +11,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogClose,
+} from "@/components/ui/alert-dialog";
 import { PhoneInput } from "../ui/PhoneInput";
 import { useAuthStore, useSettingsStore } from "../../stores";
 import { useSettingsSync } from "../../hooks/useSettingsSync";
@@ -579,20 +587,27 @@ export function SettingsScreen() {
       </ScrollArea>
 
       {/* Delete confirmation dialog */}
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent className="max-w-xs">
-          <DialogHeader>
-            <DialogTitle>Delete Account</DialogTitle>
-            <DialogDescription>
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent className="max-w-xs">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Account</AlertDialogTitle>
+            <AlertDialogDescription>
               This will permanently delete your account ({user?.extension}). This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex gap-2 justify-end mt-2">
-            <Button variant="secondary" size="sm" onClick={() => setShowDeleteDialog(false)}>Cancel</Button>
-            <Button variant="destructive" size="sm" onClick={handleDeleteAccount}>Delete</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-2">
+            <AlertDialogClose render={<Button variant="secondary" size="sm" />}>
+              Cancel
+            </AlertDialogClose>
+            <AlertDialogClose
+              render={<Button variant="destructive" size="sm" />}
+              onClick={handleDeleteAccount}
+            >
+              Delete
+            </AlertDialogClose>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

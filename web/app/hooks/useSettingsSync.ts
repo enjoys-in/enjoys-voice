@@ -2,7 +2,7 @@
 
 import { useEffect, useCallback } from "react";
 import { useAuthStore, useSettingsStore } from "../stores";
-import { api } from "../lib/api";
+import { goApi } from "../lib/go-api";
 
 // Module-level flag: ensures settings are only fetched once across all instances
 let settingsLoaded = false;
@@ -27,9 +27,9 @@ export function useSettingsSync() {
     setLoading(true);
     try {
       const [blockRes, fwdRes, pstnFwdRes] = await Promise.all([
-        api.getBlockedNumbers(user.extension),
-        api.getForwarding(user.extension),
-        api.getPstnForward(user.extension),
+        goApi.getBlockedNumbers(user.extension),
+        goApi.getForwarding(user.extension),
+        goApi.getPstnForward(user.extension),
       ]);
       setSettings({
         blockedNumbers: blockRes.blocked,
@@ -57,7 +57,7 @@ export function useSettingsSync() {
     async (type: "busy" | "noAnswer" | "unavailable", target: string | undefined) => {
       if (!user) return;
       try {
-        await api.setForwarding(user.extension, { type, target: target || null });
+        await goApi.setForwarding(user.extension, { type, target: target || null });
       } catch {
         // Revert on failure if needed
       }
@@ -70,7 +70,7 @@ export function useSettingsSync() {
     async (number: string) => {
       if (!user) return;
       try {
-        await api.blockNumber(user.extension, { number });
+        await goApi.blockNumber(user.extension, { number });
       } catch {
         // silent
       }
@@ -83,7 +83,7 @@ export function useSettingsSync() {
     async (number: string) => {
       if (!user) return;
       try {
-        await api.unblockNumber(user.extension, number);
+        await goApi.unblockNumber(user.extension, number);
       } catch {
         // silent
       }
@@ -96,7 +96,7 @@ export function useSettingsSync() {
     async (enabled: boolean, target?: string) => {
       if (!user) return;
       try {
-        await api.setPstnForward(user.extension, enabled, target);
+        await goApi.setPstnForward(user.extension, { enabled, target: target ?? "" });
       } catch {
         // silent
       }

@@ -7,6 +7,7 @@ export enum SipStatus {
   Forbidden = 403,
   NotFound = 404,
   RequestTimeout = 408,
+  Gone = 410,
   TemporarilyUnavailable = 480,
   BusyHere = 486,
   RequestTerminated = 487,

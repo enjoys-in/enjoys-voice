@@ -5,6 +5,7 @@ import {
   AuditService,
   createRegistrationStore,
   UserSyncListener,
+  SettingsSyncListener,
   WriteQueue,
   insertVoicemail,
   markVoicemailReadByFile,
@@ -24,6 +25,7 @@ class Application {
   private ws: SignalingServer;
   private http: HttpServer;
   private userSync: UserSyncListener;
+  private settingsSync: SettingsSyncListener;
   private writeQueue: WriteQueue;
 
   constructor() {
@@ -33,13 +35,23 @@ class Application {
     const registrationStore = createRegistrationStore();
     this.sip = new SipServer(this.db, this.trunk, registrationStore, this.audit);
     this.ws = new SignalingServer(this.db);
-    this.http = new HttpServer(this.db, this.trunk, this.sip, this.audit);
+    this.http = new HttpServer(this.db, this.trunk, this.sip);
     // Keep the in-memory user store in sync with Postgres in near real time:
     // any account created/edited/deleted via the Go API is reconciled here
     // without a restart. onReconnect re-hydrates to catch changes missed while
     // the listener was disconnected.
     this.userSync = new UserSyncListener({
       onUserChanged: (ext) => this.db.syncUser(ext),
+      onReconnect: async () => {
+        await this.db.hydrateFromPostgres();
+      },
+    });
+    // Live-reconcile per-user routing settings (block list, call forwarding, PSTN
+    // forwarding) the moment they change in the dashboard (written by the Go API),
+    // so the SIP path always decides from memory and never reads the DB per call.
+    // hydrateUserDetail refreshes exactly that one user's three settings tables.
+    this.settingsSync = new SettingsSyncListener({
+      onSettingsChanged: (ext) => this.db.hydrateUserDetail(ext),
       onReconnect: async () => {
         await this.db.hydrateFromPostgres();
       },
@@ -90,6 +102,10 @@ class Application {
     this.userSync.start().catch((err: any) =>
       console.warn(`   Sync:   ⚠️  user-sync listener failed to start (${err?.message})`),
     );
+    // Same LISTEN/NOTIFY mechanism for per-user settings (block/forward/PSTN).
+    this.settingsSync.start().catch((err: any) =>
+      console.warn(`   Sync:   ⚠️  settings-sync listener failed to start (${err?.message})`),
+    );
 
     // Start the write-behind queue worker (voicemail → Postgres). Best-effort:
     // if Valkey is unreachable, voicemails still record (in memory + on disk),
@@ -105,12 +121,24 @@ class Application {
       console.warn(`   Queue:  ⚠️  write queue failed to start (${err?.message})`),
     );
 
+    // Periodic audit-log flush → shared Postgres. Disabled unless AUDIT_LOG=true,
+    // in which case events are buffered in memory and flushed on an interval.
+    this.audit.start();
+    console.log(
+      `   Audit:  ${config.audit.enabled ? `enabled (flush ${config.audit.flushIntervalMs / 1000}s)` : 'disabled'}`,
+    );
+
     // Wire SIP call events → WebSocket notifications
     this.sip.setNotifier((ext, event, data) => this.ws.notifyCallEvent(ext, event, data));
 
     await this.sip.start();
     this.ws.start();
     this.http.start();
+  }
+
+  /** Best-effort graceful shutdown: persist any buffered audit events before exit. */
+  async shutdown(): Promise<void> {
+    await this.audit.stop();
   }
 }
 
@@ -119,3 +147,12 @@ app.start().catch((err) => {
   console.error('❌ Fatal:', err);
   process.exit(1);
 });
+
+// Flush buffered audit events on a clean stop (SIGINT/SIGTERM). bun --watch and
+// container kills may use SIGKILL, which can't be trapped — flushing is
+// best-effort, and the periodic timer bounds any loss to one interval.
+for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(sig, () => {
+    void app.shutdown().finally(() => process.exit(0));
+  });
+}

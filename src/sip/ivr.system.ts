@@ -200,6 +200,40 @@ export class IVRSystem {
   }
 
   /**
+   * Answer the caller, play a short "the person you're calling is unavailable,
+   * please try again later" announcement, then hang up. Used as the final
+   * fallback when an offline/unreachable callee has no PSTN or voicemail option,
+   * so the caller hears a clear spoken reason instead of a bare SIP error.
+   *
+   * Safe to call after a failed B2BUA attempt as long as the caller's INVITE
+   * was not already answered (the SIP server keeps the A-leg open by setting
+   * `passFailure: false`), since connectCaller answers it here.
+   */
+  async playUnavailable(req: any, res: any, message?: string): Promise<void> {
+    if (!(await this.ensureConnected())) {
+      if (!res.finalResponseSent) res.send(480, 'Temporarily Unavailable');
+      return;
+    }
+
+    let endpoint: Mrf.Endpoint | undefined;
+    let dialog: Srf.Dialog | undefined;
+    try {
+      ({ endpoint, dialog } = await this.ms!.connectCaller(req, res));
+      await this.prepareVoice(endpoint);
+      const text = message
+        || 'The person you are trying to reach is not available right now. '
+         + 'Please try again later.';
+      await this.playSafe(endpoint, `say:${text}`);
+    } catch (err: any) {
+      console.error('❌ Announcement error:', err?.message || err);
+      if (res && !res.finalResponseSent) res.send(480, 'Temporarily Unavailable');
+    } finally {
+      try { endpoint?.destroy(); } catch { /* noop */ }
+      try { await dialog?.destroy?.(); } catch { /* noop */ }
+    }
+  }
+
+  /**
    * Play a file/prompt, logging it and tolerating a missing file.
    *
    * `endpoint.play()` throws "File Not Found" when FreeSWITCH can't locate the

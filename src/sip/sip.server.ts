@@ -41,10 +41,12 @@ export class SipServer {
     // Pre-bind to avoid allocating new functions on every INVITE
     this.boundRouteToExtension = this.routeToExtension.bind(this);
     this.boundForwardCall = this.forwardCall.bind(this);
+    this.boundRouteUnreachable = this.routeUnreachable.bind(this);
   }
 
   private readonly boundRouteToExtension: RouteServices['routeToExtension'];
   private readonly boundForwardCall: RouteServices['forwardCall'];
+  private readonly boundRouteUnreachable: RouteServices['routeUnreachable'];
 
   /** Register a callback to notify users of call events via WebSocket */
   setNotifier(fn: (extension: string, event: string, data?: any) => void): void {
@@ -157,8 +159,7 @@ export class SipServer {
           this.db.registerUser(user.extension, contact, expires, undefined, source);
           this.audit.log('register', user.extension, { contact, source }, req.source_address);
           res.send(SipStatus.OK, { headers: { 'Contact': contact, 'Expires': expires.toString() } });
-          console.log(`✅ SIP: ${user.name} registered at ${contact} (source: ${source.protocol}/${source.address}:${source.port})`);
-
+    
           // Refresh this user's blocking/forwarding/PSTN detail from Postgres so
           // routing reflects any dashboard changes. Fire-and-forget: the 200 OK
           // is already sent and startup hydration provides a baseline, so a DB
@@ -207,6 +208,7 @@ export class SipServer {
           notifyFn: this.notifyFn,
           routeToExtension: this.boundRouteToExtension,
           forwardCall: this.boundForwardCall,
+          routeUnreachable: this.boundRouteUnreachable,
         };
 
         // Try trunk inbound first (before dial plan)
@@ -281,6 +283,12 @@ export class SipServer {
       proxyResponseHeaders: ['contact', 'allow', 'supported'],
       noAck: false,
       timeout: 15000,
+      // Do NOT relay the callee's failure response straight to the caller. We
+      // want to keep the caller's INVITE open so that on busy/no-answer/offline
+      // /stale-registration (e.g. a 410 Gone) we can run the fallback chain
+      // (forward → PSTN → voicemail → "unavailable" announcement) instead of
+      // the caller just hearing an error.
+      passFailure: false,
     };
 
     // drachtio-server internally maps .invalid Contact URIs to the WebSocket
@@ -334,26 +342,98 @@ export class SipServer {
         // Caller cancelled
         console.log(`📵 Call cancelled by caller`);
         this.db.updateCall(callId, { status: 'missed' });
-      } else if (status === SipStatus.TemporarilyUnavailable) {
-        // Unavailable
-        console.log(`📵 Callee unavailable`);
-        if (forwarding.unavailable) {
-          console.log(`↪️ Forwarding on unavailable to ${forwarding.unavailable}`);
-          await this.forwardCall(req, res, forwarding.unavailable, callId, callingNumber);
-        } else {
-          this.notifyFn?.(callingNumber, 'unavailable', { callId });
-          this.db.updateCall(callId, { status: 'missed' });
-          if (!res.finalResponseSent) res.send(SipStatus.TemporarilyUnavailable);
-        }
+      } else if (
+        status === SipStatus.TemporarilyUnavailable ||  // 480
+        status === SipStatus.Gone ||                     // 410 — stale registration
+        status === SipStatus.NotFound ||                 // 404
+        status === SipStatus.ServiceUnavailable ||       // 503
+        status === SipStatus.ServerError ||              // 500
+        status === 0                                     // transport failure / no response
+      ) {
+        // Callee can't be reached on their registered device: offline, or a
+        // stale registration whose transport is gone (the 410 "Gone" case).
+        // Run the shared offline fallback chain (forward → PSTN → voicemail →
+        // "unavailable" announcement) and record the call as missed so it shows
+        // up in the callee's recents when they next log in.
+        console.log(`📵 Callee unreachable (status ${status || 'transport'}): ${calledExt}`);
+        if (status >= 500 || status === 0) console.error('❌ B2BUA error:', err.message || err);
+        await this.routeUnreachable(req, res, calledExt, callId, callingNumber);
       } else {
+        // Genuinely unexpected SIP status (e.g. auth / negotiation failure).
         console.error('❌ Call routing failed:', err.message || err);
         console.error('❌ Full error:', JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
         if (err.status) console.error(`❌ SIP response status: ${err.status}`);
         this.audit.log('call_failed', callingNumber, { to: calledExt, callId, error: err.message });
         this.notifyFn?.(callingNumber, 'failed', { reason: 'error', callId });
-        this.db.updateCall(callId, { status: 'failed' });
+        this.db.updateCall(callId, { status: 'missed' });
         if (!res.finalResponseSent) res.send(SipStatus.ServiceUnavailable);
       }
+    }
+  }
+
+  /**
+   * Last-resort handling when the callee can't be reached on their registered
+   * device — they never registered (offline) or the registration is stale and
+   * the device is gone (a 410 "Gone" / transport failure). Tries, in order:
+   *   1. forward-on-unavailable to another extension (if configured),
+   *   2. the user's PSTN mobile (if they have one and the trunk is up),
+   *   3. voicemail (if enabled and the media server is available),
+   *   4. a spoken "the person is unavailable, try later" announcement,
+   *   5. a plain SIP 480 when no media server is available.
+   * The call is always recorded as `missed` (unless answered by PSTN/voicemail)
+   * so it surfaces in the callee's recents. Relies on the caller's INVITE still
+   * being open (b2bOpts.passFailure = false), so voicemail/announcement can
+   * answer it.
+   */
+  private async routeUnreachable(
+    req: any, res: any, calledExt: string, callId: string, callingNumber: string,
+  ): Promise<void> {
+    const targetUser = this.db.getUser(calledExt);
+
+    // 1) PSTN fallback: ring the user's mobile if they have one + trunk is up.
+    if (targetUser?.mobile && this.trunk.isEnabled) {
+      console.log(`📱 ${calledExt} unreachable → PSTN mobile ${targetUser.mobile}`);
+      const ok = await this.trunk.routeCall(this.srf, req, res, targetUser.mobile);
+      this.db.updateCall(callId, { status: ok ? 'answered' : 'missed' });
+      if (!ok) this.notifyFn?.(callingNumber, 'unavailable', { target: calledExt, reason: 'pstn_failed', callId });
+      return;
+    }
+
+    // 2) Forward-on-unavailable to another extension, if configured.
+    const forwarding = this.db.getForwarding(calledExt);
+    if (forwarding.unavailable) {
+      console.log(`↪️ ${calledExt} unreachable → forwarding to ${forwarding.unavailable}`);
+      await this.forwardCall(req, res, forwarding.unavailable, callId, callingNumber);
+      return;
+    }
+
+    // 3) Voicemail: let the caller leave a message for the offline user.
+    if (config.voicemail.enabled && this.ivr) {
+      console.log(`📭 ${calledExt} unreachable → voicemail`);
+      const fromName = req.callingName || callingNumber;
+      const saved = await this.ivr.recordVoicemail(req, res, calledExt, callingNumber, fromName);
+      this.db.updateCall(callId, { status: saved ? 'answered' : 'missed' });
+      this.notifyFn?.(callingNumber, 'unavailable', { target: calledExt, reason: 'voicemail', callId });
+      return;
+    }
+
+    // 4) Spoken announcement: tell the caller the user is out of reach, then hang up.
+    if (this.ivr) {
+      console.log(`📢 ${calledExt} unreachable → "unavailable" announcement`);
+      await this.ivr.playUnavailable(req, res);
+      this.db.updateCall(callId, { status: 'missed' });
+      this.notifyFn?.(callingNumber, 'unavailable', { target: calledExt, reason: 'announced', callId });
+      return;
+    }
+
+    // 5) No media server → plain SIP failure. Still record the missed call.
+    console.log(`📴 ${calledExt} unreachable → no media; sending 480`);
+    this.notifyFn?.(callingNumber, 'unavailable', { target: calledExt, reason: 'offline', callId });
+    this.db.updateCall(callId, { status: 'missed' });
+    if (!res.finalResponseSent) {
+      res.send(SipStatus.TemporarilyUnavailable, 'User Unavailable', {
+        headers: { 'Reason': 'SIP;cause=480;text="User is unreachable"' },
+      });
     }
   }
 

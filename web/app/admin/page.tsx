@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, type UserResponse, type CallRecordResponse, type HealthResponse } from "../lib/api";
-import { CallRecordStatus } from "../types";
+import { api, type UserResponse, type HealthResponse } from "../lib/api";
+import { goApi } from "../lib/go-api";
+import { CallRecordStatus, type CallRecord } from "../types";
 
 type Tab = "overview" | "users" | "calls" | "config";
 
@@ -17,7 +18,7 @@ export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [users, setUsers] = useState<UserResponse[]>([]);
-  const [calls, setCalls] = useState<CallRecordResponse[]>([]);
+  const [calls, setCalls] = useState<CallRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -30,7 +31,7 @@ export default function AdminPage() {
       const [h, u, c] = await Promise.all([
         api.health(),
         api.getUsers(),
-        api.getCalls(),
+        goApi.getCalls(),
       ]);
       setHealth(h);
       setUsers(u);
@@ -115,7 +116,7 @@ function OverviewTab({
 }: {
   health: HealthResponse | null;
   users: UserResponse[];
-  calls: CallRecordResponse[];
+  calls: CallRecord[];
   loading: boolean;
 }) {
   if (loading) return <OverviewSkeleton />;
@@ -200,7 +201,7 @@ function UsersTab({ users, loading, onRefresh }: { users: UserResponse[]; loadin
 
 // ─── Calls Tab ─────────────────────────────────────────
 
-function CallsTab({ calls, loading }: { calls: CallRecordResponse[]; loading: boolean }) {
+function CallsTab({ calls, loading }: { calls: CallRecord[]; loading: boolean }) {
   return (
     <>
       <h2 className="text-2xl font-bold">Call Logs ({calls.length})</h2>

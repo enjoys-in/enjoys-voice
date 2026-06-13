@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, RefreshCw, Trash2, ChevronRight } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -8,10 +8,9 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "../ui/EmptyState";
 import { ListScreenSkeleton } from "./ScreenSkeletons";
 import { useCallHistory } from "../../hooks/useCallHistory";
-import { useAuthStore } from "../../stores";
+import { useAuthStore, useContactStore } from "../../stores";
 import { formatPhone } from "../../lib/phone";
-import type { CallRecordResponse } from "../../lib/api";
-import { CallRecordStatus } from "../../types";
+import { CallRecordStatus, type CallRecord } from "../../types";
 
 interface CallsScreenProps {
   onCall: (target: string, name?: string) => void;
@@ -21,10 +20,20 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
   const { calls, loading, refresh, clearHistory } = useCallHistory();
   const { user } = useAuthStore();
   const myExt = user?.extension;
+  // Subscribe to the contact directory so Recents shows saved names instead of
+  // raw numbers, and re-renders when contacts load/update. Seed it once (no-op
+  // if WS presence already populated it); we never auto-refetch here.
+  const contacts = useContactStore((s) => s.contacts);
+  const findContact = useContactStore((s) => s.findContact);
+  const fetchContacts = useContactStore((s) => s.fetchContacts);
   const [pulling, setPulling] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
   const startY = useRef(0);
+
+  useEffect(() => {
+    void fetchContacts();
+  }, [fetchContacts]);
 
   // Pull-to-refresh handlers
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -59,22 +68,30 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
   // Direction relative to the logged-in user: a call I placed is "outbound",
   // regardless of how the server stored it globally.
   const isOutbound = useCallback(
-    (call: CallRecordResponse) => !!myExt && call.from === myExt,
+    (call: CallRecord) => !!myExt && call.from === myExt,
     [myExt],
   );
 
   // The OTHER party (never yourself).
   const peerOf = useCallback(
-    (call: CallRecordResponse) => (isOutbound(call) ? call.to : call.from),
+    (call: CallRecord) => (isOutbound(call) ? call.to : call.from),
     [isOutbound],
   );
+  // Prefer a saved contact's name; otherwise fall back to the server-provided
+  // caller name (inbound only) and finally the raw number. `contacts` is in the
+  // deps so labels refresh once the directory loads.
   const peerLabelOf = useCallback(
-    (call: CallRecordResponse) =>
-      isOutbound(call) ? call.to : call.fromName || call.from,
-    [isOutbound],
+    (call: CallRecord) => {
+      const peer = isOutbound(call) ? call.to : call.from;
+      const contact = findContact(peer);
+      if (contact?.name) return contact.name;
+      return isOutbound(call) ? call.to : call.fromName || call.from;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isOutbound, findContact, contacts],
   );
 
-  const getCallIcon = (call: CallRecordResponse) => {
+  const getCallIcon = (call: CallRecord) => {
     if (call.status === CallRecordStatus.Missed) return <PhoneMissed className="h-4 w-4 text-destructive" />;
     if (isOutbound(call)) return <PhoneOutgoing className="h-4 w-4 text-emerald-500" />;
     return <PhoneIncoming className="h-4 w-4 text-blue-500" />;
@@ -95,7 +112,7 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
   const groups = useMemo(() => {
     const out: {
       label: string;
-      rows: { key: string; peer: string; peerLabel: string; calls: CallRecordResponse[] }[];
+      rows: { key: string; peer: string; peerLabel: string; calls: CallRecord[] }[];
     }[] = [];
     let curLabel = "";
     for (const call of calls) {

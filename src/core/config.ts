@@ -85,6 +85,14 @@ export interface AppConfig {
     // server is unreachable, queued writes are skipped best-effort.
     url: string;
   };
+  audit: {
+    // When false, audit logging is a complete no-op: log() never buffers in
+    // memory and nothing is written to the DB. Must be explicitly enabled.
+    enabled: boolean;
+    // How often (ms) the in-memory audit buffer is flushed to the shared
+    // Postgres audit_logs table that the Go API reads.
+    flushIntervalMs: number;
+  };
 }
 
 export const config: AppConfig = {
@@ -168,5 +176,9 @@ export const config: AppConfig = {
   },
   redis: {
     url: process.env.REDIS_URL || 'redis://localhost:6379',
+  },
+  audit: {
+    enabled: process.env.AUDIT_LOG === 'true',
+    flushIntervalMs: parseInt(process.env.AUDIT_FLUSH_MS || '30000'),
   },
 };
