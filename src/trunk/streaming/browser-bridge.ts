@@ -15,7 +15,9 @@
 //
 // BROWSER WIRE CONTRACT
 //   server -> browser : binary  = caller audio, PCM16LE 8 kHz mono
-//                       text    = JSON control: {type:"linked"|"stop"}
+//                       text    = JSON control:
+//                                 {type:"linked", from?, callId?}  caller paired
+//                                 {type:"stop"}                    caller hung up
 //   browser -> server : binary  = mic audio,    PCM16LE 8 kHz mono
 //                       text    = JSON control: {type:"hangup"}
 //
@@ -31,6 +33,9 @@ import type { MediaSession, MediaStreamHandlers, StreamStartMeta } from "./types
 interface Pair {
   session?: MediaSession;
   browser?: WebSocket;
+  /** Caller identity (Twilio From / callSid), set when the caller side links. */
+  from?: string;
+  callId?: string;
 }
 
 export class BrowserBridge {
@@ -99,7 +104,7 @@ export class BrowserBridge {
 
     const p = this.pair(key);
     p.browser = ws;
-    if (p.session) this.send(ws, { type: "linked" });
+    if (p.session) this.send(ws, { type: "linked", from: p.from, callId: p.callId });
 
     ws.on("message", (raw: Buffer, isBinary: boolean) => {
       if (isBinary) {
@@ -141,8 +146,10 @@ export class BrowserBridge {
         const key = BrowserBridge.keyOf(meta);
         const p = this.pair(key);
         p.session = session;
+        p.from = meta.parameters.from || undefined;
+        p.callId = session.callId;
         (session as { bridgeKey?: string }).bridgeKey = key;
-        if (p.browser) this.send(p.browser, { type: "linked" });
+        if (p.browser) this.send(p.browser, { type: "linked", from: p.from, callId: p.callId });
         console.log(`🔗 Bridge: caller ${session.callId ?? key} ready (key=${key})`);
       },
       onAudio: (session, frame) => {
@@ -157,7 +164,11 @@ export class BrowserBridge {
         if (!key) return;
         const p = this.pairs.get(key);
         if (p?.browser) this.send(p.browser, { type: "stop" });
-        if (p) p.session = undefined;
+        if (p) {
+          p.session = undefined;
+          p.from = undefined;
+          p.callId = undefined;
+        }
         this.cleanup(key);
         console.log(`🔗 Bridge: caller ${session.callId ?? key} ended (key=${key})`);
       },

@@ -106,6 +106,7 @@ export function createStreamingWebhookRouter(deps: StreamingWebhookDeps = {}): R
         doc = streamTwiml("bridge", {
           bridgeId: decision.bridgeId,
           extension: decision.extension,
+          from: callerNumber,
         });
         break;
       case "ai":
