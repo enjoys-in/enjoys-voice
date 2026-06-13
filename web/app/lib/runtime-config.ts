@@ -12,6 +12,8 @@ export interface RuntimeConfig {
   GO_API_BASE?: string;
   SIGNAL_URL?: string;
   ICE_SERVERS?: RTCIceServer[] | string;
+  BRIDGE_URL?: string;
+  BRIDGE_TOKEN?: string;
 }
 
 declare global {
@@ -83,4 +85,31 @@ export function getIceServers(): RTCIceServer[] {
     console.warn("Invalid ICE_SERVERS runtime config, using none");
     return [];
   }
+}
+
+/**
+ * Browser-bridge media WebSocket URL (PSTN caller audio <-> this browser).
+ * This is the streaming module's bridge server, SEPARATE from both the signaling
+ * WS and the SIP media WS. The page connects with `?id=<extension>` to pair with
+ * a call forwarded to it, plus an optional `&token=` when the deployment sets
+ * `MEDIA_STREAM_AUTH_TOKEN` (mirrored here as BRIDGE_TOKEN).
+ *
+ * Prod: set BRIDGE_URL to `wss://DOMAIN/bridge` (Caddy upgrades + proxies it to
+ * the bridge server, default :3005). Dev: falls back to ws(s)://host:3005.
+ *
+ * @param id    pairing id (the user's extension)
+ * @returns the full ws(s):// URL with id (+ token) query, or "" when no window.
+ */
+export function getBridgeUrl(id: string): string {
+  const cfg = runtimeConfig();
+  let base = cfg.BRIDGE_URL;
+  if (!base) {
+    if (typeof window === "undefined") return "";
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    base = `${proto}//${window.location.hostname}:3005`;
+  }
+  base = base.replace(/\/+$/, "");
+  const params = new URLSearchParams({ id });
+  if (cfg.BRIDGE_TOKEN) params.set("token", cfg.BRIDGE_TOKEN);
+  return `${base}/?${params.toString()}`;
 }
