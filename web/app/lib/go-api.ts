@@ -1,5 +1,5 @@
 /**
- * Client for the Go CRUD API (port 3003).
+ * Client for the Go CRUD API (port 3003 in dev; /api/g/* via Caddy in prod).
  *
  * Every Go endpoint replies with a uniform envelope:
  *   { success: boolean, message: string, data: T }
@@ -59,7 +59,7 @@ function refreshAccessToken(): Promise<string | null> {
     const { refreshToken } = authTokens();
     if (!refreshToken) return null;
     try {
-      const res = await fetch(`${GO_API_BASE}/api/auth/refresh`, {
+      const res = await fetch(`${GO_API_BASE}/api/g/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -94,7 +94,7 @@ async function goRequest<T>(
     ...((options.headers as Record<string, string>) ?? {}),
   };
 
-  const res = await fetch(`${GO_API_BASE}/api${endpoint}`, {
+  const res = await fetch(`${GO_API_BASE}/api/g${endpoint}`, {
     ...options,
     headers,
     credentials: "include",

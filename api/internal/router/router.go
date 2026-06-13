@@ -24,7 +24,22 @@ type Handlers struct {
 func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 	r.Use(middleware.CORS())
 
-	api := r.Group("/api")
+	// Reply with the standard { success, message, data } envelope for unknown
+	// routes / methods instead of gin's plain-text "404 page not found".
+	// HandleMethodNotAllowed makes a wrong method on a known path surface as 405
+	// (NoMethod) rather than a generic 404.
+	r.HandleMethodNotAllowed = true
+	r.NoRoute(func(c *gin.Context) {
+		response.NotFound(c, "Route not found: "+c.Request.Method+" "+c.Request.URL.Path)
+	})
+	r.NoMethod(func(c *gin.Context) {
+		response.MethodNotAllowed(c, "Method not allowed: "+c.Request.Method+" "+c.Request.URL.Path)
+	})
+
+	// Go API is mounted under /api/g so a single domain can route both backends
+	// via Caddy ( /api/g/* -> Go, /api/n/* -> Node ). In dev the port (3003) also
+	// separates it, so the prefix is consistent in both environments.
+	api := r.Group("/api/g")
 	{
 		// Health (no auth)
 		api.GET("/health", func(c *gin.Context) {

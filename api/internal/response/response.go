@@ -59,6 +59,11 @@ func NotFound(c *gin.Context, message string) {
 	Error(c, http.StatusNotFound, message)
 }
 
+// MethodNotAllowed → 405.
+func MethodNotAllowed(c *gin.Context, message string) {
+	Error(c, http.StatusMethodNotAllowed, message)
+}
+
 // Conflict → 409.
 func Conflict(c *gin.Context, message string) {
 	Error(c, http.StatusConflict, message)

@@ -4,5 +4,6 @@
 window.__RUNTIME_CONFIG__ = {
   API_BASE: "",
   GO_API_BASE: "",
+  SIGNAL_URL: "",
   ICE_SERVERS: []
 };

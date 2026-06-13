@@ -54,7 +54,7 @@
   </div>
 
   <script>
-    fetch('http://localhost:3001/api/health')
+    fetch('http://localhost:3001/api/n/health')
       .then(r => r.json())
       .then(d => {
         document.getElementById('api-status').textContent = 'Online';

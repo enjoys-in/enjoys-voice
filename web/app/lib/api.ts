@@ -139,7 +139,9 @@ async function request<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<T> {
-  const res = await fetch(`${API_BASE}/api${endpoint}`, {
+  // Node engine is served under /api/n (see Caddy path routing); dev also uses
+  // port 3001 via getApiBase(), so the prefix is consistent in both.
+  const res = await fetch(`${API_BASE}/api/n${endpoint}`, {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
@@ -242,5 +244,5 @@ export const api = {
 
   // Direct (non-JSON) URL for streaming a voicemail recording.
   voicemailAudioUrl: (ext: string, id: string) =>
-    `${API_BASE}/api/voicemails/${ext}/${id}/audio`,
+    `${API_BASE}/api/n/voicemails/${ext}/${id}/audio`,
 } as const;

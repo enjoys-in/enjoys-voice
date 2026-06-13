@@ -1,10 +1,15 @@
 import express, { Application } from 'express';
 import cors from 'cors';
+import { createHandlers } from '@enjoys/exception';
 import { config } from '@/core';
 import { DatabaseService, TrunkService, AuditService } from '@/services';
 import { SipServer } from '@/sip';
 import { createRoutes } from './routes/api.routes';
 import { apiRateLimit } from './middleware/rate-limit';
+
+// 404 (UnhandledRoutes) + central error (ExceptionHandler) middleware from
+// @enjoys/exception. Built once and shared across instances.
+const { UnhandledRoutes, ExceptionHandler } = createHandlers();
 
 export class HttpServer {
   private app: Application;
@@ -23,7 +28,15 @@ export class HttpServer {
     this.app.use(cors());
     this.app.use(express.json());
     this.app.use(apiRateLimit);
-    this.app.use('/api', createRoutes(this.db, this.trunk, this.sip, this.audit));
+    // Mounted under /api/n (Node) so a single domain can route both backends via
+    // Caddy ( /api/n/* -> Node, /api/g/* -> Go ). Dev also separates by port 3001.
+    this.app.use('/api/n', createRoutes(this.db, this.trunk, this.sip, this.audit));
+
+    // Any request that fell through the routes above is unknown → throw a 404,
+    // then format every error through the central handler. Mounted pathless
+    // (NOT app.use('*', …), which throws under Express 5's path-to-regexp).
+    this.app.use(UnhandledRoutes);
+    this.app.use(ExceptionHandler);
   }
 
   start(): void {

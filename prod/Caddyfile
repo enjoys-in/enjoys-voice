@@ -1,9 +1,9 @@
 # ════════════════════════════════════════════════════════════════
 #  Caddy reverse proxy — automatic HTTPS (Let's Encrypt)
-#  {$DOMAIN} is read from the DOMAIN env var (set in .env / compose).
+#  Serves voice.enjoys.in (A record → VPS 77.237.241.24).
 # ════════════════════════════════════════════════════════════════
 
-{$DOMAIN} {
+voice.enjoys.in {
 	encode zstd gzip
 
 	# ── SIP over WebSocket (drachtio) → wss://DOMAIN/sip ──────────
@@ -19,8 +19,14 @@
 		reverse_proxy api:3002
 	}
 
-	# ── REST API → https://DOMAIN/api/* (express mounts at /api) ──
-	handle /api/* {
+	# ── Go CRUD API → https://DOMAIN/api/g/* (auth, IVR, lookup, …) ──
+	# Requires an `api-go` service (Go, :3003) in the compose stack.
+	handle /api/g/* {
+		reverse_proxy api-go:3003
+	}
+
+	# ── Node engine API → https://DOMAIN/api/n/* (live telephony) ──
+	handle /api/n/* {
 		reverse_proxy api:3001
 	}
 
