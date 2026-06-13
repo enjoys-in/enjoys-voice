@@ -3,10 +3,16 @@ import fs from 'fs';
 import path from 'path';
 import { DatabaseService, TrunkService } from '@/services';
 import { SipServer } from '@/sip';
+import type { ITrunkProvider, MediaStreamTrack } from '@/trunk';
 import { config } from '@/core';
 import { requireAuth, requireSelfExtension } from '../middleware/auth';
 
-export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipServer): Router {
+export function createRoutes(
+  db: DatabaseService,
+  trunk: TrunkService,
+  sip: SipServer,
+  trunkProvider?: ITrunkProvider,
+): Router {
   const router = Router();
 
   // ─── Health ──────────────────────────────────────────
@@ -72,6 +78,65 @@ export function createRoutes(db: DatabaseService, trunk: TrunkService, sip: SipS
     const info = trunk.getActive();
     if (!info) { res.json({ enabled: false }); return; }
     res.json({ enabled: true, name: info.name, host: info.host, transport: info.transport });
+  });
+
+  // ─── Twilio trunk (REST Voice API) ───────────────────
+  // Provider-backed PSTN via Twilio's Programmable Voice API, distinct from the
+  // legacy SIP trunk above. Originating a call places a REAL, billable PSTN call,
+  // so the action routes require a valid access token (requireAuth).
+  router.get('/trunk/twilio', (_req: Request, res: Response) => {
+    res.json({ enabled: trunkProvider?.isEnabled ?? false });
+  });
+
+  router.post('/trunk/twilio/originate', requireAuth, async (req: Request, res: Response) => {
+    if (!trunkProvider?.isEnabled) {
+      res.status(503).json({ error: 'Twilio trunk not enabled' });
+      return;
+    }
+    const { to, from, answerUrl, twiml } = (req.body ?? {}) as {
+      to?: string; from?: string; answerUrl?: string; twiml?: string;
+    };
+    if (!to || typeof to !== 'string') {
+      res.status(400).json({ error: 'Missing or invalid `to`' });
+      return;
+    }
+    if (!answerUrl && !twiml) {
+      res.status(400).json({ error: 'Provide `answerUrl` or `twiml`' });
+      return;
+    }
+    try {
+      const result = await trunkProvider.originateCall({ to, from, answerUrl, instructions: twiml });
+      res.status(201).json({ id: result.id, status: result.status });
+    } catch (err: any) {
+      res.status(502).json({ error: err?.message ?? 'Originate failed' });
+    }
+  });
+
+  // Start a Media Stream on an ACTIVE Twilio call (forks audio to your wss URL).
+  // REST-started Twilio streams are unidirectional; two-way audio needs
+  // <Connect><Stream> TwiML at answer time instead.
+  router.post('/trunk/twilio/stream', requireAuth, async (req: Request, res: Response) => {
+    if (!trunkProvider?.isEnabled) {
+      res.status(503).json({ error: 'Twilio trunk not enabled' });
+      return;
+    }
+    const { callId, wsUrl, track, name } = (req.body ?? {}) as {
+      callId?: string; wsUrl?: string; track?: MediaStreamTrack; name?: string;
+    };
+    if (!callId || typeof callId !== 'string') {
+      res.status(400).json({ error: 'Missing or invalid `callId`' });
+      return;
+    }
+    if (!wsUrl || !wsUrl.startsWith('wss://')) {
+      res.status(400).json({ error: '`wsUrl` must be a secure wss:// URL' });
+      return;
+    }
+    try {
+      const result = await trunkProvider.startMediaStream(callId, { wsUrl, track, name });
+      res.status(201).json({ id: result.id, status: result.status });
+    } catch (err: any) {
+      res.status(502).json({ error: err?.message ?? 'Stream start failed' });
+    }
   });
 
   // ─── Config ─────────────────────────────────────────

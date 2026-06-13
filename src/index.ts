@@ -13,10 +13,12 @@ import {
 import { SipServer } from '@/sip';
 import { SignalingServer } from '@/websocket';
 import { HttpServer } from '@/http';
+import { createTrunkProvider, type ITrunkProvider } from '@/trunk';
 
 class Application {
   private db: DatabaseService;
   private trunk: TrunkService;
+  private twilioTrunk?: ITrunkProvider;
   private audit: AuditService;
   private sip: SipServer;
   private ws: SignalingServer;
@@ -28,11 +30,15 @@ class Application {
   constructor() {
     this.db = new DatabaseService();
     this.trunk = new TrunkService();
+    // Twilio PSTN provider (REST Voice API + media streaming). Configured from
+    // TWILIO_* env; `isEnabled` is false until credentials are set. Runs
+    // ALONGSIDE the legacy SIP TrunkService — it does not replace it.
+    this.twilioTrunk = createTrunkProvider('twilio');
     this.audit = new AuditService();
     const registrationStore = createRegistrationStore();
     this.sip = new SipServer(this.db, this.trunk, registrationStore, this.audit);
     this.ws = new SignalingServer(this.db);
-    this.http = new HttpServer(this.db, this.trunk, this.sip);
+    this.http = new HttpServer(this.db, this.trunk, this.sip, this.twilioTrunk);
     // Keep the in-memory user store in sync with Postgres in near real time:
     // any account created/edited/deleted via the Go API is reconciled here
     // without a restart. onReconnect re-hydrates to catch changes missed while
@@ -69,6 +75,7 @@ class Application {
     console.log(`   HTTP:   :${config.server.httpPort}`);
     console.log(`   WS:     :${config.server.wsPort}`);
     console.log(`   Trunk:  ${config.trunk.enabled ? config.trunk.host : 'disabled'}`);
+    console.log(`   Twilio: ${this.twilioTrunk?.isEnabled ? 'enabled' : 'disabled'}`);
     console.log(`   IVR:    ${config.ivr.enabled ? 'enabled' : 'disabled'}`);
 
     // Hydrate users from the shared Postgres DB so accounts created via the Go

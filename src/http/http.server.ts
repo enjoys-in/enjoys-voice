@@ -4,6 +4,7 @@ import { createHandlers } from '@enjoys/exception';
 import { config } from '@/core';
 import { DatabaseService, TrunkService } from '@/services';
 import { SipServer } from '@/sip';
+import type { ITrunkProvider } from '@/trunk';
 import { createRoutes } from './routes/api.routes';
 import { apiRateLimit } from './middleware/rate-limit';
 
@@ -18,6 +19,7 @@ export class HttpServer {
     private db: DatabaseService,
     private trunk: TrunkService,
     private sip: SipServer,
+    private trunkProvider?: ITrunkProvider,
   ) {
     this.app = express();
     this.configure();
@@ -29,7 +31,7 @@ export class HttpServer {
     this.app.use(apiRateLimit);
     // Mounted under /api/n (Node) so a single domain can route both backends via
     // Caddy ( /api/n/* -> Node, /api/g/* -> Go ). Dev also separates by port 3001.
-    this.app.use('/api/n', createRoutes(this.db, this.trunk, this.sip));
+    this.app.use('/api/n', createRoutes(this.db, this.trunk, this.sip, this.trunkProvider));
 
     // Any request that fell through the routes above is unknown → throw a 404,
     // then format every error through the central handler. Mounted pathless
