@@ -13,6 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "../ui/EmptyState";
+import { ListScreenSkeleton } from "./ScreenSkeletons";
 import { useAuthStore, useVoicemailStore } from "../../stores";
 import { api } from "../../lib/api";
 import { getCachedVoicemailUrl, invalidateCachedVoicemail } from "../../lib/voicemail-cache";
@@ -175,7 +176,9 @@ export function VoicemailScreen({ onCall }: VoicemailScreenProps) {
 
       <ScrollArea className="flex-1 px-4">
         <div className="space-y-1">
-          {voicemails.length === 0 && !loading ? (
+          {voicemails.length === 0 && loading ? (
+            <ListScreenSkeleton rows={5} />
+          ) : voicemails.length === 0 && !loading ? (
             <EmptyState
               icon={<VoicemailIcon className="h-12 w-12" />}
               title="No voicemail"

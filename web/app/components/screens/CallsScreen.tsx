@@ -6,6 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "../ui/EmptyState";
+import { ListScreenSkeleton } from "./ScreenSkeletons";
 import { useCallHistory } from "../../hooks/useCallHistory";
 import { useAuthStore } from "../../stores";
 import { formatPhone } from "../../lib/phone";
@@ -168,7 +169,9 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
         >
-          {calls.length === 0 && !loading ? (
+          {calls.length === 0 && loading ? (
+            <ListScreenSkeleton rows={6} />
+          ) : calls.length === 0 && !loading ? (
             <EmptyState
               icon={<Phone className="h-12 w-12" />}
               title="No recent calls"
