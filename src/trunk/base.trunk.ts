@@ -2,10 +2,12 @@ import type {
   CallResult,
   ITrunkClient,
   ITrunkProvider,
+  MediaStreamOptions,
   OriginateCallOptions,
   SendSmsOptions,
   SipTrunkConfig,
   SmsResult,
+  StreamResult,
   TrunkProviderName,
 } from "./types";
 
@@ -64,5 +66,16 @@ export abstract class BaseTrunkProvider implements ITrunkProvider {
       ...options,
       from: options.from ?? this.sip.callerId,
     });
+  }
+
+  startMediaStream(
+    callId: string,
+    options: MediaStreamOptions,
+  ): Promise<StreamResult> {
+    return this.client.startMediaStream(callId, options);
+  }
+
+  buildStreamInstruction(options: MediaStreamOptions): unknown {
+    return this.client.buildStreamInstruction(options);
   }
 }

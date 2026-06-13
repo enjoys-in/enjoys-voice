@@ -1,9 +1,12 @@
 import type {
   CallResult,
   ITrunkClient,
+  MediaStreamOptions,
+  MediaStreamTrack,
   OriginateCallOptions,
   SendSmsOptions,
   SmsResult,
+  StreamResult,
   TrunkProviderName,
 } from "../types";
 
@@ -13,6 +16,23 @@ export interface TwilioClientConfig {
 }
 
 const TWILIO_API_BASE = "https://api.twilio.com/2010-04-01";
+
+/** Map a generic track to Twilio's `<Stream track>` / Streams API value. */
+function twilioTrack(track: MediaStreamTrack | undefined): string {
+  if (track === "outbound") return "outbound_track";
+  if (track === "both") return "both_tracks";
+  return "inbound_track";
+}
+
+/** Escape a value for safe inclusion in a TwiML attribute. */
+function xmlAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
 
 /**
  * Twilio REST client (fetch-based; no SDK dependency).
@@ -72,5 +92,62 @@ export class TwilioClient implements ITrunkClient {
       { To: options.to, From: options.from, Body: options.text }
     );
     return { id: data.sid, status: data.status, raw: data };
+  }
+
+  /**
+   * Start a Media Stream on an active call via the Streams subresource.
+   * Docs: https://www.twilio.com/docs/voice/api/stream-resource
+   * Note: REST-created streams are UNIDIRECTIONAL (audio is forked to your
+   * socket only). For two-way audio use `buildStreamInstruction` with a
+   * `<Connect><Stream>` TwiML instead.
+   */
+  async startMediaStream(
+    callId: string,
+    options: MediaStreamOptions
+  ): Promise<StreamResult> {
+    if (options.bidirectional) {
+      throw new Error(
+        "Twilio: bidirectional streaming requires <Connect><Stream> TwiML — use buildStreamInstruction()"
+      );
+    }
+    const form: Record<string, string> = {
+      Url: options.wsUrl,
+      Track: twilioTrack(options.track),
+    };
+    if (options.name) form.Name = options.name;
+    let i = 1;
+    for (const [key, value] of Object.entries(options.parameters ?? {})) {
+      form[`Parameter${i}.name`] = key;
+      form[`Parameter${i}.value`] = value;
+      i++;
+    }
+    const data = await this.post(
+      `/Accounts/${this.config.accountSid}/Calls/${callId}/Streams.json`,
+      form
+    );
+    return { id: data.sid, status: data.status, raw: data };
+  }
+
+  /**
+   * Build a TwiML document that starts a Media Stream. `bidirectional` uses
+   * `<Connect><Stream>` (two-way audio, blocks until the socket closes);
+   * otherwise `<Start><Stream>` forks audio and continues the call.
+   */
+  buildStreamInstruction(options: MediaStreamOptions): string {
+    const params = Object.entries(options.parameters ?? {})
+      .map(
+        ([k, v]) =>
+          `<Parameter name="${xmlAttr(k)}" value="${xmlAttr(v)}"/>`
+      )
+      .join("");
+    const name = options.name ? ` name="${xmlAttr(options.name)}"` : "";
+    if (options.bidirectional) {
+      return `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="${xmlAttr(
+        options.wsUrl
+      )}"${name}>${params}</Stream></Connect></Response>`;
+    }
+    return `<?xml version="1.0" encoding="UTF-8"?><Response><Start><Stream url="${xmlAttr(
+      options.wsUrl
+    )}" track="${twilioTrack(options.track)}"${name}>${params}</Stream></Start></Response>`;
   }
 }

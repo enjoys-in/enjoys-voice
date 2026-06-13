@@ -1,9 +1,11 @@
 import type {
   CallResult,
   ITrunkClient,
+  MediaStreamOptions,
   OriginateCallOptions,
   SendSmsOptions,
   SmsResult,
+  StreamResult,
   TrunkProviderName,
 } from "../types";
 
@@ -13,6 +15,21 @@ export interface PlivoClientConfig {
 }
 
 const PLIVO_API_BASE = "https://api.plivo.com/v1/Account";
+
+/** Escape a value for safe inclusion in Plivo XML text/attributes. */
+function xmlEscape(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Plivo uses inbound/outbound/both literally; bidirectional forces inbound. */
+function plivoTrack(options: MediaStreamOptions): string {
+  if (options.bidirectional) return "inbound";
+  return options.track ?? "inbound";
+}
 
 /**
  * Plivo REST client (fetch-based; no SDK dependency).
@@ -81,5 +98,58 @@ export class PlivoClient implements ITrunkClient {
       status: data.message ?? "queued",
       raw: data,
     };
+  }
+
+  /**
+   * Start audio streaming on an active call via the Plivo Audio Streams API.
+   * Docs: https://www.plivo.com/docs/voice-agents/audio-streaming/api/audio-streams
+   * `keepCallAlive` is forced true so the call isn't dropped when the stream ends.
+   * Param names follow the Audio Streams API (mirrors the `<Stream>` element).
+   */
+  async startMediaStream(
+    callId: string,
+    options: MediaStreamOptions
+  ): Promise<StreamResult> {
+    const body: Record<string, unknown> = {
+      service_url: options.wsUrl,
+      bidirectional: options.bidirectional ?? false,
+      audio_track: plivoTrack(options),
+      keep_call_alive: true,
+    };
+    if (options.contentType) body.content_type = options.contentType;
+    const extra = Object.entries(options.parameters ?? {})
+      .map(([k, v]) => `${k}=${v}`)
+      .join(",");
+    if (extra) body.extra_headers = extra;
+
+    const data = await this.post(`/Call/${callId}/Stream/`, body);
+    return {
+      id: data.stream_id ?? data.api_id ?? "",
+      status: data.message ?? "streaming",
+      raw: data,
+    };
+  }
+
+  /**
+   * Build a Plivo XML document that starts an audio stream. Serve this from the
+   * `answerUrl` to stream from the start of the call. `bidirectional` lets your
+   * socket play audio back (audioTrack is forced to inbound, per Plivo).
+   */
+  buildStreamInstruction(options: MediaStreamOptions): string {
+    const attrs: string[] = [
+      `bidirectional="${options.bidirectional ? "true" : "false"}"`,
+      `audioTrack="${plivoTrack(options)}"`,
+      `keepCallAlive="true"`,
+    ];
+    if (options.contentType)
+      attrs.push(`contentType="${xmlEscape(options.contentType)}"`);
+    const extra = Object.entries(options.parameters ?? {})
+      .map(([k, v]) => `${k}=${v}`)
+      .join(",");
+    if (extra) attrs.push(`extraHeaders="${xmlEscape(extra)}"`);
+
+    return `<?xml version="1.0" encoding="UTF-8"?><Response><Stream ${attrs.join(
+      " "
+    )}>${xmlEscape(options.wsUrl)}</Stream></Response>`;
   }
 }

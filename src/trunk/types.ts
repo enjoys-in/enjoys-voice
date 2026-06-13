@@ -61,11 +61,57 @@ export interface SmsResult {
   raw: unknown;
 }
 
+/** Which audio direction(s) to fork onto the media WebSocket. */
+export type MediaStreamTrack = "inbound" | "outbound" | "both";
+
+/**
+ * Options to start a real-time audio stream over a WebSocket. Every provider
+ * forks live call audio to `wsUrl`; with `bidirectional` the provider also
+ * plays back audio your socket sends, enabling AI voice agents / live TTS.
+ */
+export interface MediaStreamOptions {
+  /** Secure WebSocket URL (wss://) the provider connects to and streams audio over. */
+  wsUrl: string;
+  /** Which audio track(s) to stream. Default "inbound". */
+  track?: MediaStreamTrack;
+  /** Two-way audio — provider plays audio your socket sends back. Default false. */
+  bidirectional?: boolean;
+  /** Optional stream name/identifier (Twilio/Plivo). */
+  name?: string;
+  /**
+   * Audio content-type/codec hint. Provider default when omitted, e.g. Twilio
+   * mulaw 8k, Telnyx PCMU 8k, Plivo `audio/x-l16;rate=8000`, Vonage
+   * `audio/l16;rate=16000`.
+   */
+  contentType?: string;
+  /** Extra metadata forwarded to your socket (Twilio <Parameter>, Vonage/Plivo headers). */
+  parameters?: Record<string, string>;
+}
+
+/** Normalized result of starting a media stream. */
+export interface StreamResult {
+  id: string;
+  status: string;
+  raw: unknown;
+}
+
 /** REST API client every provider implements. Pure transport — no SIP logic. */
 export interface ITrunkClient {
   readonly provider: TrunkProviderName;
   originateCall(options: OriginateCallOptions): Promise<CallResult>;
   sendSms(options: SendSmsOptions): Promise<SmsResult>;
+  /**
+   * Start a real-time audio WebSocket stream on an ACTIVE call via the provider
+   * REST API (Twilio Streams / Telnyx streaming_start / Plivo Audio Streams /
+   * Vonage NCCO transfer).
+   */
+  startMediaStream(callId: string, options: MediaStreamOptions): Promise<StreamResult>;
+  /**
+   * Build the provider-native call-control instruction that starts a media
+   * stream (Twilio TwiML / Telnyx call params / Plivo XML / Vonage NCCO), for
+   * use at originate or answer-webhook time. Pure — performs no network call.
+   */
+  buildStreamInstruction(options: MediaStreamOptions): unknown;
 }
 
 /** Trunk service every provider implements: SIP config + REST client access. */
@@ -81,4 +127,8 @@ export interface ITrunkProvider {
   originateCall(options: OriginateCallOptions): Promise<CallResult>;
   /** Send an SMS through the provider's REST API. */
   sendSms(options: SendSmsOptions): Promise<SmsResult>;
+  /** Start a real-time audio WebSocket stream on an active call. */
+  startMediaStream(callId: string, options: MediaStreamOptions): Promise<StreamResult>;
+  /** Build the provider-native call-control instruction that starts a media stream. */
+  buildStreamInstruction(options: MediaStreamOptions): unknown;
 }

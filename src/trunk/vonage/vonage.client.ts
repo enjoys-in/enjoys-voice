@@ -3,9 +3,11 @@ import jwt from "jsonwebtoken";
 import type {
   CallResult,
   ITrunkClient,
+  MediaStreamOptions,
   OriginateCallOptions,
   SendSmsOptions,
   SmsResult,
+  StreamResult,
   TrunkProviderName,
 } from "../types";
 
@@ -100,5 +102,50 @@ export class VonageClient implements ITrunkClient {
       throw new Error(`Vonage SMS API: ${msg["error-text"] ?? res.statusText}`);
     }
     return { id: msg["message-id"] ?? "", status: "sent", raw: data };
+  }
+
+  /**
+   * Start audio streaming on an active call by transferring it to a `connect`
+   * NCCO with a WebSocket endpoint. Vonage WebSocket media is always
+   * full-duplex, so `track`/`bidirectional` are ignored.
+   * Docs: https://developer.vonage.com/en/voice/voice-api/ncco-reference#connect
+   */
+  async startMediaStream(
+    callId: string,
+    options: MediaStreamOptions
+  ): Promise<StreamResult> {
+    const res = await fetch(`${VONAGE_VOICE_BASE}/${callId}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${this.generateVoiceJwt()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action: "transfer",
+        destination: { type: "ncco", ncco: this.buildStreamInstruction(options) },
+      }),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as Record<string, any>;
+      throw new Error(
+        `Vonage Voice API ${res.status}: ${data?.title ?? res.statusText}`
+      );
+    }
+    return { id: callId, status: "transferred", raw: { uuid: callId } };
+  }
+
+  /**
+   * Build a `connect` NCCO with a WebSocket endpoint. Serve from the answer_url
+   * or pass as originate `instructions` to stream from the start of the call.
+   * Audio is 16-bit signed little-endian PCM (L16); two-way by nature.
+   */
+  buildStreamInstruction(options: MediaStreamOptions): Record<string, unknown>[] {
+    const endpoint: Record<string, unknown> = {
+      type: "websocket",
+      uri: options.wsUrl,
+      "content-type": options.contentType ?? "audio/l16;rate=16000",
+    };
+    if (options.parameters) endpoint.headers = options.parameters;
+    return [{ action: "connect", endpoint: [endpoint] }];
   }
 }

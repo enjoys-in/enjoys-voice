@@ -1,9 +1,12 @@
 import type {
   CallResult,
   ITrunkClient,
+  MediaStreamOptions,
+  MediaStreamTrack,
   OriginateCallOptions,
   SendSmsOptions,
   SmsResult,
+  StreamResult,
   TrunkProviderName,
 } from "../types";
 
@@ -14,6 +17,28 @@ export interface TelnyxClientConfig {
 }
 
 const TELNYX_API_BASE = "https://api.telnyx.com/v2";
+
+/** Map a generic track to Telnyx's `stream_track` value. */
+function telnyxTrack(track: MediaStreamTrack | undefined): string {
+  if (track === "outbound") return "outbound_track";
+  if (track === "both") return "both_tracks";
+  return "inbound_track";
+}
+
+/** Build the Telnyx streaming params shared by `streaming_start` and `/calls`. */
+function telnyxStreamParams(
+  options: MediaStreamOptions
+): Record<string, unknown> {
+  const params: Record<string, unknown> = {
+    stream_url: options.wsUrl,
+    stream_track: telnyxTrack(options.track),
+  };
+  if (options.bidirectional) {
+    params.stream_bidirectional_mode = "rtp";
+    if (options.contentType) params.stream_bidirectional_codec = options.contentType;
+  }
+  return params;
+}
 
 /**
  * Telnyx REST client (fetch-based; no SDK dependency).
@@ -80,5 +105,34 @@ export class TelnyxClient implements ITrunkClient {
       status: payload.to?.[0]?.status ?? "queued",
       raw: data,
     };
+  }
+
+  /**
+   * Start media streaming on an active call via Call Control.
+   * Docs: https://developers.telnyx.com/api/call-control/streaming-start
+   * `bidirectional` enables RTP two-way audio so your socket can play audio back.
+   */
+  async startMediaStream(
+    callId: string,
+    options: MediaStreamOptions
+  ): Promise<StreamResult> {
+    const data = await this.post(
+      `/calls/${callId}/actions/streaming_start`,
+      telnyxStreamParams(options)
+    );
+    const payload = data.data ?? data;
+    return {
+      id: callId,
+      status: payload.result ?? payload.status ?? "streaming",
+      raw: data,
+    };
+  }
+
+  /**
+   * Build the streaming params to merge into a `POST /calls` originate body so
+   * the stream starts the moment the call is created.
+   */
+  buildStreamInstruction(options: MediaStreamOptions): Record<string, unknown> {
+    return telnyxStreamParams(options);
   }
 }
