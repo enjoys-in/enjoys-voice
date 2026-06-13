@@ -37,6 +37,8 @@ export interface ActiveCall {
   direction: CallDirection;
   status: CallStatus;
   startTime: number;
+  /** Transport backing this call. Defaults to SIP; "bridge" = PSTN→browser media bridge. */
+  source?: "sip" | "bridge";
 }
 
 export interface ForwardingRules {
