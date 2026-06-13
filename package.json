@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@enjoys/exception": "^1.1.2",
+    "@speechmatics/auth": "^0.1.0",
+    "@speechmatics/real-time-client": "^8.4.0",
     "cors": "^2.8.6",
     "drachtio-fsmrf": "^4.1.1",
     "drachtio-srf": "^5.0.10",
