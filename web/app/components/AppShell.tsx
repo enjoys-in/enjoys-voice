@@ -14,7 +14,6 @@ import { SplashScreen } from "./SplashScreen";
 import {
   ListScreenSkeleton,
   ContactsScreenSkeleton,
-  KeypadScreenSkeleton,
   SettingsScreenSkeleton,
 } from "./screens/ScreenSkeletons";
 import { useSipPhone } from "../hooks/useSipPhone";
@@ -242,7 +241,9 @@ export function AppShell() {
           )}
           {visitedTabs.has("keypad") && (
             <div className={activeTab === "keypad" ? "h-full" : "hidden"}>
-              <Suspense fallback={<KeypadScreenSkeleton />}>
+              {/* No skeleton: the keypad has no data fetch, so the only delay is
+                  the lazy chunk load — a flash of skeleton there isn't useful. */}
+              <Suspense fallback={null}>
                 <KeypadScreen onCall={makeCall} active={activeTab === "keypad"} />
               </Suspense>
             </div>

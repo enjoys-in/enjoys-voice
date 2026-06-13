@@ -85,18 +85,3 @@ export function SettingsScreenSkeleton() {
     </div>
   );
 }
-
-/** Keypad: dial display + 4x3 button grid. */
-export function KeypadScreenSkeleton() {
-  return (
-    <div className="flex flex-col h-full items-center justify-center gap-6 px-6">
-      <Skeleton className="h-10 w-56" />
-      <div className="grid grid-cols-3 gap-4">
-        {Array.from({ length: 12 }).map((_, i) => (
-          <Skeleton key={i} className="h-16 w-16 rounded-full" />
-        ))}
-      </div>
-      <Skeleton className="h-14 w-14 rounded-full" />
-    </div>
-  );
-}
