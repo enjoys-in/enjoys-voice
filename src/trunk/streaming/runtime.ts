@@ -11,7 +11,7 @@ import { BrowserBridge } from "./browser-bridge";
 import { createAiHandlers, createDefaultBrain } from "./ai/ai.handlers";
 import type { MediaStreamHandlers } from "./types";
 
-export type MediaStreamMode = "log" | "bridge" | "ai";
+export type MediaStreamMode = "log" | "bridge" | "ai" | "auto";
 
 export interface MediaStreamRuntime {
   readonly mode: MediaStreamMode;
@@ -52,17 +52,71 @@ function createLogHandlers(): MediaStreamHandlers {
 }
 
 /**
+ * Compose several handler sets into one that dispatches PER CALL. At stream
+ * start the caller's `mode` parameter (set by the voice webhook, e.g. "bridge"
+ * or "ai") picks which set owns that session; every later event for that
+ * session is forwarded to the same set. Unknown/absent mode → `fallback`.
+ */
+export function createRoutingHandlers(
+  routes: Record<string, MediaStreamHandlers>,
+  fallback: string,
+): MediaStreamHandlers {
+  const owner = new Map<string, MediaStreamHandlers>();
+  const pick = (mode: string | undefined): MediaStreamHandlers =>
+    routes[mode ?? ""] ?? routes[fallback];
+
+  return {
+    onStart(session, meta) {
+      const h = pick(meta.parameters?.mode);
+      owner.set(session.id, h);
+      console.log(`🔀 dispatch id=${session.id} mode=${meta.parameters?.mode || fallback}`);
+      h.onStart?.(session, meta);
+    },
+    onAudio: (session, frame) => owner.get(session.id)?.onAudio?.(session, frame),
+    onDtmf: (session, digit) => owner.get(session.id)?.onDtmf?.(session, digit),
+    onMark: (session, name) => owner.get(session.id)?.onMark?.(session, name),
+    onStop(session) {
+      const h = owner.get(session.id);
+      owner.delete(session.id);
+      h?.onStop?.(session);
+    },
+    onError(session, err) {
+      if (session && owner.has(session.id)) {
+        owner.get(session.id)?.onError?.(session, err);
+      } else {
+        // Pre-start failure: no owner yet — notify each distinct set once.
+        for (const h of new Set(Object.values(routes))) h.onError?.(session, err);
+      }
+    },
+  };
+}
+
+/**
+/**
  * Build the media-streaming WS runtime for the current MEDIA_STREAM_MODE:
- *   log    (default) log frame activity
- *   bridge send caller audio to a browser listener (also starts the bridge WS)
- *   ai     answer with the Speechmatics voice agent
+ *   auto   (default) route each call by its `mode` param: bridge | ai
+ *   bridge force every call to a browser listener (also starts the bridge WS)
+ *   ai     force the Speechmatics voice agent for every call
+ *   log    log frame activity only (no audio routing)
  */
 export function createMediaStreamRuntime(): MediaStreamRuntime {
-  const mode = (process.env.MEDIA_STREAM_MODE || "log").toLowerCase() as MediaStreamMode;
+  const mode = (process.env.MEDIA_STREAM_MODE || "auto").toLowerCase() as MediaStreamMode;
 
   let bridge: BrowserBridge | undefined;
   let handlers: MediaStreamHandlers;
-  if (mode === "bridge") {
+  if (mode === "auto") {
+    // Run BOTH stacks and dispatch per call. The browser-facing WS must be up
+    // so "bridge" calls have somewhere to land.
+    bridge = new BrowserBridge();
+    handlers = createRoutingHandlers(
+      {
+        bridge: bridge.handlers(),
+        ai: createAiHandlers(createDefaultBrain()),
+        log: createLogHandlers(),
+      },
+      "bridge",
+    );
+  } else if (mode === "bridge") {
     bridge = new BrowserBridge();
     handlers = bridge.handlers();
   } else if (mode === "ai") {

@@ -9,8 +9,22 @@ export { streamingConfig } from "./config";
 export type { StreamingConfig } from "./config";
 export { MediaStreamServer } from "./media-stream.server";
 export { createStreamingWebhookRouter, buildMediaStreamUrl } from "./webhook";
+export type { StreamingWebhookDeps } from "./webhook";
+export {
+  decideCall,
+  type CallRouterDb,
+  type CallRouterConfig,
+  type CallDecision,
+} from "./call-router";
+export {
+  rejectTwiml,
+  sayHangupTwiml,
+  forwardTwiml,
+  voicemailTwiml,
+} from "./twiml";
 export {
   createMediaStreamRuntime,
+  createRoutingHandlers,
   type MediaStreamRuntime,
   type MediaStreamMode,
 } from "./runtime";

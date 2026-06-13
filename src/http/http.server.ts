@@ -37,7 +37,17 @@ export class HttpServer {
     //   Twilio Voice URL → https://<domain>/api/n/media/voice
     //   Browser test page → https://<domain>/api/n/media/bridge
     if (streamingConfig.enabled) {
-      this.app.use('/api/n/media', createStreamingWebhookRouter());
+      // Twilio POSTs application/x-www-form-urlencoded (To/From/RecordingUrl…),
+      // so add a urlencoded parser scoped to this mount only.
+      this.app.use(
+        '/api/n/media',
+        express.urlencoded({ extended: false }),
+        createStreamingWebhookRouter({
+          db: this.db,
+          voicemailEnabled: config.voicemail.enabled,
+          voicemailMaxSec: config.voicemail.maxSec,
+        }),
+      );
     }
 
     this.app.use(apiRateLimit);
