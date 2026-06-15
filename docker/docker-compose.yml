@@ -86,12 +86,12 @@ services:
       dockerfile: Dockerfile
     container_name: callnet-go-api
     ports:
-      - "3003:3002" # host 3003 -> container 3002 (Go CRUD API)
+      - "3003:3003" # host 3003 -> container 3003 (Go CRUD API)
     environment:
       # Values mirror server/.env.example. Inside the compose network the stores
       # are reachable by service name on their STANDARD ports (the host port
       # shift only affects host access).
-      PORT: "3002"
+      PORT: "3003"
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable
       VALKEY_ADDR: valkey:6379
       VALKEY_PASSWORD: ""

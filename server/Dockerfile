@@ -13,5 +13,5 @@ COPY --from=builder /bin/api .
 COPY migrations ./migrations
 RUN mkdir -p uploads/sounds
 
-EXPOSE 3002
+EXPOSE 3003
 CMD ["./api"]

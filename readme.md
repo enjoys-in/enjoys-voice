@@ -57,25 +57,47 @@ the shared database; Valkey/Redis is the shared cache.
 
 ## Ports
 
-| Port | Service |
-|------|---------|
-| 3000 | Web UI (Next.js) |
-| 3001 | Node HTTP API (live status, calls, voicemail) |
-| 3002 | Node WebSocket (signalling) |
-| 3003 | Go REST API (auth, IVR, CRUD) |
-| 5060 | SIP (Drachtio, UDP/TCP) |
-| 5065 | SIP over WebSocket (browser SIP.js) |
-| 5432 | Postgres |
-| 6379 | Valkey/Redis |
-| 8021 | FreeSWITCH ESL (internal) |
-| 9022 | Drachtio admin (internal) |
+> Host ports for the datastores are **shifted** (5432 / 6379 were already in use on
+> the host) and bound to **loopback only**. Containers still use the standard ports
+> internally; only the host-published port differs.
+
+### Application services
+
+| Port | Service | Env var | Proto | Notes |
+|------|---------|---------|-------|-------|
+| 4500 | Web UI (Next.js) | `next -p 4500` | TCP | `web/` frontend |
+| 3001 | Node HTTP API (live status, calls, voicemail) | `HTTP_PORT` | TCP | |
+| 3002 | Node WebSocket (signalling) | `WS_PORT` | TCP/WS | |
+| 3004 | Node media-stream WS (Twilio Media Streams) | `MEDIA_STREAM_WS_PORT` | TCP/WS | only when `MEDIA_STREAM_ENABLED=true` |
+| 3005 | Browser-bridge WS (PSTN → browser listen/talk) | `MEDIA_STREAM_BRIDGE_PORT` | TCP/WS | bridge mode only |
+| 3003 | Go REST API (auth, IVR, CRUD) | `PORT` | TCP | host + container 3003 |
+| 8085 | FreeSWITCH outbound-ESL listener (Node binds) | `FREESWITCH_LISTEN_PORT` | TCP | IVR media control |
+
+### Datastores (`docker/docker-compose.yml`, loopback-only)
+
+| Host port | Container port | Service | Env var |
+|-----------|----------------|---------|---------|
+| 5442 | 5432 | Postgres | `DATABASE_URL` |
+| 6372 | 6379 | Valkey (no password, `127.0.0.1` only) | `VALKEY_ADDR` |
+
+### SIP / media infrastructure (Docker containers)
+
+| Port | Service | Env var | Proto |
+|------|---------|---------|-------|
+| 5060 | Drachtio SIP (trunk / external UAs) | `TRUNK_PORT` | UDP + TCP |
+| 5065 | Drachtio SIP over WebSocket (browser SIP.js) | `SIP_WS_PORT` | TCP/WS |
+| 5090 | FreeSWITCH MRF SIP profile (`drachtio_mrf`) | — | UDP + TCP |
+| 8021 | FreeSWITCH ESL (Event Socket) | `FREESWITCH_PORT` | TCP |
+| 9022 | Drachtio control socket | `DRACHTIO_PORT` | TCP |
+| 22222 | RTPEngine control | `RTPENGINE_PORT` | UDP |
+| 16384–16403 | FreeSWITCH RTP media | — | UDP |
 
 ## Quick Start (local dev)
 
-### 1. Infrastructure (Postgres + Redis)
+### 1. Infrastructure (Postgres + Valkey)
 ```bash
 cd docker
-docker compose up -d postgres redis
+docker compose up -d postgres valkey
 ```
 Database migrations in `api/migrations/` are applied by the Go API on boot (they are
 idempotent and also seed the test users below).
