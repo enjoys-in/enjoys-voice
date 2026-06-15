@@ -20,18 +20,19 @@ voice.enjoys.in {
 	}
 
 	# ── Go CRUD API → https://DOMAIN/api/g/* (auth, IVR, lookup, …) ──
-	# Requires an `api-go` service (Go, :3003) in the compose stack.
+	# Proxied to the Go service by its compose service name (`go-api`, :3003).
 	handle /api/g/* {
-		reverse_proxy localhost:3003
+		reverse_proxy go-api:3003
 	}
 
 	# ── Node engine API → https://DOMAIN/api/n/* (live telephony) ──
 	handle /api/n/* {
-		reverse_proxy localhost:3001
+		reverse_proxy api:3001
 	}
 
 	# ── Frontend (Next.js) — everything else ─────────────────────
+	# web container runs `next start -p 4500` (web/package.json start script).
 	handle {
-		reverse_proxy localhost:4500
+		reverse_proxy web:4500
 	}
 }

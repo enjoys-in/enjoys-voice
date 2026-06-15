@@ -140,6 +140,10 @@ services:
       # SIP realm/domain — MUST match the Go API DOMAIN so the REGISTER the
       # browser sends (sip:<ext>@voice.enjoys.in) is accepted.
       DOMAIN: voice.enjoys.in
+      # Origins allowed to open the signaling WebSocket (CSWSH defense). Without
+      # this, only localhost is allowed and the prod browser handshake at
+      # wss://voice.enjoys.in/signal is REJECTED before connecting.
+      ALLOWED_ORIGINS: "https://voice.enjoys.in"
       DRACHTIO_HOST: drachtio-server
       DRACHTIO_PORT: "9022"
       DRACHTIO_SECRET: siprocks

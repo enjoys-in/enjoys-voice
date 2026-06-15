@@ -69,8 +69,13 @@ export class SipServer {
   async start(): Promise<void> {
     this.registerHandlers();
 
-    this.srf.connect(config.drachtio);
- 
+    this.srf.connect({
+      ...config.drachtio,
+      logger: (message: string) => {
+        console.log(`📡 [Drachtio]: ${message}`);
+      }
+    });
+
     this.srf.on('connect', (_err: any, hp: string) => {
       this.connected = true;
       console.log(`✅ SIP: Connected to drachtio (${hp})`);
@@ -159,7 +164,7 @@ export class SipServer {
           this.db.registerUser(user.extension, contact, expires, undefined, source);
           this.audit.log('register', user.extension, { contact, source }, req.source_address);
           res.send(SipStatus.OK, { headers: { 'Contact': contact, 'Expires': expires.toString() } });
-    
+
           // Refresh this user's blocking/forwarding/PSTN detail from Postgres so
           // routing reflects any dashboard changes. Fire-and-forget: the 200 OK
           // is already sent and startup hydration provides a baseline, so a DB

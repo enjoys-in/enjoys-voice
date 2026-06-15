@@ -23,6 +23,7 @@ export class SignalingServer {
   start(): void {
     this.wss = new WsServer({
       port: config.server.wsPort,
+      path: '/signal',
       // CSWSH defense: unlike fetch(), WebSocket upgrades are NOT covered by
       // CORS, yet the browser still auto-attaches our auth cookie. Reject any
       // origin that is not explicitly allowed before the handshake completes.

@@ -22,7 +22,21 @@ services:
       - PUBLIC_WS_URL=${PUBLIC_WS_URL}
       - PUBLIC_ICE_SERVERS=${PUBLIC_ICE_SERVERS}
     expose:
-      - "3000"
+      - "4500"   # next start -p 4500 (web/package.json) — reached via Caddy
+    networks:
+      - voipnet
+
+  # ─── Go CRUD API (auth, IVR, lookup) ───────────────────────────
+  go-api:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+    container_name: callnet-go-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    expose:
+      - "3003"   # Go REST API — reached via Caddy (/api/g/*) only
     networks:
       - voipnet
 

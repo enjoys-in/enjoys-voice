@@ -57,15 +57,16 @@ export function getGoApiBase(): string {
  * This is the Node signaling server, which is SEPARATE from the SIP media WS.
  *
  * Prod: set SIGNAL_URL to `wss://DOMAIN/signal` — Caddy upgrades and proxies it
- * to the Node signaling server (api:3002). Dev: falls back to ws(s)://host:3002,
- * the signaling server's own port (the REST API is on :3001).
+ * to the Node signaling server (api:3002). Dev: falls back to
+ * ws(s)://host:3002/signal — the signaling server binds the `/signal` path, so
+ * the path is required in BOTH environments (the REST API is on :3001).
  */
 export function getSignalingUrl(): string {
   const base = runtimeConfig().SIGNAL_URL;
   if (base) return base;
   if (typeof window !== "undefined") {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${proto}//${window.location.hostname}:3002`;
+    return `${proto}//${window.location.hostname}:3002/signal`;
   }
   return "";
 }
