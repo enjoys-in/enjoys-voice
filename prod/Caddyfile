@@ -1,26 +1,19 @@
 # ════════════════════════════════════════════════════════════════
 #  Caddy reverse proxy — automatic HTTPS (Let's Encrypt)
 #  Serves voice.enjoys.in (A record → VPS 77.237.241.24).
+#  Caddy runs on the HOST; the compose stack publishes its ports to
+#  localhost, so upstreams are reached via 127.0.0.1:<published-port>.
 # ════════════════════════════════════════════════════════════════
 
 voice.enjoys.in {
 	encode zstd gzip
 
-	# ── SIP over WebSocket (drachtio) → wss://DOMAIN/sip ──────────
-	# SIP.js connects here (PUBLIC_SIP_WS_URL). Caddy terminates the public TLS
-	# and RE-ENCRYPTS to drachtio's own wss listener (:5065). drachtio must see a
-	# real TLS socket so the transport matches SIP.js's `Via: SIP/2.0/WSS` — a
-	# plain-ws upstream would make sofia reject the WSS Via with 400 Bad Request.
-	# The upstream cert is self-signed (internal only) → skip verification.
+	# ── SIP over WebSocket (drachtio) → wss://DOMAIN/sip ──────────	 
 	@sip path /sip /sip/*
 	handle @sip {
-		reverse_proxy https://drachtio-server:5065 {
+		reverse_proxy https://127.0.0.1:5065 {
 			transport http {
-				tls_insecure_skip_verify
-				# WebSocket upgrade requires HTTP/1.1 on the upstream. Without
-				# this Caddy can ALPN-negotiate HTTP/2 with drachtio's TLS
-				# listener, which can't complete the WS handshake → sofia logs
-				# `tport_accept ... reason = WS_INIT` and the browser WS fails.
+				tls_server_name voice.enjoys.in
 				versions 1.1
 			}
 		}
@@ -29,23 +22,22 @@ voice.enjoys.in {
 	# ── App signaling WebSocket → wss://DOMAIN/signal ─────────────
 	@signal path /signal /signal/*
 	handle @signal {
-		reverse_proxy api:3002
+		reverse_proxy 127.0.0.1:3002
 	}
 
 	# ── Go CRUD API → https://DOMAIN/api/g/* (auth, IVR, lookup, …) ──
-	# Proxied to the Go service by its compose service name (`go-api`, :3003).
 	handle /api/g/* {
-		reverse_proxy go-api:3003
+		reverse_proxy 127.0.0.1:3003
 	}
 
 	# ── Node engine API → https://DOMAIN/api/n/* (live telephony) ──
 	handle /api/n/* {
-		reverse_proxy api:3001
+		reverse_proxy 127.0.0.1:3001
 	}
 
 	# ── Frontend (Next.js) — everything else ─────────────────────
 	# web container runs `next start -p 4500` (web/package.json start script).
 	handle {
-		reverse_proxy web:4500
+		reverse_proxy 127.0.0.1:4500
 	}
 }
