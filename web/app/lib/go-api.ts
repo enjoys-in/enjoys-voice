@@ -12,8 +12,6 @@ import { getGoApiBase } from "./runtime-config";
 import type { IvrFlow, IvrFlowSummary } from "../admin/ivr/ivr.types";
 import type { CallRecord } from "../types";
 
-const GO_API_BASE = getGoApiBase();
-
 export interface GoEnvelope<T> {
   success: boolean;
   message: string;
@@ -65,7 +63,7 @@ export function refreshAccessToken(): Promise<string | null> {
     const { refreshToken } = authTokens();
     if (!refreshToken) return null;
     try {
-      const res = await fetch(`${GO_API_BASE}/api/g/auth/refresh`, {
+      const res = await fetch(`${getGoApiBase()}/api/g/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -100,7 +98,7 @@ async function goRequest<T>(
     ...((options.headers as Record<string, string>) ?? {}),
   };
 
-  const res = await fetch(`${GO_API_BASE}/api/g${endpoint}`, {
+  const res = await fetch(`${getGoApiBase()}/api/g${endpoint}`, {
     ...options,
     headers,
     credentials: "include",

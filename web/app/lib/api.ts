@@ -6,12 +6,6 @@
 import { getApiBase } from "./runtime-config";
 import { getAccessToken, refreshAccessToken } from "./go-api";
 
-// ─── Base Config ────────────────────────────────────────
-
-// Sourced from RUNTIME config (window.__RUNTIME_CONFIG__.API_BASE) injected at
-// container start. Falls back to dev (window host:3001) when unset.
-const API_BASE = getApiBase();
-
 // ─── Request Types ──────────────────────────────────────
 
 
@@ -109,7 +103,7 @@ async function request<T>(
   // voicemail routes are JWT-protected, so attach the shared access token (same
   // token the Go client uses) and refresh-once on a 401, mirroring goRequest.
   const token = getAccessToken();
-  const res = await fetch(`${API_BASE}/api/n${endpoint}`, {
+  const res = await fetch(`${getApiBase()}/api/n${endpoint}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -176,5 +170,5 @@ export const api = {
 
   // Direct (non-JSON) URL for streaming a voicemail recording.
   voicemailAudioUrl: (ext: string, id: string) =>
-    `${API_BASE}/api/n/voicemails/${ext}/${id}/audio`,
+    `${getApiBase()}/api/n/voicemails/${ext}/${id}/audio`,
 } as const;
