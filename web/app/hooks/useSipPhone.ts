@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { UserAgent, Registerer, Inviter, SessionState, Session } from "sip.js";
+import type { SessionDescriptionHandlerOptions } from "sip.js/lib/platform/web";
 import { useCallStore } from "../stores";
 import { useContactStore } from "../stores";
 import { getCachedSoundUrl } from "../lib/sound-cache";
@@ -219,7 +220,7 @@ export function useSipPhone() {
         peerConnectionConfiguration: {
           iceServers: getIceServers(),
         },
-      },
+      } as SessionDescriptionHandlerOptions,
     });
 
     sessionRef.current = inviter;

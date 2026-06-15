@@ -1,16 +1,17 @@
 import type { RegistrationStore } from './registration.store';
 import { MemoryRegistrationStore } from './memory.store';
 import { RedisRegistrationStore } from './redis.store';
+import { buildValkeyUrl } from '../../core/config';
 
 export type StoreType = 'memory' | 'redis';
 
 export function createRegistrationStore(type?: StoreType): RegistrationStore {
-  const storeType = type || (process.env.REDIS_URL ? 'redis' : 'memory');
+  const storeType = type || (process.env.VALKEY_ADDR ? 'redis' : 'memory');
 
   switch (storeType) {
     case 'redis':
-      const url = process.env.REDIS_URL || 'redis://localhost:6379';
-      console.log(`📦 Registration store: Redis (${url})`);
+      const url = buildValkeyUrl();
+      console.log(`📦 Registration store: Valkey (${url})`);
       return new RedisRegistrationStore(url);
 
     case 'memory':

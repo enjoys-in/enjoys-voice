@@ -108,6 +108,18 @@ export interface AppConfig {
 const FS_RECORDINGS_DIR = process.env.FS_RECORDINGS_DIR || '/usr/local/freeswitch/recordings'; // container (FS write side)
 const HOST_RECORDINGS_DIR = process.env.RECORDINGS_DIR || 'docker/recordings';                  // host (API read side)
 
+// We run Valkey (Redis-compatible). The env is VALKEY_ADDR=host:port (no scheme,
+// to match the Go API), plus optional VALKEY_PASSWORD / VALKEY_DB. node-redis
+// wants a full URL, so build redis://[:password@]host:port[/db] from those.
+export function buildValkeyUrl(): string {
+  const addr = process.env.VALKEY_ADDR || 'localhost:6379';
+  const password = process.env.VALKEY_PASSWORD || '';
+  const db = process.env.VALKEY_DB || '';
+  const auth = password ? `:${encodeURIComponent(password)}@` : '';
+  const path = db ? `/${db}` : '';
+  return `redis://${auth}${addr}${path}`;
+}
+
 export const config: AppConfig = {
   server: {
     httpPort: parseInt(process.env.HTTP_PORT || '3001'),
@@ -197,7 +209,7 @@ export const config: AppConfig = {
       'postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable',
   },
   redis: {
-    url: process.env.REDIS_URL || 'redis://localhost:6379',
+    url: buildValkeyUrl(),
   },
   audit: {
     enabled: process.env.AUDIT_LOG === 'true',
