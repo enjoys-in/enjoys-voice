@@ -31,5 +31,5 @@
   </sip>
 
   
-  <!-- <admin port="9022" secret="siprocks">0.0.0.0</admin> -->
+  <admin port="9022" secret="siprocks">0.0.0.0</admin>
 </drachtio>

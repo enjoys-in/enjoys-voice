@@ -8,13 +8,13 @@ voice.enjoys.in {
 
 	# ── SIP over WebSocket (drachtio) → wss://DOMAIN/sip ──────────
 	# SIP.js connects here (PUBLIC_SIP_WS_URL). Caddy terminates the public TLS
-	# and RE-ENCRYPTS to drachtio's own wss listener (:5066). drachtio must see a
+	# and RE-ENCRYPTS to drachtio's own wss listener (:5065). drachtio must see a
 	# real TLS socket so the transport matches SIP.js's `Via: SIP/2.0/WSS` — a
 	# plain-ws upstream would make sofia reject the WSS Via with 400 Bad Request.
 	# The upstream cert is self-signed (internal only) → skip verification.
 	@sip path /sip /sip/*
 	handle @sip {
-		reverse_proxy https://drachtio-server:5066 {
+		reverse_proxy https://drachtio-server:5065 {
 			transport http {
 				tls_insecure_skip_verify
 			}
