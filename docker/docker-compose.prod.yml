@@ -104,11 +104,10 @@ services:
       UPLOAD_DIR: ./uploads/sounds
       # SIP config returned to the browser in the login response (sipConfig).
       # Without these the login returns ws://127.0.0.1:5065 + sip:localhost,
-      # which a remote browser cannot reach. Browser connects DIRECTLY to
-      # drachtio's TLS wss listener on :5065 (real *.enjoys.in cert) — bypasses
-      # Caddy. Must use the hostname (cert SAN), not the raw IP. Open 5065/tcp.
+      # which a remote browser cannot reach. Point them at the public Caddy
+      # domain: /sip -> drachtio (wss), /signal -> Node signaling (wss).
       DOMAIN: voice.enjoys.in
-      PUBLIC_SIP_WS_URL: "wss://voice.enjoys.in:5065"
+      PUBLIC_SIP_WS_URL: "wss://voice.enjoys.in/sip"
       PUBLIC_WS_URL: "wss://voice.enjoys.in/signal"
     depends_on:
       postgres:
@@ -146,10 +145,9 @@ services:
       # browser sends (sip:<ext>@voice.enjoys.in) is accepted.
       DOMAIN: voice.enjoys.in
       # Public SIP-over-WS URL the signaling server hands the browser in its
-      # `registered` message. Browser connects DIRECTLY to drachtio's TLS wss
-      # listener on :5065 (real *.enjoys.in cert) — bypasses Caddy. Use the
-      # hostname (cert SAN), not the raw IP, and open 5065/tcp on the firewall.
-      PUBLIC_SIP_WS_URL: "wss://voice.enjoys.in:5065"
+      # `registered` message. Without this it falls back to ws://127.0.0.1:5065,
+      # which a remote browser cannot reach. /sip -> drachtio (wss) via Caddy.
+      PUBLIC_SIP_WS_URL: "wss://voice.enjoys.in/sip"
       PUBLIC_WS_URL: "wss://voice.enjoys.in/signal"
       # Origins allowed to open the signaling WebSocket (CSWSH defense). Without
       # this, only localhost is allowed and the prod browser handshake at
