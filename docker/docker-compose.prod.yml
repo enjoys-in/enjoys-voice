@@ -23,7 +23,7 @@ services:
       # TLS certs for the wss listener on :5065 (sips:*;transport=wss).
       # Host dir must contain enjoys.in.key + enjoys.in.pem (paths referenced by
       # <tls> in drachtio.conf.prod.xml). Read-only.
-      - ./etc/caddy/certs:/etc/drachtio/tls:ro
+      - /etc/caddy/certs:/etc/drachtio/tls:ro
   drachtio-freeswitch:
     image: safarov/freeswitch:latest
     container_name: drachtio-freeswitch
