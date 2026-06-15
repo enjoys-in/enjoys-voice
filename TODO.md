@@ -1,12 +1,14 @@
 # Enjoys Voice - Roadmap & TODO
 
-## Audit Log Service
-- [ ] Create `src/services/audit.service.ts`
-- [ ] Log events: register, unregister, call_start, call_answered, call_declined, call_ended, call_failed
-- [ ] Each entry: `{ id, timestamp, userId, extension, event, metadata, ip }`
-- [ ] In-memory store for dev, persist to SQLite/Postgres for prod (same adapter pattern as registration store)
-- [ ] Expose via HTTP API: `GET /api/audit?user=1001&from=&to=&event=`
-- [ ] Add to WebSocket admin panel for real-time audit feed
+> **Status legend:** ✅ done · 🟡 partial · (unmarked) = not started.
+> See [LEARNING.md](LEARNING.md) for a concept-to-code guide of what already exists.
+
+## Audit Log Service — ✅ DONE
+- [x] `src/services/audit.service.ts` (env-gated `AUDIT_LOG`, 30s batch flush)
+- [x] Logs register/call lifecycle + `call_blocked` events
+- [x] Each entry: `{ id, timestamp, extension, event, detail }`
+- [x] Persists to Postgres (`audit_logs`, additive to Go's GORM model); Go owns reads (`/api/g/audit`)
+- [ ] Real-time audit feed in the WebSocket admin panel
 
 ## SIP URI Domain
 - [ ] Replace `.invalid` contact domain with `config.server.domain` (e.g., `enjoys.in`)
@@ -32,12 +34,11 @@
 - [ ] On signup: create SIP user, assign extension, store in DB
 - [ ] Login via mobile + OTP (no password needed for end users)
 
-## Call Routing: SIP → PSTN Fallback
-- [ ] On INVITE: check if callee is registered (SIP-to-SIP)
-- [ ] If offline: route via PSTN trunk to their mobile number
-- [ ] Trunk config per user: `{ mobile, countryCode, preferSip: true }`
-- [ ] Fallback chain: SIP → PSTN → Voicemail
-- [ ] Support calling external mobile numbers directly (with country code dial plan)
+## Call Routing: SIP → PSTN Fallback — ✅ DONE
+- [x] On INVITE: check if callee is registered (SIP-to-SIP)
+- [x] If offline/unreachable: `SipServer.routeUnreachable()` chain — PSTN-forward to mobile → forwarding rules → voicemail → spoken "unavailable" → 480
+- [x] Per-user PSTN forward (`pstnForwardToBrowser` / `mobile` / `pstnForwardTarget`)
+- [x] Stale registration returns `410 Gone`; busy `486`, no-answer `408`/timeout mapped to forwarding branches
 
 ## Dial Plan
 - [ ] Internal: 7-digit extensions (1001-9999)
@@ -46,12 +47,13 @@
 - [ ] Emergency: configurable per-region
 
 ## Production Concerns
-- [ ] Registration store → Redis/Valkey (done, adapter exists)
-- [ ] Audit store → PostgreSQL
-- [ ] User store → PostgreSQL with migrations
-- [ ] Rate limiting on register/invite
-- [ ] TLS for SIP (port 5061)
-- [ ] SRTP for media encryption
+- [x] Registration store → Redis/Valkey (adapter exists; falls back to in-memory when `REDIS_URL` unset)
+- [x] Audit store → PostgreSQL (`audit_logs`, batch-flushed)
+- [x] Live data sync → Postgres LISTEN/NOTIFY (Node mirrors Go-owned tables, no polling)
+- [x] WSS for SIP + drachtio `<tls>` on :5066 + `<spammers>` scanner drop + internal-only control socket
+- [ ] User store migrations hardening (seed + idempotent; Go AutoMigrate in place)
+- [🟡] Rate limiting on register/invite (HTTP `rate-limit` middleware exists; SIP-level pending)
+- [ ] SRTP for media encryption end-to-end (browser already DTLS-SRTP; trunk leg pending)
 - [ ] Horizontal scaling: multiple drachtio instances behind load balancer
 
 ## Go Voice Core (sipgo)

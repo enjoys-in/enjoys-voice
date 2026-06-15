@@ -4,7 +4,7 @@
 #
 #  Lets you pick:
 #    1. environment  → dev (docker/docker-compose.dev.yml)
-#                      prod (prod/docker-compose.prod.yml)
+#                      prod (docker/docker-compose.prod.yml)
 #    2. action       → up / build / down / restart / logs / ps /
 #                      pull / cache-clean / etc.
 #    3. service(s)   → all, or a specific service (read live from the
@@ -20,8 +20,8 @@ set -euo pipefail
 # ── Resolve paths relative to THIS script (run from anywhere) ────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEV_FILE="$SCRIPT_DIR/docker/docker-compose.dev.yml"
-PROD_FILE="$SCRIPT_DIR/prod/docker-compose.prod.yml"
-PROD_ENV="$SCRIPT_DIR/prod/.env"
+PROD_FILE="$SCRIPT_DIR/docker/docker-compose.prod.yml"
+PROD_ENV="$SCRIPT_DIR/docker/.env"
 
 # ── Colors (disabled if not a TTY) ───────────────────────────────
 if [[ -t 1 ]]; then

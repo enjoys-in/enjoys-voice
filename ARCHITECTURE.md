@@ -45,6 +45,17 @@
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+> **Local vs prod transport:** in dev the browser uses plain SIP-over-WS on `:5065`.
+> In production Caddy is the single HTTPS entrypoint and the browser uses
+> `wss://voice.enjoys.in/sip`; Caddy re-encrypts to drachtio's real-TLS WSS listener
+> on `:5066` (drachtio terminates TLS so the transport matches SIP.js's
+> `Via: SIP/2.0/WSS`). The `:9022` control socket is server-to-server only.
+
+> **API response envelope:** both back-ends return `{ success, message, data }`.
+> Go via `server/internal/response`, Node via `src/http/response.ts`, and the web
+> client unwraps `.data` in `web/app/lib/api.ts`. New to the stack? See
+> [LEARNING.md](LEARNING.md).
+
 ## Call Flow: Outbound (Alice → Bob)
 
 ```

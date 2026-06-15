@@ -82,7 +82,12 @@ IVR_DEFAULT_LANG=en
 
 ## Changes Required for Production
 
-### 1. Docker Compose (`docker/docker-compose.yml`)
+> The Compose files are split: **local dev** is `docker/docker-compose.dev.yml` and
+> **production** is `docker/docker-compose.prod.yml` (with Caddy + coTURN configured
+> under [prod/](prod/)). The interactive [`run.sh`](run.sh) helper wraps both
+> (pick env → action → service), so you rarely type raw `docker compose` commands.
+
+### 1. Docker Compose (`docker/docker-compose.dev.yml`)
 
 ```diff
 # Drachtio - set your actual external IP
@@ -171,15 +176,22 @@ And the default TTS engine for `say:` IVR prompts (`docker/freeswitch_configs/va
 
 After editing volume-mounted config, recreate the container so it loads fresh:
 ```bash
-docker compose up -d --force-recreate drachtio-freeswitch
+docker compose -f docker-compose.dev.yml up -d --force-recreate drachtio-freeswitch
 ```
 
 
 ### 4. TLS/SSL Certificates
 
-For production, SIP WebSocket MUST use WSS (TLS). Options:
-- Use Nginx as TLS termination proxy for port 5065
-- Or configure Drachtio with TLS certificates directly
+For production, SIP WebSocket MUST use WSS (TLS). In this stack **Caddy** is the single
+public HTTPS entrypoint (`voice.enjoys.in`, automatic Let's Encrypt) and reverse-proxies
+by path. The browser connects `wss://DOMAIN/sip`; Caddy terminates the public TLS and
+**re-encrypts** to drachtio's own WSS listener on **`:5066`** (drachtio terminates real
+TLS via its `<tls>` block so the socket transport matches SIP.js's `Via: SIP/2.0/WSS` —
+a plain-`ws` upstream behind TLS-termination is rejected with `400 Bad Request,
+invalid transport`). The prod drachtio config also drops known SIP scanners via a
+`<spammers>` block, and the `:9022` control socket is **internal-only** (server-to-server
+between Node and drachtio), with its secret injected at runtime via
+`drachtio --password ${DRACHTIO_SECRET}` rather than the committed default.
 
 ### 5. Next.js Frontend (`web/`)
 
@@ -243,7 +255,7 @@ cp .env.example .env
 
 # 5. Start Docker services
 cd docker
-docker compose up -d drachtio-server drachtio-freeswitch
+docker compose -f docker-compose.dev.yml up -d drachtio-server drachtio-freeswitch
 cd ..
 
 # 6. Build and run

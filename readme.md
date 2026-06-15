@@ -51,9 +51,12 @@ the shared database; Valkey/Redis is the shared cache.
 ## Tech Stack
 
 - **Node engine** (`src/`) — Bun, TypeScript, Express, `ws`, drachtio-srf / drachtio-fsmrf, `pg`, `redis`
-- **Go API** (`api/`) — Go, gin, gorm, go-redis, golang-jwt, bcrypt
+- **Go API** (`server/`) — Go, gin, gorm, go-redis, golang-jwt, bcrypt
 - **Web** (`web/`) — Next.js 15, React 19, SIP.js, Zustand, Tailwind, shadcn/ui
 - **Infra** — Postgres, Valkey/Redis, Drachtio, FreeSWITCH (via Docker)
+
+> Both back-ends speak the **same JSON envelope** — `{ success, message, data }`.
+> Go via `server/internal/response`, Node via `src/http/response.ts`.
 
 ## Ports
 
@@ -73,7 +76,7 @@ the shared database; Valkey/Redis is the shared cache.
 | 3003 | Go REST API (auth, IVR, CRUD) | `PORT` | TCP | host + container 3003 |
 | 8085 | FreeSWITCH outbound-ESL listener (Node binds) | `FREESWITCH_LISTEN_PORT` | TCP | IVR media control |
 
-### Datastores (`docker/docker-compose.yml`, loopback-only)
+### Datastores (`docker/docker-compose.dev.yml`, loopback-only)
 
 | Host port | Container port | Service | Env var |
 |-----------|----------------|---------|---------|
@@ -94,17 +97,20 @@ the shared database; Valkey/Redis is the shared cache.
 
 ## Quick Start (local dev)
 
+> Tip: the interactive [`run.sh`](run.sh) helper wraps all of the Docker Compose
+> commands below (pick env → action → service). Run `./run.sh` from the repo root.
+
 ### 1. Infrastructure (Postgres + Valkey)
 ```bash
 cd docker
-docker compose up -d postgres valkey
+docker compose -f docker-compose.dev.yml up -d postgres valkey
 ```
-Database migrations in `api/migrations/` are applied by the Go API on boot (they are
+Database migrations in `server/migrations/` are applied by the Go API on boot (they are
 idempotent and also seed the test users below).
 
 ### 2. Go REST API (auth + data) — port 3003
 ```bash
-cd api
+cd server
 go run .
 ```
 
@@ -136,7 +142,7 @@ bun dev                # or: npm run dev
 
 Password for all three is `password123`; log in by **username (= extension)**. These
 match the running dev database; the seed lives in
-[api/migrations/001_initial.sql](api/migrations/001_initial.sql).
+[server/migrations/001_initial.sql](server/migrations/001_initial.sql).
 
 | Extension / Username | Name           | Mobile     |
 |----------------------|----------------|------------|
@@ -149,7 +155,7 @@ New accounts can be created via the signup screen or `POST :3003/api/auth/signup
 
 ## Selected API Endpoints
 
-### Go API (`:3003/api`) — auth & data
+### Go API (`:3003/api/g`) — auth & data
 | Method | Path | Description |
 |--------|------|-------------|
 | POST   | `/auth` · `/auth/login` | Log in, returns JWT pair + SIP config |
@@ -158,17 +164,20 @@ New accounts can be created via the signup screen or `POST :3003/api/auth/signup
 | GET    | `/auth/me` | Current session profile (boot validator) |
 | PATCH  | `/auth/me` | Update the signed-in user's name |
 | GET/POST/PUT/DELETE | `/ivr/flows` | IVR flow builder persistence |
+| GET    | `/calls` · `/calls/:ext` | Call history (recents) |
+| GET/POST | `/block` · `/forwarding` | Block list / call-forwarding rules |
 | GET    | `/voicemails/:ext` | List voicemails |
 
-### Node engine (`:3001/api`) — live telephony
+### Node engine (`:3001/api/n`) — live telephony
 | Method | Path | Description |
 |--------|------|-------------|
 | GET    | `/health` | Engine status (SIP connected, IVR, trunk, uptime) |
-| GET    | `/users` | Registered SIP users + presence |
-| GET    | `/calls` · `/calls/:ext` | Call history (recents) |
-| GET/POST | `/block/:ext` | Block list |
-| GET/POST | `/forwarding/:ext` | Call forwarding rules |
+| GET    | `/users` · `/users/:ext` | Registered SIP users + live presence |
+| GET    | `/ivr/status` · `/ivr/recordings` | IVR runtime status |
 | POST   | `/ivr/transfer` | Transfer an active call |
+| GET    | `/trunk` · `/trunk/twilio` | Trunk status |
+| GET    | `/config` | Engine config (domain, ports, IVR) |
+| GET    | `/voicemails/:ext` · `/voicemails/:ext/:id/audio` | Voicemail list + WAV stream |
 
 ## SIP Trunk (PSTN)
 
@@ -193,11 +202,18 @@ full trunk + FreeSWITCH walkthrough.
 
 ```bash
 cd docker
-docker compose up -d
+docker compose -f docker-compose.dev.yml up -d
 ```
 
-Starts Drachtio, FreeSWITCH, Postgres and Redis. Production compose and reverse-proxy
-config live in [prod/](prod/) (`docker-compose.prod.yml`, Caddy, coTURN).
+Starts Drachtio, FreeSWITCH, Postgres and Valkey. The production stack and reverse-proxy
+config live in [docker/docker-compose.prod.yml](docker/docker-compose.prod.yml) and
+[prod/](prod/) (Caddy, coTURN). The interactive [`run.sh`](run.sh) helper can target
+either environment.
+
+## Learning the system
+
+New to VoIP / SIP / WebRTC? See [LEARNING.md](LEARNING.md) — a ground-up guide (SIP, SDP,
+RTP, STUN/TURN/ICE, PSTN trunks, B2BUA) mapped onto this codebase, with interview Q&A.
 
 ## Project Structure
 
