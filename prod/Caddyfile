@@ -22,16 +22,16 @@ voice.enjoys.in {
 	# ── Go CRUD API → https://DOMAIN/api/g/* (auth, IVR, lookup, …) ──
 	# Requires an `api-go` service (Go, :3003) in the compose stack.
 	handle /api/g/* {
-		reverse_proxy api-go:3003
+		reverse_proxy localhost:3003
 	}
 
 	# ── Node engine API → https://DOMAIN/api/n/* (live telephony) ──
 	handle /api/n/* {
-		reverse_proxy api:3001
+		reverse_proxy localhost:3001
 	}
 
 	# ── Frontend (Next.js) — everything else ─────────────────────
 	handle {
-		reverse_proxy web:3000
+		reverse_proxy localhost:4500
 	}
 }
