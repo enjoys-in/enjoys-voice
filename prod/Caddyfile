@@ -17,6 +17,11 @@ voice.enjoys.in {
 		reverse_proxy https://drachtio-server:5065 {
 			transport http {
 				tls_insecure_skip_verify
+				# WebSocket upgrade requires HTTP/1.1 on the upstream. Without
+				# this Caddy can ALPN-negotiate HTTP/2 with drachtio's TLS
+				# listener, which can't complete the WS handshake → sofia logs
+				# `tport_accept ... reason = WS_INIT` and the browser WS fails.
+				versions 1.1
 			}
 		}
 	}
