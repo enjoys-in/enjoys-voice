@@ -140,6 +140,11 @@ services:
       # SIP realm/domain — MUST match the Go API DOMAIN so the REGISTER the
       # browser sends (sip:<ext>@voice.enjoys.in) is accepted.
       DOMAIN: voice.enjoys.in
+      # Public SIP-over-WS URL the signaling server hands the browser in its
+      # `registered` message. Without this it falls back to ws://127.0.0.1:5065,
+      # which a remote browser cannot reach. /sip -> drachtio (wss) via Caddy.
+      PUBLIC_SIP_WS_URL: "wss://voice.enjoys.in/sip"
+      PUBLIC_WS_URL: "wss://voice.enjoys.in/signal"
       # Origins allowed to open the signaling WebSocket (CSWSH defense). Without
       # this, only localhost is allowed and the prod browser handshake at
       # wss://voice.enjoys.in/signal is REJECTED before connecting.
