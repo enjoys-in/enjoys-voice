@@ -127,6 +127,9 @@ export function useSipPhone() {
       authorizationUsername: extension,
       authorizationPassword: password,
       displayName: fromName,
+      // Branded User-Agent header on every SIP request (REGISTER/INVITE/…),
+      // replacing the default "SIP.js/0.21.1".
+      userAgentString: "Enjoys.in Voice/1.0",
       logLevel: "error",
       sessionDescriptionHandlerFactoryOptions: {
         peerConnectionConfiguration: {

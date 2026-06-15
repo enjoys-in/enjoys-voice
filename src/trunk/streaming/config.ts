@@ -45,7 +45,7 @@ export interface StreamingConfig {
 
 export const streamingConfig: StreamingConfig = {
   enabled: process.env.MEDIA_STREAM_ENABLED === "true",
-  wsPort: parseInt(process.env.MEDIA_STREAM_WS_PORT || "3003"),
+  wsPort: parseInt(process.env.MEDIA_STREAM_WS_PORT || "3004"),
   publicWsUrl: process.env.MEDIA_STREAM_PUBLIC_URL || "",
   publicHttpUrl: process.env.MEDIA_STREAM_PUBLIC_HTTP_URL || "",
   authToken: process.env.MEDIA_STREAM_AUTH_TOKEN || "",

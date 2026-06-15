@@ -34,6 +34,9 @@ docker/pulse/
 docker/recordings/
 docker/recordings-asterisk/
 
+# drachtio self-signed WSS cert (generated on the VPS by gen-cert.sh)
+prod/drachtio/tls/
+
 # Next.js (web/)
 web/.next/
 web/node_modules/

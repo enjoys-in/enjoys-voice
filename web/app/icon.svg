@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Enjoys Voice">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#g)"/>
+  <!-- Phone handset -->
+  <path fill="#fff" d="M23.3 18.2c-1.2-1.2-3.2-1.1-4.3.2l-2.1 2.4c-1 1.1-1.2 2.7-.6 4.1 4.4 9.9 12.4 17.9 22.3 22.3 1.4.6 3 .4 4.1-.6l2.4-2.1c1.3-1.1 1.4-3.1.2-4.3l-4-4c-1-1-2.6-1.1-3.8-.3l-2 1.4c-3.3-2-6-4.7-8-8l1.4-2c.8-1.2.7-2.8-.3-3.8l-4-4z"/>
+  <!-- Sound waves -->
+  <path fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" opacity="0.9" d="M40 20a10 10 0 0 1 0 14"/>
+  <path fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" opacity="0.55" d="M44.5 15.5a16 16 0 0 1 0 23"/>
+</svg>

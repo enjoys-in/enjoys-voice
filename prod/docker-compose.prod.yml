@@ -64,20 +64,26 @@ services:
     image: drachtio/drachtio-server
     container_name: callnet-drachtio
     restart: unless-stopped
+    # No --contact here: the listeners (udp/tcp 5060 + wss 5066) come from the
+    # mounted prod config so the <tls> block applies to the wss contact.
+    # --external-ip rewrites Contact/Via on the public UDP transport.
     command: >
       drachtio
-      --contact "sip:*;transport=udp,tcp"
       --external-ip ${PUBLIC_IP}
     ports:
       - "5060:5060/udp"   # SIP UDP (trunk / external UAs)
       - "5060:5060/tcp"   # SIP TCP
     expose:
       - "9022"            # control socket — internal only
-      - "5065"            # SIP-over-WS — reached via Caddy only
+      - "5066"            # SIP-over-WSS (TLS) — reached via Caddy only
     environment:
       - DRACHTIO_SECRET=${DRACHTIO_SECRET}
     volumes:
-      - ../docker/drachtio-server/config/drachtio.conf.xml:/etc/drachtio.conf.xml:ro
+      # Prod config adds the wss:5066 listener + <tls> block (see file).
+      - ./drachtio/drachtio.conf.xml:/etc/drachtio.conf.xml:ro
+      # Reuse the host's existing TLS cert for the wss listener (read-only).
+      # Files: enjoys.in.pem (cert) + enjoys.in.key (key).
+      - /etc/caddy/certs:/etc/drachtio/tls:ro
     networks:
       - voipnet
 
