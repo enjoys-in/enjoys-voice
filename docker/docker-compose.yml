@@ -43,6 +43,70 @@ services:
       - voipnet
     restart: unless-stopped
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: callnet-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5442:5432" # host 5442 -> container 5432 (5432 is busy on host)
+    volumes:
+      - callnet-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - voipnet
+    restart: unless-stopped
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: callnet-valkey
+    command: ["valkey-server", "--save", "60", "1", "--appendonly", "no"]
+    ports:
+      - "6372:6379" # host 6372 -> container 6379 (6379 is busy on host)
+    volumes:
+      - callnet-valkeydata:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - voipnet
+    restart: unless-stopped
+
+  go-api:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+    container_name: callnet-go-api
+    ports:
+      - "3003:3002" # host 3003 -> container 3002 (Go CRUD API)
+    environment:
+      # Values mirror server/.env.example. Inside the compose network the stores
+      # are reachable by service name on their STANDARD ports (the host port
+      # shift only affects host access).
+      PORT: "3002"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/enjoys_voice?sslmode=disable
+      VALKEY_ADDR: valkey:6379
+      VALKEY_PASSWORD: ""
+      VALKEY_DB: "0"
+      JWT_SECRET: change-this-to-a-secure-random-string
+      UPLOAD_DIR: ./uploads/sounds
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - voipnet
+    restart: unless-stopped
+
 networks:
   voipnet:
     driver: bridge
@@ -50,4 +114,6 @@ networks:
 volumes:
   freeswitch-sounds:
   freeswitch-recordings:
-  tele-conf: 
+  tele-conf:
+  callnet-pgdata:
+  callnet-valkeydata: 

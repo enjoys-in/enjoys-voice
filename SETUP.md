@@ -27,6 +27,8 @@ Browser (WebRTC/SIP.js) ──WSS──▶ Drachtio ──SIP──▶ FreeSWITC
 | 80/443 | TCP | Next.js Frontend | Behind reverse proxy |
 | 3001 | TCP | CallNet HTTP API | Can proxy via Nginx |
 | 3002 | TCP | CallNet WebSocket | Signaling |
+| 3003 | TCP | Media Stream WS | Twilio Media Streams (wss in prod). Only if `MEDIA_STREAM_ENABLED=true` |
+| 3005 | TCP | Browser Bridge WS | Browser listen/talk audio. Internal/LAN only — never exposed to Twilio |
 | 5060 | UDP+TCP | SIP | Drachtio SIP signaling |
 | 5065 | TCP | SIP WebSocket | Browser SIP.js connections |
 | 8021 | TCP | FreeSWITCH ESL | Internal only (Docker network) |
@@ -327,3 +329,183 @@ Users can configure PSTN forwarding with a target:
 - **IVR entry** (e.g. `5000`) → routes to the IVR system
 
 The trunk inbound handler resolves the target via `DialPlanService.resolve()` which returns a `RouteType` (Internal, IVR, etc.) and routes accordingly. If the target extension is not registered and it's not an IVR, the call is rejected with 480 Temporarily Unavailable.
+
+## PSTN → Browser via Twilio Media Streams (webhook path)
+
+This is a **second, independent inbound path** that does NOT use the SIP trunk /
+FreeSWITCH. A call to your **Twilio number** hits an HTTP webhook on the Bun API,
+which answers with TwiML that opens a two-way audio **WebSocket** (`<Connect><Stream>`).
+The API then routes that audio per call: bridge it to the owner's **browser**, hand it
+to the **AI** agent, **forward** it, send it to **voicemail**, or **reject** it.
+
+```
+Caller (PSTN) ──▶ Twilio number
+     │  1. POST /api/n/media/voice            (HTTPS, form-encoded)
+     ▼
+CallNet API (Bun)  ──decideCall(To, From, db)──▶  TwiML
+     │  2. <Connect><Stream url="wss://…/media?token=…">  (μ-law 8k, two-way)
+     ▼
+Media Stream WS :3003 ──(mode=bridge)──▶ Browser Bridge WS :3005 ──▶ browser page
+                       └─(mode=ai)─────▶ Speechmatics ASR → LLM → TTS
+```
+
+### Decision chain (what the caller gets)
+
+| Order | Condition | Result |
+|-------|-----------|--------|
+| 1 | Called number is not a registered owner DID | `Reject` (no-did) |
+| 2 | Caller is on the owner's block list | `Reject` (blocked) |
+| 3 | Owner is **online** (SIP-registered) | **Bridge** → rings the browser |
+| 4 | Offline + `forwardOnUnavailable` set | **Forward** (`<Dial>`) |
+| 5 | Offline + `MEDIA_STREAM_AI_ENABLED=true` | **AI** answers |
+| 6 | Offline + `VOICEMAIL_ENABLED=true` | **Voicemail** (`<Record>`) |
+| 7 | Offline + none of the above | `Reject` (unavailable) |
+
+> At HTTP answer-time Twilio only knows *registered or not*, so SIP "busy" /
+> "no-answer" collapse into the single **offline** branch. Detecting
+> *browser-rang-but-nobody-answered* needs a Twilio **Stream status callback**
+> (future enhancement).
+
+### Endpoints (mounted at `/api/n/media`, only when enabled)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST/GET | `/api/n/media/voice` | **Twilio Voice URL** — returns the routing TwiML |
+| POST | `/api/n/media/voicemail-status` | Twilio recording-status callback → stores the voicemail |
+| GET | `/api/n/media/bridge` | Built-in browser listen/talk **test page** |
+
+These are mounted **before** the API rate-limiter and auth guards (Twilio is an
+unauthenticated server-to-server caller). Access is protected instead by the
+`?token=` shared secret on the media WebSocket.
+
+### Step 1 — Environment variables
+
+Add to `.env` (the whole feature is gated by `MEDIA_STREAM_ENABLED`):
+
+```bash
+# ─── Media Streaming (Twilio PSTN → browser/AI/voicemail) ──────
+MEDIA_STREAM_ENABLED=true
+MEDIA_STREAM_WS_PORT=3003                       # local media WS port
+MEDIA_STREAM_BRIDGE_PORT=3005                   # browser listen/talk WS (LAN only)
+MEDIA_STREAM_MODE=auto                          # auto | bridge | ai | log
+MEDIA_STREAM_AUTH_TOKEN=CHANGE_ME_STREAM_SECRET # validated on the WS handshake
+
+# Public URLs Twilio dials back (set in prod / when tunneling):
+MEDIA_STREAM_PUBLIC_URL=wss://your-domain.com/media       # wss base for <Stream>
+MEDIA_STREAM_PUBLIC_HTTP_URL=https://your-domain.com      # https base for callbacks
+
+# ─── AI fallback (optional offline path) ──────────────────────
+MEDIA_STREAM_AI_ENABLED=false                   # true to let AI answer when offline
+SPEECHMATICS_API_KEY=                            # required if AI enabled (real ASR)
+SPEECHMATICS_RT_URL=                             # optional region endpoint
+MEDIA_STREAM_AI_LANGUAGE=en
+
+# ─── Voicemail (shared with the SIP/IVR voicemail store) ──────
+VOICEMAIL_ENABLED=true
+MAX_VOICEMAIL_SEC=180
+```
+
+`MEDIA_STREAM_MODE=auto` (the default) runs **both** the bridge and AI handler
+stacks and dispatches each call by the `mode` parameter the webhook injects.
+Force a single behaviour with `bridge`, `ai`, or `log` (frame logging only).
+
+### Step 2 — Mark which user owns the Twilio number
+
+The router matches the **called number** (`To`) to a user by the **last 10 digits**
+of their `mobile`, and only if `pstnForwardToBrowser` is enabled. The bridge target
+is `pstnForwardTarget` or, if empty, the user's own `extension`. Set this per user
+(via the dashboard API or DB):
+
+```text
+user.mobile               = +1 415 555 0123   # = your Twilio number
+user.pstnForwardToBrowser = true
+user.pstnForwardTarget    = 1001              # optional; defaults to user.extension
+```
+
+Optional per-user offline settings the chain reads: `blockedNumbers[]`,
+`forwardOnUnavailable` (the forward target).
+
+### Step 3 — Configure the Twilio number
+
+In the Twilio Console → **Phone Numbers → your number → Voice Configuration**:
+
+- **A call comes in** → *Webhook* → `https://your-domain.com/api/n/media/voice` → **HTTP POST**
+
+That is the only required setting. The voicemail recording callback URL is built
+automatically from `MEDIA_STREAM_PUBLIC_HTTP_URL` (or the request host).
+
+### Step 4 — Expose the media WebSocket (wss)
+
+Twilio Media Streams **require `wss://`**. Reverse-proxy a public `/media` path to
+the local media WS port `3003` (Caddy example):
+
+```caddy
+your-domain.com {
+    # … existing site config (frontend, /api, etc.) …
+
+    # Twilio Media Streams → media WS server
+    @media path /media /media/*
+    reverse_proxy @media 127.0.0.1:3003
+}
+```
+
+Nginx equivalent:
+
+```nginx
+location /media {
+    proxy_pass http://127.0.0.1:3003;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+```
+
+Then set `MEDIA_STREAM_PUBLIC_URL=wss://your-domain.com/media`. Port `3005`
+(browser bridge) stays internal — only your dashboard/browser connects to it.
+
+### Step 5 — Run and test
+
+```bash
+# start the API with streaming on
+MEDIA_STREAM_ENABLED=true bun dev
+# startup log should show:  Media: enabled (mode=auto, ws :3003)
+```
+
+Local testing without a domain (e.g. ngrok / cloudflared) — expose **both** the
+HTTP API (3001) and the media WS (3003):
+
+```bash
+ngrok http 3001        # → https tunnel for the Voice webhook
+ngrok http 3003        # → wss tunnel for <Connect><Stream>
+# then set:
+#   MEDIA_STREAM_PUBLIC_HTTP_URL = https://<3001-tunnel>
+#   MEDIA_STREAM_PUBLIC_URL      = wss://<3003-tunnel>
+# Twilio Voice URL = https://<3001-tunnel>/api/n/media/voice
+```
+
+Open the built-in test page to act as the "browser" leg, pairing on the target
+extension (`?id=` = the bridge target, e.g. `1001`):
+
+```text
+http://localhost:3001/api/n/media/bridge?id=1001
+# Click Connect, allow the mic, then call your Twilio number.
+```
+
+Quick TwiML sanity check (no real call needed):
+
+```bash
+curl -s -X POST https://your-domain.com/api/n/media/voice \
+  -d 'To=+14155550123' -d 'From=+14155559999'
+# → <Response>… one of <Connect><Stream>, <Dial>, <Record>, or <Reject> …</Response>
+```
+
+### Notes & current limitations
+
+- Audio is **G.711 μ-law 8 kHz** (Twilio's format). The browser bridge converts
+  μ-law ↔ PCM16; the AI path feeds μ-law straight to Speechmatics (no transcode).
+- Voicemails captured here store Twilio's hosted `RecordingUrl` in the shared
+  `voicemails` table (durable, visible to the dashboard). Downloading the audio
+  into the local FreeSWITCH voicemail store is a follow-up.
+- The AI branch needs `MEDIA_STREAM_AI_ENABLED=true` **and** `SPEECHMATICS_API_KEY`.
+  ASR is real; the LLM responder and TTS synthesizer are pluggable stubs today.
+- This path is fully independent of the SIP trunk. You can run either, or both.
