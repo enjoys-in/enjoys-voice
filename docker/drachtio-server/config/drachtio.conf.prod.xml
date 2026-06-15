@@ -8,7 +8,7 @@
   <sip>
     <contacts>
       <contact>sip:*@0.0.0.0:5060;transport=udp,tcp</contact>     
-      <contact>sip:*@0.0.0.0:5065;transport=wss</contact>
+      <contact>sips:*@0.0.0.0:5065;transport=wss</contact>
     </contacts>
     <tls>
       <key-file>/etc/drachtio/tls/enjoys.in.key</key-file>
