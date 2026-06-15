@@ -6,6 +6,7 @@ import { SipServer } from '@/sip';
 import type { ITrunkProvider, MediaStreamTrack } from '@/trunk';
 import { config } from '@/core';
 import { requireAuth, requireSelfExtension } from '../middleware/auth';
+import { ok, created, fail } from '../response';
 
 export function createRoutes(
   db: DatabaseService,
@@ -17,7 +18,7 @@ export function createRoutes(
 
   // ─── Health ──────────────────────────────────────────
   router.get('/health', (_req: Request, res: Response) => {
-    res.json({
+    ok(res, {
       status: 'ok',
       sipConnected: sip.isConnected,
       ivrActive: sip.ivrSystem?.isConnected() ?? false,
@@ -37,7 +38,7 @@ export function createRoutes(
 
   // ─── Users ───────────────────────────────────────────
   router.get('/users', (_req: Request, res: Response) => {
-    res.json(db.getUsers().map(u => ({
+    ok(res, db.getUsers().map(u => ({
       extension: u.extension, name: u.name,
       username: u.username, registered: u.registered,
     })));
@@ -45,14 +46,14 @@ export function createRoutes(
 
   router.get('/users/:ext', (req: Request, res: Response) => {
     const user = db.getUser(req.params.ext);
-    if (!user) { res.status(404).json({ error: 'Not found' }); return; }
-    res.json({ extension: user.extension, name: user.name, registered: user.registered });
+    if (!user) { fail(res, 404, 'Not found'); return; }
+    ok(res, { extension: user.extension, name: user.name, registered: user.registered });
   });
 
   // ─── IVR ────────────────────────────────────────────
   router.get('/ivr/status', (_req: Request, res: Response) => {
     const ivr = sip.ivrSystem;
-    res.json({
+    ok(res, {
       enabled: config.ivr.enabled,
       connected: ivr?.isConnected() ?? false,
       activeCalls: ivr?.getActiveCalls() ?? [],
@@ -61,23 +62,23 @@ export function createRoutes(
   });
 
   router.get('/ivr/recordings', (_req: Request, res: Response) => {
-    res.json(sip.ivrSystem?.getRecordings() ?? []);
+    ok(res, sip.ivrSystem?.getRecordings() ?? []);
   });
 
   router.post('/ivr/transfer', (req: Request, res: Response) => {
     const { callId, targetExtension, attended } = req.body;
     const ivr = sip.ivrSystem;
-    if (!ivr) { res.status(503).json({ error: 'IVR not available' }); return; }
+    if (!ivr) { fail(res, 503, 'IVR not available'); return; }
     ivr.transferCall(callId, targetExtension, !!attended)
-      .then(ok => res.json({ success: ok }))
-      .catch(() => res.status(500).json({ error: 'Transfer failed' }));
+      .then(transferred => ok(res, { success: transferred }))
+      .catch(() => fail(res, 500, 'Transfer failed'));
   });
 
   // ─── Trunk ──────────────────────────────────────────
   router.get('/trunk', (_req: Request, res: Response) => {
     const info = trunk.getActive();
-    if (!info) { res.json({ enabled: false }); return; }
-    res.json({ enabled: true, name: info.name, host: info.host, transport: info.transport });
+    if (!info) { ok(res, { enabled: false }); return; }
+    ok(res, { enabled: true, name: info.name, host: info.host, transport: info.transport });
   });
 
   // ─── Twilio trunk (REST Voice API) ───────────────────
@@ -85,30 +86,30 @@ export function createRoutes(
   // legacy SIP trunk above. Originating a call places a REAL, billable PSTN call,
   // so the action routes require a valid access token (requireAuth).
   router.get('/trunk/twilio', (_req: Request, res: Response) => {
-    res.json({ enabled: trunkProvider?.isEnabled ?? false });
+    ok(res, { enabled: trunkProvider?.isEnabled ?? false });
   });
 
   router.post('/trunk/twilio/originate', requireAuth, async (req: Request, res: Response) => {
     if (!trunkProvider?.isEnabled) {
-      res.status(503).json({ error: 'Twilio trunk not enabled' });
+      fail(res, 503, 'Twilio trunk not enabled');
       return;
     }
     const { to, from, answerUrl, twiml } = (req.body ?? {}) as {
       to?: string; from?: string; answerUrl?: string; twiml?: string;
     };
     if (!to || typeof to !== 'string') {
-      res.status(400).json({ error: 'Missing or invalid `to`' });
+      fail(res, 400, 'Missing or invalid `to`');
       return;
     }
     if (!answerUrl && !twiml) {
-      res.status(400).json({ error: 'Provide `answerUrl` or `twiml`' });
+      fail(res, 400, 'Provide `answerUrl` or `twiml`');
       return;
     }
     try {
       const result = await trunkProvider.originateCall({ to, from, answerUrl, instructions: twiml });
-      res.status(201).json({ id: result.id, status: result.status });
+      created(res, { id: result.id, status: result.status });
     } catch (err: any) {
-      res.status(502).json({ error: err?.message ?? 'Originate failed' });
+      fail(res, 502, err?.message ?? 'Originate failed');
     }
   });
 
@@ -117,31 +118,31 @@ export function createRoutes(
   // <Connect><Stream> TwiML at answer time instead.
   router.post('/trunk/twilio/stream', requireAuth, async (req: Request, res: Response) => {
     if (!trunkProvider?.isEnabled) {
-      res.status(503).json({ error: 'Twilio trunk not enabled' });
+      fail(res, 503, 'Twilio trunk not enabled');
       return;
     }
     const { callId, wsUrl, track, name } = (req.body ?? {}) as {
       callId?: string; wsUrl?: string; track?: MediaStreamTrack; name?: string;
     };
     if (!callId || typeof callId !== 'string') {
-      res.status(400).json({ error: 'Missing or invalid `callId`' });
+      fail(res, 400, 'Missing or invalid `callId`');
       return;
     }
     if (!wsUrl || !wsUrl.startsWith('wss://')) {
-      res.status(400).json({ error: '`wsUrl` must be a secure wss:// URL' });
+      fail(res, 400, '`wsUrl` must be a secure wss:// URL');
       return;
     }
     try {
       const result = await trunkProvider.startMediaStream(callId, { wsUrl, track, name });
-      res.status(201).json({ id: result.id, status: result.status });
+      created(res, { id: result.id, status: result.status });
     } catch (err: any) {
-      res.status(502).json({ error: err?.message ?? 'Stream start failed' });
+      fail(res, 502, err?.message ?? 'Stream start failed');
     }
   });
 
   // ─── Config ─────────────────────────────────────────
   router.get('/config', (_req: Request, res: Response) => {
-    res.json({
+    ok(res, {
       domain: config.server.domain,
       sipWsPort: config.sipWs.port,
       wsPort: config.server.wsPort,
@@ -161,9 +162,9 @@ export function createRoutes(
   vm.get('/', async (req: Request, res: Response) => {
     try {
       const { voicemails, unread } = await db.getVoicemailsWithUnread(req.params.ext);
-      res.json({ voicemails, unread });
+      ok(res, { voicemails, unread });
     } catch {
-      res.status(500).json({ error: 'Failed to load voicemails' });
+      fail(res, 500, 'Failed to load voicemails');
     }
   });
 
@@ -171,29 +172,29 @@ export function createRoutes(
     try {
       const voicemail = await db.getVoicemail(req.params.ext, req.params.id);
       if (!voicemail) {
-        res.status(404).json({ error: 'Voicemail not found' });
+        fail(res, 404, 'Voicemail not found');
         return;
       }
       const filePath = path.resolve(config.voicemail.hostDir, voicemail.file);
       if (!fs.existsSync(filePath)) {
-        res.status(404).json({ error: 'Recording file missing' });
+        fail(res, 404, 'Recording file missing');
         return;
       }
       res.setHeader('Content-Type', 'audio/wav');
       res.setHeader('Accept-Ranges', 'bytes');
       fs.createReadStream(filePath).pipe(res);
     } catch {
-      res.status(500).json({ error: 'Failed to stream voicemail' });
+      fail(res, 500, 'Failed to stream voicemail');
     }
   });
 
   vm.post('/:id/read', async (req: Request, res: Response) => {
     try {
-      const ok = await db.markVoicemailRead(req.params.ext, req.params.id);
+      const marked = await db.markVoicemailRead(req.params.ext, req.params.id);
       const unread = await db.unreadVoicemailCount(req.params.ext);
-      res.json({ success: ok, unread });
+      ok(res, { success: marked, unread });
     } catch {
-      res.status(500).json({ error: 'Failed to update voicemail' });
+      fail(res, 500, 'Failed to update voicemail');
     }
   });
 
@@ -205,9 +206,9 @@ export function createRoutes(
       if (filename) {
         try { fs.unlinkSync(path.resolve(config.voicemail.hostDir, filename)); } catch { /* noop */ }
       }
-      res.json({ success: !!filename });
+      ok(res, { success: !!filename });
     } catch {
-      res.status(500).json({ error: 'Failed to delete voicemail' });
+      fail(res, 500, 'Failed to delete voicemail');
     }
   });
 

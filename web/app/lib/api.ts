@@ -86,11 +86,18 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     public statusText: string,
-    public body?: { error?: string }
+    message?: string
   ) {
-    super(body?.error || `${status} ${statusText}`);
+    super(message || `${status} ${statusText}`);
     this.name = "ApiError";
   }
+}
+
+/** Uniform envelope returned by every Node (/api/n) endpoint. */
+interface Envelope<T> {
+  success: boolean;
+  message: string;
+  data: T | null;
 }
 
 async function request<T>(
@@ -117,12 +124,21 @@ async function request<T>(
     if (newToken) return request<T>(endpoint, options, false);
   }
 
-  if (!res.ok) {
-    const body = await res.json().catch(() => undefined);
-    throw new ApiError(res.status, res.statusText, body);
+  // Every Node endpoint replies with { success, message, data }; unwrap to the
+  // typed `data` payload (mirroring the Go client's goRequest), or throw the
+  // server-supplied message on failure.
+  let body: Envelope<T> | null = null;
+  try {
+    body = (await res.json()) as Envelope<T>;
+  } catch {
+    body = null;
   }
 
-  return res.json() as Promise<T>;
+  if (!res.ok || !body || body.success === false) {
+    throw new ApiError(res.status, res.statusText, body?.message);
+  }
+
+  return body.data as T;
 }
 
 // ─── API Methods ────────────────────────────────────────

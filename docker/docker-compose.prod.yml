@@ -6,7 +6,7 @@ services:
     image: drachtio/drachtio-server
     container_name: drachtio-server
     ports:
-      - "9022:9022" # Drachtio control socket
+      - "127.0.0.1:9022:9022" # Drachtio control socket — loopback only (server-to-server)
       - "5060:5060/udp" # SIP UDP
       - "5060:5060/tcp" # SIP TCP
       - "5065:5065/tcp" # SIP WebSocket (for browser SIP.js)
@@ -19,7 +19,7 @@ services:
     networks:
       - voipnet
     volumes:
-      - ./drachtio-server/config/drachtio.conf.xml:/etc/drachtio.conf.xml
+      - ./drachtio-server/config/drachtio.conf.prod.xml:/etc/drachtio.conf.xml
   drachtio-freeswitch:
     image: safarov/freeswitch:latest
     container_name: drachtio-freeswitch

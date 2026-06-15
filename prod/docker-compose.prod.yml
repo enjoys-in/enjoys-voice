@@ -67,9 +67,12 @@ services:
     # No --contact here: the listeners (udp/tcp 5060 + wss 5066) come from the
     # mounted prod config so the <tls> block applies to the wss contact.
     # --external-ip rewrites Contact/Via on the public UDP transport.
+    # --password overrides the config's <admin secret> with the value from .env,
+    # so the real control-socket secret is never committed (set DRACHTIO_SECRET).
     command: >
       drachtio
       --external-ip ${PUBLIC_IP}
+      --password ${DRACHTIO_SECRET:-siprocks}
     ports:
       - "5060:5060/udp"   # SIP UDP (trunk / external UAs)
       - "5060:5060/tcp"   # SIP TCP

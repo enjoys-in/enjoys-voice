@@ -1,0 +1,204 @@
+version: '3.8'
+name: voip-stack
+
+services:
+  drachtio-server:
+    image: drachtio/drachtio-server
+    container_name: drachtio-server
+    ports:
+      - "127.0.0.1:9022:9022" # Drachtio control socket — loopback only (server-to-server)
+      - "5060:5060/udp" # SIP UDP
+      - "5060:5060/tcp" # SIP TCP
+      - "5065:5065/tcp" # SIP WebSocket (for browser SIP.js)
+    environment:
+      - DRACHTIO_SECRET=siprocks
+      - DRACHTIO_LISTEN=tcp,udp
+      - DRACHTIO_PORT=9022
+      - DRACHTIO_EXTERNAL_IP=auto
+    restart: unless-stopped
+    networks:
+      - voipnet
+    volumes:
+      - ./drachtio-server/config/drachtio.conf.xml:/etc/drachtio.conf.xml
+  drachtio-freeswitch:
+    image: safarov/freeswitch:latest
+    container_name: drachtio-freeswitch
+    ports:
+      - "8021:8021" # ESL (Event Socket)
+      - "5090:5090/udp" # MRF SIP (drachtio_mrf profile)
+      - "5090:5090/tcp"
+      - "16384-16403:16384-16403/udp" # RTP media
+    cap_add:
+      - SYS_NICE
+    environment:
+      - SOUND_RATES=8000:16000
+      - SOUND_TYPES=music:en-us-callie
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./freeswitch_configs:/etc/freeswitch
+      - ./freeswitch_sounds:/usr/share/freeswitch/sounds
+      - ./recordings:/usr/local/freeswitch/recordings
+    networks:
+      - voipnet
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: callnet-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5442:5432" # host 5442 -> container 5432 (5432 is busy on host)
+    volumes:
+      - callnet-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - voipnet
+    restart: unless-stopped
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: callnet-valkey
+    command: ["valkey-server", "--save", "60", "1", "--appendonly", "no"]
+    ports:
+      - "6372:6379" # host 6372 -> container 6379 (6379 is busy on host)
+    volumes:
+      - callnet-valkeydata:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - voipnet
+    restart: unless-stopped
+
+  go-api:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+    container_name: callnet-go-api
+    ports:
+      - "3003:3003" # host 3003 -> container 3003 (Go CRUD API)
+    environment:
+      # Values mirror server/.env.example. Inside the compose network the stores
+      # are reachable by service name on their STANDARD ports (the host port
+      # shift only affects host access).
+      PORT: "3003"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable
+      VALKEY_ADDR: valkey:6379
+      VALKEY_PASSWORD: ""
+      VALKEY_DB: "0"
+      JWT_SECRET: change-this-to-a-secure-random-string
+      UPLOAD_DIR: ./uploads/sounds
+      # SIP config returned to the browser in the login response (sipConfig).
+      # Without these the login returns ws://127.0.0.1:5065 + sip:localhost,
+      # which a remote browser cannot reach. Point them at the public Caddy
+      # domain: /sip -> drachtio (wss), /signal -> Node signaling (wss).
+      DOMAIN: voice.enjoys.in
+      PUBLIC_SIP_WS_URL: "wss://voice.enjoys.in/sip"
+      PUBLIC_WS_URL: "wss://voice.enjoys.in/signal"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - voipnet
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: callnet-api
+    ports:
+      - "3001:3001" # HTTP REST API
+      - "3002:3002" # signaling WebSocket
+      - "3004:3004" # media-stream WS
+      - "3005:3005" # browser-bridge WS
+    environment:
+      # Stores are reachable by service name on their STANDARD ports inside the
+      # compose network (the host port shift only affects host access).
+      HTTP_PORT: "3001"
+      WS_PORT: "3002"
+      MEDIA_STREAM_WS_PORT: "3004"
+      MEDIA_STREAM_BRIDGE_PORT: "3005"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable
+      VALKEY_ADDR: valkey:6379
+      VALKEY_PASSWORD: ""
+      VALKEY_DB: "0"
+      # Must match the Go API so the signaling WS can verify its access tokens.
+      JWT_SECRET: change-this-to-a-secure-random-string
+      # SIP realm/domain — MUST match the Go API DOMAIN so the REGISTER the
+      # browser sends (sip:<ext>@voice.enjoys.in) is accepted.
+      DOMAIN: voice.enjoys.in
+      # Public SIP-over-WS URL the signaling server hands the browser in its
+      # `registered` message. Without this it falls back to ws://127.0.0.1:5065,
+      # which a remote browser cannot reach. /sip -> drachtio (wss) via Caddy.
+      PUBLIC_SIP_WS_URL: "wss://voice.enjoys.in/sip"
+      PUBLIC_WS_URL: "wss://voice.enjoys.in/signal"
+      # Origins allowed to open the signaling WebSocket (CSWSH defense). Without
+      # this, only localhost is allowed and the prod browser handshake at
+      # wss://voice.enjoys.in/signal is REJECTED before connecting.
+      ALLOWED_ORIGINS: "https://voice.enjoys.in"
+      DRACHTIO_HOST: drachtio-server
+      DRACHTIO_PORT: "9022"
+      DRACHTIO_SECRET: siprocks
+      FREESWITCH_HOST: drachtio-freeswitch
+      FREESWITCH_PORT: "8021"
+      RECORDINGS_DIR: /app/recordings
+    volumes:
+      - callnet-recordings:/app/recordings
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - voipnet
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+    container_name: callnet-web
+    ports:
+      - "4500:4500" # Next.js frontend
+    environment:
+      # Runtime config injected into public/runtime-config.js at container start.
+      # Point the browser at the public Caddy domain (must match prod/Caddyfile:
+      # voice.enjoys.in). HTTPS site -> WS endpoints MUST be wss:// (browsers
+      # block ws:// from an https page).
+      PUBLIC_API_BASE: "https://voice.enjoys.in" # For local dev, this can be http://localhost:3001 if API is exposed on host.
+      PUBLIC_GO_API_BASE: "https://voice.enjoys.in"
+      PUBLIC_WS_URL: "wss://voice.enjoys.in/signal"
+      # Optional: browser-bridge WS + token (only if streaming/bridge is used).
+      # PUBLIC_BRIDGE_URL: "wss://voice.enjoys.in/bridge"
+      # PUBLIC_BRIDGE_TOKEN: ""
+      PUBLIC_ICE_SERVERS: '[{"urls":"stun:stun.l.google.com:19302"}]'
+    depends_on:
+      - go-api
+    networks:
+      - voipnet
+    restart: unless-stopped
+
+networks:
+  voipnet:
+    driver: bridge
+
+volumes:
+  freeswitch-sounds:
+  freeswitch-recordings:
+  tele-conf:
+  callnet-pgdata:
+  callnet-valkeydata:
+  callnet-recordings:

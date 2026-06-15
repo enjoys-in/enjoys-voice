@@ -1,0 +1,35 @@
+<drachtio>
+  <logging>
+    <console/>
+    <loglevel>info</loglevel>
+    <sofia-loglevel>3</sofia-loglevel>
+  </logging>
+
+  <sip>
+    <contacts>
+      <contact>sip:*@0.0.0.0:5060;transport=udp,tcp</contact>     
+      <contact>sip:*@0.0.0.0:5065;transport=wss</contact>
+    </contacts>
+    <tls>
+      <key-file>/etc/drachtio/tls/enjoys.in.key</key-file>
+      <cert-file>/etc/drachtio/tls/enjoys.in.pem</cert-file>
+    </tls>
+
+    <!-- Drop known SIP scanners outright (toll-fraud / war-dialers). -->
+    <spammers action="reject" tcp-action="discard">
+      <header name="User-Agent">
+        <value>sip-cli</value>
+        <value>sipcli</value>
+        <value>friendly-scanner</value>
+        <value>pplsip</value>
+        <value>sipvicious</value>
+      </header>
+      <header name="To">
+        <value>sipvicious</value>
+      </header>
+    </spammers>
+  </sip>
+
+  
+  <!-- <admin port="9022" secret="siprocks">0.0.0.0</admin> -->
+</drachtio>
