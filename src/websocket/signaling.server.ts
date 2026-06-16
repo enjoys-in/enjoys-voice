@@ -5,7 +5,7 @@ import path from 'path';
 import { config, verifyAccessToken, parseCookies } from '@/core';
 import type { JwtClaims } from '@/core';
 import { DatabaseService } from '@/services';
-import type { MetricsSnapshot } from '@/services';
+import type { MetricsSnapshot, AuditEntry } from '@/services';
 
 interface WsClient {
   ws: WebSocket;
@@ -22,12 +22,22 @@ export class SignalingServer {
   // separate from `clients` so normal users never receive metric pushes.
   private metricsSubscribers = new Set<WsClient>();
   private metricsProvider?: () => MetricsSnapshot;
+  // Clients watching the live audit feed (admin activity stream). Like the
+  // metrics set, kept separate so only opted-in admin dashboards receive pushes.
+  private auditSubscribers = new Set<WsClient>();
+  private auditProvider?: () => AuditEntry[];
 
   constructor(private db: DatabaseService) {}
 
   /** Supply the current-metrics getter (wired to CallMetricsService). */
   setMetricsProvider(fn: () => MetricsSnapshot): void {
     this.metricsProvider = fn;
+  }
+
+  /** Supply the recent-audit-entries getter (wired to AuditService) so a newly
+   * subscribed dashboard paints history before live events arrive. */
+  setAuditProvider(fn: () => AuditEntry[]): void {
+    this.auditProvider = fn;
   }
 
   start(): void {
@@ -72,12 +82,14 @@ export class SignalingServer {
       ws.on('close', () => {
         if (client.extension) this.clients.delete(client.extension);
         this.metricsSubscribers.delete(client);
+        this.auditSubscribers.delete(client);
         this.broadcastPresence();
       });
 
       ws.on('error', () => {
         if (client.extension) this.clients.delete(client.extension);
         this.metricsSubscribers.delete(client);
+        this.auditSubscribers.delete(client);
       });
     });
   }
@@ -126,6 +138,12 @@ export class SignalingServer {
         break;
       case 'unsubscribe_metrics':
         this.metricsSubscribers.delete(client);
+        break;
+      case 'subscribe_audit':
+        this.handleSubscribeAudit(client);
+        break;
+      case 'unsubscribe_audit':
+        this.auditSubscribers.delete(client);
         break;
       default:
         this.send(client.ws, { type: 'error', message: `Unknown type: ${msg.type}` });
@@ -345,6 +363,32 @@ export class SignalingServer {
         client.ws.send(JSON.stringify({ type: 'metrics', ...snapshot }));
       } else {
         this.metricsSubscribers.delete(client);
+      }
+    }
+  }
+
+  /**
+   * Add an authenticated client to the live-audit feed and immediately push the
+   * recent in-memory entries so the panel paints history before live events.
+   */
+  private handleSubscribeAudit(client: WsClient): void {
+    if (!client.authenticated) {
+      this.send(client.ws, { type: 'error', message: 'Not authenticated' });
+      return;
+    }
+    this.auditSubscribers.add(client);
+    if (this.auditProvider) {
+      this.send(client.ws, { type: 'audit_history', entries: this.auditProvider() });
+    }
+  }
+
+  /** Push a single audit entry to every subscribed client (called per event). */
+  broadcastAuditEntry(entry: AuditEntry): void {
+    for (const client of this.auditSubscribers) {
+      if (client.ws.readyState === WebSocket.OPEN) {
+        client.ws.send(JSON.stringify({ type: 'audit_entry', entry }));
+      } else {
+        this.auditSubscribers.delete(client);
       }
     }
   }

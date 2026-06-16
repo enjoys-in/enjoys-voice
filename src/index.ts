@@ -64,6 +64,10 @@ class Application {
     // WS serve the current snapshot on subscribe.
     this.ws.setMetricsProvider(() => this.metrics.getSnapshot());
     this.metrics.on('snapshot', (s) => this.ws.broadcastMetrics(s));
+    // Stream live audit events to subscribed admin dashboards, and serve the
+    // recent in-memory entries on subscribe (history-then-live).
+    this.ws.setAuditProvider(() => this.audit.getAll(50));
+    this.audit.on('entry', (e) => this.ws.broadcastAuditEntry(e));
     this.http = new HttpServer(this.db, this.trunk, this.sip, this.twilioTrunk, this.metrics);
     // Twilio media-streaming WS server (separate port, like SignalingServer). Its
     // HTTP voice webhook rides on the existing HttpServer above. Opt-in via

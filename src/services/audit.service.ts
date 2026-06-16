@@ -1,3 +1,4 @@
+import { EventEmitter } from 'events';
 import { config } from '@/core';
 import { ensureAuditSchema, insertAuditLogs } from './postgres';
 
@@ -43,7 +44,13 @@ export type AuditEvent =
   | 'unblock'
   | 'forwarding_set';
 
-export class AuditService {
+/**
+ * AuditService extends EventEmitter and emits an `'entry'` event for every
+ * logged action (see `log()`), powering the real-time admin audit feed. This is
+ * independent of Postgres persistence (`AUDIT_LOG`): the live feed works even
+ * when long-term storage is disabled.
+ */
+export class AuditService extends EventEmitter {
   private logs: AuditEntry[] = [];
   private maxEntries = 5000;
   /**
@@ -71,9 +78,6 @@ export class AuditService {
   }
 
   log(event: AuditEvent, extension: string, metadata?: Record<string, any>, ip?: string): void {
-    // Env gate: when audit logging is off, do not even buffer in memory.
-    if (!config.audit.enabled) return;
-
     const entry: AuditEntry = {
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
@@ -83,6 +87,16 @@ export class AuditService {
       metadata,
       ip,
     };
+
+    // Live feed: surface every action to subscribers (admin dashboard)
+    // regardless of whether long-term persistence is enabled. Cheap no-op when
+    // nobody is listening.
+    this.emit('entry', entry);
+
+    // Persistence is independently gated: when audit logging is off, do not even
+    // buffer in memory.
+    if (!config.audit.enabled) return;
+
     // Newest-first ring buffer for in-process inspection (query/getAll/...).
     this.logs.unshift(entry);
     if (this.logs.length > this.maxEntries) {

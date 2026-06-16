@@ -8,7 +8,7 @@
 - [x] Logs register/call lifecycle + `call_blocked` events
 - [x] Each entry: `{ id, timestamp, extension, event, detail }`
 - [x] Persists to Postgres (`audit_logs`, additive to Go's GORM model); Go owns reads (`/api/g/audit`)
-- [ ] Real-time audit feed in the WebSocket admin panel
+- [x] Real-time audit feed in the WebSocket admin panel
 
 ## SIP URI Domain
 - [ ] Replace `.invalid` contact domain with `config.server.domain` (e.g., `enjoys.in`)
