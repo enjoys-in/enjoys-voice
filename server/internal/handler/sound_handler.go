@@ -20,14 +20,18 @@ func NewSoundHandler(ss service.SoundService, uploadDir string) *SoundHandler {
 }
 
 func (h *SoundHandler) Upload(c *gin.Context) {
-	ext := c.PostForm("extension")
+	// Ownership: a sound is always stored for the authenticated caller. Derive
+	// the extension from the verified JWT claim (set by the auth middleware),
+	// never from client form input, so a user cannot upload to or overwrite
+	// another extension's sounds (IDOR).
+	ext := c.GetString("extension")
 	if ext == "" {
-		response.BadRequest(c, "extension is required")
+		response.Unauthorized(c, "missing extension claim")
 		return
 	}
-	soundType := c.PostForm("type") // caller_tune or ringtone
-	if soundType != "caller_tune" && soundType != "ringtone" {
-		response.BadRequest(c, "type must be 'caller_tune' or 'ringtone'")
+	soundType := c.PostForm("type") // caller_tune | ringtone | ivr
+	if soundType != "caller_tune" && soundType != "ringtone" && soundType != "ivr" {
+		response.BadRequest(c, "type must be 'caller_tune', 'ringtone', or 'ivr'")
 		return
 	}
 

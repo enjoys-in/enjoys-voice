@@ -91,7 +91,7 @@
 > `caller_tune` / `ringtone`. Extend to `ivr` and normalize audio for FreeSWITCH.
 > Use a dedicated **ffmpeg Docker** (separate container/sidecar) rather than
 > baking ffmpeg into the Go API image — Go calls it to transcode uploads.
-- [ ] Add `ivr` to the accepted `type` whitelist in `sound_handler.go`
+- [x] Add `ivr` to the accepted `type` whitelist in `sound_handler.go`
 - [ ] Stand up an ffmpeg container (or sidecar service) the Go API can invoke
 - [ ] On `ivr` upload: transcode to FreeSWITCH-canonical format
       `ffmpeg -i <in> -ar 16000 -ac 1 -c:a pcm_s16le <ext>_ivr_<ts>.wav`
@@ -102,7 +102,7 @@
 - [ ] Store IVR sounds on a path the **FreeSWITCH** container can read
       (bind mount), since IVR prompts are played server-side by FS — unlike
       caller_tune/ringtone which the browser fetches and resamples itself
-- [ ] Fix IDOR: derive `extension` from the JWT (`c.GetString("extension")`),
+- [x] Fix IDOR: derive `extension` from the JWT (`c.GetString("extension")`),
       not from `PostForm("extension")` — same ownership fix as voicemail
 - [ ] Wire the frontend `SettingsScreen` upload to actually POST to the Go
       endpoint (currently local-only `URL.createObjectURL`); add `uploadSound`
