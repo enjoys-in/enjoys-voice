@@ -333,7 +333,8 @@
       and keep them fresh via the existing Postgres **LISTEN/NOTIFY** sync
       (`UserSyncListener`/`SettingsSyncListener` pattern in `src/index.ts`); add a
       `rates` channel so admin edits in Go reflect without a restart.
-      (`RateSyncListener` on `rates_changed`; per-user plan assignment still pending.)
+      (`RateSyncListener` on `rates_changed`; per-user plan threaded into rating
+      via `SipUser.ratePlanId` → `RatingService.applyToEndedCall`.)
 - [x] Add `cost?`, `currency?`, `ratePrefix?`, `billedSecs?` to `CallLog`
       (`src/core/types.ts`); compute + set them in the same place the terminal
       status is written (`updateCall(callId, { status:'ended', endTime, … })` in
@@ -342,7 +343,7 @@
 ### Frontend (admin + user)
 - [x] Admin **Rates** screen: manage rate plans + rates table (prefix, desc, sell,
       buy, margin, increment). Added methods to `go-api.ts`.
-      (CSV import + assign-plans-to-users still pending.)
+      (Assign-plan-to-user wired via `UserRatePlanSelect`; CSV import done.)
 - [x] Show **cost** per call in the admin Call Logs + user recents (new column),
       and **balance** + recent ledger for the user (if prepaid).
       (Admin Call Logs Cost column + user recents cost done; balance/ledger is

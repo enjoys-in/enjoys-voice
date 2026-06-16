@@ -14,9 +14,9 @@ export interface RatingResult {
  * loaded from the shared Postgres tables the Go API owns, and prices outbound
  * calls at end-of-call using longest-prefix matching.
  *
- * v1 applies the workspace **default** plan to every call. Per-user plan
- * assignment (UserSettings.rate_plan_id) is a later slice; this service already
- * keys plans by id so that can be layered on without changing callers.
+ * Prices each call with the **caller's assigned plan** (`UserSettings.rate_plan_id`,
+ * threaded in by the SIP layer via `applyToEndedCall`), falling back to the
+ * workspace **default** plan when the user has none.
  */
 export class RatingService {
   /** All plans by id (each carries its own longest-prefix-first rate list). */
