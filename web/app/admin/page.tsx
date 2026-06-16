@@ -202,6 +202,8 @@ function OverviewTab({
   const online = users.filter((u) => u.registered).length;
   const connRate = stats ? Math.round(stats.connectionRate * 100) : null;
   const abandonRate = stats ? Math.round(stats.abandonedRate * 100) : null;
+  // Average spend per call over the period (guard divide-by-zero).
+  const avgCost = stats && stats.totalCalls > 0 ? stats.totalCost / stats.totalCalls : null;
 
   return (
     <>
@@ -277,6 +279,11 @@ function OverviewTab({
             sub="billed this period"
             color={stats && stats.totalCost > 0 ? "text-emerald-500" : undefined}
           />
+          <StatCard
+            title="Avg Cost / Call"
+            value={avgCost !== null ? `${avgCost.toFixed(4)}${stats?.currency ? ` ${stats.currency}` : ""}` : "-"}
+            sub="spend / total calls"
+          />
         </div>
       </div>
 
@@ -311,6 +318,24 @@ function OverviewTab({
           </CardContent>
         </Card>
       </div>
+
+      {/* Spend over time — only shown once any cost has been billed */}
+      {stats && stats.totalCost > 0 && (
+        <Card className="border-border/50 bg-card/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">
+              Spend Over Time{stats.currency ? ` (${stats.currency})` : ""}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {statsLoading ? (
+              <Skeleton className="h-56 w-full rounded-lg" />
+            ) : (
+              <SpendOverTimeChart series={stats.series} />
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* System + recent calls */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -394,6 +419,32 @@ function CallsOverTimeChart({ series }: { series: CallStats["series"] }) {
           <Legend wrapperStyle={{ fontSize: 12 }} />
           <Area type="monotone" dataKey="Inbound" stroke="#6366f1" strokeWidth={2} fill="url(#inboundFill)" />
           <Area type="monotone" dataKey="Outbound" stroke="#10b981" strokeWidth={2} fill="url(#outboundFill)" />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function SpendOverTimeChart({ series }: { series: CallStats["series"] }) {
+  const data = series.map((b) => ({
+    date: b.date.slice(5), // MM-DD
+    Spend: Number(b.cost.toFixed(4)),
+  }));
+  return (
+    <div className="h-56 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+          <defs>
+            <linearGradient id="spendFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#10b981" stopOpacity={0.5} />
+              <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickLine={false} axisLine={false} />
+          <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickLine={false} axisLine={false} width={44} />
+          <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
+          <Area type="monotone" dataKey="Spend" stroke="#10b981" strokeWidth={2} fill="url(#spendFill)" />
         </AreaChart>
       </ResponsiveContainer>
     </div>

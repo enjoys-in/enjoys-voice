@@ -330,7 +330,7 @@
 - [x] Dashboard (`web/app/admin/page.tsx` OverviewTab): add **Total Cost** /
       **Avg Cost per Call** / **Cost over time** cards+chart from the extended
       `/stats` (reuse the recharts setup just added).
-      (Total Spend card done; avg-cost + cost-over-time chart pending.)
+      (Total Spend + Avg Cost / Call cards + Spend Over Time area chart done.)
 
 ### Guardrails / edge cases
 - [ ] **Money math = integers or fixed-precision.** Store as `numeric` in
