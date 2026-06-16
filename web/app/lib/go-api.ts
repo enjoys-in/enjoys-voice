@@ -209,6 +209,65 @@ export interface SystemSettings {
 /** Partial system-settings update. */
 export type SystemSettingsInput = Partial<SystemSettings>;
 
+// ─── Billing: rate plans + rates ────────────────────────
+
+/** A named collection of per-destination rates in a single currency. */
+export interface RatePlan {
+  id: number;
+  name: string;
+  currency: string;
+  /** Plan applied to users that have no explicit plan assigned. */
+  default: boolean;
+  /** Number of rates in the plan (omitted on the detail payload). */
+  rate_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A single destination rate. Prefixes are matched longest-first. */
+export interface Rate {
+  id: number;
+  rate_plan_id: number;
+  /** Leading E.164 digits (no `+`), e.g. "91" for India, "1" for NANPA. */
+  prefix: string;
+  description: string;
+  /** Price charged to the user per minute. */
+  sell_per_min: number;
+  /** Underlying carrier cost per minute (margin reporting). */
+  buy_per_min: number;
+  /** One-off connection fee added to every billed call. */
+  setup_fee: number;
+  /** Billing granularity in seconds (e.g. 60 = per-minute, 1 = per-second). */
+  increment_secs: number;
+  /** Minimum billed duration in seconds. */
+  min_secs: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A plan together with its full (longest-prefix-first) rate table. */
+export interface RatePlanDetail extends RatePlan {
+  rates: Rate[];
+}
+
+/** Partial rate-plan create/update. `name` is required on create. */
+export interface RatePlanInput {
+  name?: string;
+  currency?: string;
+  default?: boolean;
+}
+
+/** Partial rate create/update. `prefix` is required on create. */
+export interface RateInput {
+  prefix?: string;
+  description?: string;
+  sell_per_min?: number;
+  buy_per_min?: number;
+  setup_fee?: number;
+  increment_secs?: number;
+  min_secs?: number;
+}
+
 export interface GoForwarding {
   busy?: string | null;
   noAnswer?: string | null;
@@ -352,6 +411,49 @@ export const goApi = {
     return goRequest<SystemSettings>(`/system-settings`, {
       method: "PUT",
       body: JSON.stringify(payload),
+    });
+  },
+
+  // Billing: rate plans + nested per-destination rates.
+  getRatePlans(): Promise<RatePlan[]> {
+    return goRequest<RatePlan[]>(`/rate-plans`);
+  },
+  getRatePlan(id: number): Promise<RatePlanDetail> {
+    return goRequest<RatePlanDetail>(`/rate-plans/${id}`);
+  },
+  createRatePlan(payload: RatePlanInput): Promise<RatePlan> {
+    return goRequest<RatePlan>(`/rate-plans`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  updateRatePlan(id: number, payload: RatePlanInput): Promise<RatePlan> {
+    return goRequest<RatePlan>(`/rate-plans/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+  deleteRatePlan(id: number): Promise<{ id: number }> {
+    return goRequest<{ id: number }>(`/rate-plans/${id}`, { method: "DELETE" });
+  },
+  getRates(planId: number): Promise<Rate[]> {
+    return goRequest<Rate[]>(`/rate-plans/${planId}/rates`);
+  },
+  createRate(planId: number, payload: RateInput): Promise<Rate> {
+    return goRequest<Rate>(`/rate-plans/${planId}/rates`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  updateRate(planId: number, rateId: number, payload: RateInput): Promise<Rate> {
+    return goRequest<Rate>(`/rate-plans/${planId}/rates/${rateId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+  deleteRate(planId: number, rateId: number): Promise<{ id: number }> {
+    return goRequest<{ id: number }>(`/rate-plans/${planId}/rates/${rateId}`, {
+      method: "DELETE",
     });
   },
 

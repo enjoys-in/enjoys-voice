@@ -2,7 +2,7 @@
 
 import { useState, useEffect, type ReactNode } from "react";
 import Link from "next/link";
-import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming, Palette, Save, RotateCcw, Check } from "lucide-react";
+import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming, Palette, Save, RotateCcw, Check, Receipt } from "lucide-react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -27,10 +27,11 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { api, type UserResponse, type HealthResponse } from "../lib/api";
 import { goApi, type CallStats, type SystemSettings as SystemSettingsT } from "../lib/go-api";
+import { RatesTab } from "./components/RatesTab";
 import { useLiveMetrics } from "../hooks/useLiveMetrics";
 import { CallRecordStatus, type CallRecord } from "../types";
 
-type Tab = "overview" | "users" | "calls" | "customization" | "config";
+type Tab = "overview" | "users" | "calls" | "customization" | "rates" | "config";
 
 // Selectable stats windows (days) for the dashboard aggregate metrics/charts.
 const RANGE_OPTIONS = [7, 14, 30] as const;
@@ -91,6 +92,7 @@ export default function AdminPage() {
     { id: "users", label: "Users", icon: Users },
     { id: "calls", label: "Call Logs", icon: Phone },
     { id: "customization", label: "Customization", icon: Palette },
+    { id: "rates", label: "Rates", icon: Receipt },
     { id: "config", label: "Config", icon: Settings },
   ];
 
@@ -154,6 +156,7 @@ export default function AdminPage() {
             {tab === "users" && <UsersTab users={users} loading={loading} onRefresh={loadData} />}
             {tab === "calls" && <CallsTab calls={calls} loading={loading} />}
             {tab === "customization" && <CustomizationTab />}
+            {tab === "rates" && <RatesTab />}
             {tab === "config" && <ConfigTab />}
           </div>
         </ScrollArea>

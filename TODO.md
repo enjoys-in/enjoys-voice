@@ -317,9 +317,9 @@
       `src/sip/sip.server.ts` / handlers) so the upsert carries the cost.
 
 ### Frontend (admin + user)
-- [ ] Admin **Rates** screen: manage rate plans + rates table (prefix, desc, sell,
-      buy, margin, increment), CSV import, assign plans to users. Add methods to
-      `go-api.ts`.
+- [x] Admin **Rates** screen: manage rate plans + rates table (prefix, desc, sell,
+      buy, margin, increment). Added methods to `go-api.ts`.
+      (CSV import + assign-plans-to-users still pending.)
 - [ ] Show **cost** per call in the admin Call Logs + user recents (new column),
       and **balance** + recent ledger for the user (if prepaid).
 - [ ] Dashboard (`web/app/admin/page.tsx` OverviewTab): add **Total Cost** /
