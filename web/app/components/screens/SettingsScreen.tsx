@@ -23,6 +23,7 @@ import {
 import { PhoneInput } from "../ui/PhoneInput";
 import { useAuthStore, useSettingsStore } from "../../stores";
 import { useSettingsSync } from "../../hooks/useSettingsSync";
+import { useSystemPolicies } from "../../hooks/useBranding";
 import { getCachedSoundUrl, invalidateSoundCache } from "../../lib/sound-cache";
 import { goApi } from "../../lib/go-api";
 
@@ -42,6 +43,7 @@ export function SettingsScreen() {
   const { user, logout } = useAuthStore();
   const { settings, setSettings, setForwarding, addBlockedNumber, removeBlockedNumber } = useSettingsStore();
   const { saveForwarding, blockNumber, unblockNumber, savePstnForward, saveDnd } = useSettingsSync();
+  const { allowUserDnd } = useSystemPolicies();
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [customCallerTunes, setCustomCallerTunes] = useState<{ id: string; name: string }[]>([]);
@@ -241,6 +243,7 @@ export function SettingsScreen() {
               </Card>
 
               {/* Do Not Disturb */}
+              {allowUserDnd && (
               <Card className="border-border/50 bg-card/50">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between gap-3">
@@ -266,6 +269,7 @@ export function SettingsScreen() {
                   </div>
                 </CardContent>
               </Card>
+              )}
 
               {/* Sounds & Tunes */}
               <Card className="border-border/50 bg-card/50">

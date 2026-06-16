@@ -10,6 +10,14 @@ export interface Branding {
   logoUrl: string;
 }
 
+export interface SystemPolicies {
+  allowUserDnd: boolean;
+  defaultRecording: boolean;
+  defaultVoicemail: boolean;
+  recordingRetentionDays: number;
+  maxConcurrentCalls: number;
+}
+
 const DEFAULT_BRANDING: Branding = {
   brandName: "Enjoys Voice",
   tagline: "",
@@ -17,12 +25,39 @@ const DEFAULT_BRANDING: Branding = {
   logoUrl: "",
 };
 
-// Module-level cache so the public system-settings fetch happens once per page
-// load and is shared by every component that shows the brand (login, sidebar…).
-let cached: Branding | null = null;
-let inflight: Promise<Branding> | null = null;
+const DEFAULT_POLICIES: SystemPolicies = {
+  allowUserDnd: true,
+  defaultRecording: false,
+  defaultVoicemail: false,
+  recordingRetentionDays: 30,
+  maxConcurrentCalls: 0,
+};
 
-function toBranding(s: SystemSettings): Branding {
+// Module-level cache so the public system-settings fetch happens once per page
+// load and is shared by every component that reads branding or policies
+// (login, sidebar, settings…).
+let cached: SystemSettings | null = null;
+let inflight: Promise<SystemSettings | null> | null = null;
+
+function fetchSettings(): Promise<SystemSettings | null> {
+  if (cached) return Promise.resolve(cached);
+  if (!inflight) {
+    inflight = goApi
+      .getSystemSettings()
+      .then((s) => {
+        cached = s;
+        return cached;
+      })
+      .catch(() => null)
+      .finally(() => {
+        inflight = null;
+      });
+  }
+  return inflight;
+}
+
+function toBranding(s: SystemSettings | null): Branding {
+  if (!s) return DEFAULT_BRANDING;
   return {
     brandName: s.brand_name?.trim() || DEFAULT_BRANDING.brandName,
     tagline: s.brand_tagline?.trim() || "",
@@ -31,21 +66,15 @@ function toBranding(s: SystemSettings): Branding {
   };
 }
 
-function fetchBranding(): Promise<Branding> {
-  if (cached) return Promise.resolve(cached);
-  if (!inflight) {
-    inflight = goApi
-      .getSystemSettings()
-      .then((s) => {
-        cached = toBranding(s);
-        return cached;
-      })
-      .catch(() => DEFAULT_BRANDING)
-      .finally(() => {
-        inflight = null;
-      });
-  }
-  return inflight;
+function toPolicies(s: SystemSettings | null): SystemPolicies {
+  if (!s) return DEFAULT_POLICIES;
+  return {
+    allowUserDnd: s.allow_user_dnd ?? DEFAULT_POLICIES.allowUserDnd,
+    defaultRecording: s.default_recording ?? DEFAULT_POLICIES.defaultRecording,
+    defaultVoicemail: s.default_voicemail ?? DEFAULT_POLICIES.defaultVoicemail,
+    recordingRetentionDays: s.recording_retention_days ?? DEFAULT_POLICIES.recordingRetentionDays,
+    maxConcurrentCalls: s.max_concurrent_calls ?? DEFAULT_POLICIES.maxConcurrentCalls,
+  };
 }
 
 /**
@@ -55,12 +84,12 @@ function fetchBranding(): Promise<Branding> {
  * blocks on the network, then swaps in the fetched values once they arrive.
  */
 export function useBranding(): Branding {
-  const [branding, setBranding] = useState<Branding>(cached ?? DEFAULT_BRANDING);
+  const [branding, setBranding] = useState<Branding>(toBranding(cached));
 
   useEffect(() => {
     let active = true;
-    fetchBranding().then((b) => {
-      if (active) setBranding(b);
+    fetchSettings().then((s) => {
+      if (active) setBranding(toBranding(s));
     });
     return () => {
       active = false;
@@ -68,4 +97,26 @@ export function useBranding(): Branding {
   }, []);
 
   return branding;
+}
+
+/**
+ * System-wide policy flags an admin sets in the Customization tab (e.g. whether
+ * users may toggle Do Not Disturb). Shares the same cached public fetch as
+ * `useBranding`; defaults are permissive so the UI never hides controls because
+ * of a transient fetch failure.
+ */
+export function useSystemPolicies(): SystemPolicies {
+  const [policies, setPolicies] = useState<SystemPolicies>(toPolicies(cached));
+
+  useEffect(() => {
+    let active = true;
+    fetchSettings().then((s) => {
+      if (active) setPolicies(toPolicies(s));
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return policies;
 }
