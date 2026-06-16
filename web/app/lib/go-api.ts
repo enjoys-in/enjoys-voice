@@ -29,7 +29,12 @@ export class GoApiError extends Error {
   }
 }
 
-/** Reads the persisted access + refresh tokens (zustand persist "callnet-auth"). */
+/**
+ * Best-effort read of any in-memory tokens mirrored into localStorage. Since
+ * the auth store no longer persists tokens (the httpOnly cookies are the source
+ * of truth), this normally returns nulls — request helpers then authenticate
+ * purely via `credentials:"include"`. Kept for backward compatibility.
+ */
 function authTokens(): { token: string | null; refreshToken: string | null } {
   if (typeof window === "undefined") return { token: null, refreshToken: null };
   try {
@@ -60,14 +65,16 @@ let refreshInFlight: Promise<string | null> | null = null;
 export function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
-    const { refreshToken } = authTokens();
-    if (!refreshToken) return null;
     try {
+      // The refresh token rides in the httpOnly refresh_token cookie (sent via
+      // credentials:"include"); we no longer read it from localStorage. A body
+      // token is sent only if one happens to be in memory, for older clients.
+      const { refreshToken } = authTokens();
       const res = await fetch(`${getGoApiBase()}/api/g/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ refreshToken }),
+        body: JSON.stringify(refreshToken ? { refreshToken } : {}),
       });
       const body = (await res.json().catch(() => null)) as GoEnvelope<{
         token: string;
@@ -197,9 +204,11 @@ export const goApi = {
      * Current-session profile. The UI calls this on boot to confirm a persisted
      * login is still valid and to refresh the cached user. A 401 here triggers
      * goRequest's one-shot refresh; if that also fails the session is cleared.
+     * Also returns sipConfig so a cookie-bootstrapped client (no login response
+     * in hand) can reconstruct the SIP connection without localStorage.
      */
-    me(): Promise<AuthUser> {
-      return goRequest<AuthUser>("/auth/me");
+    me(): Promise<AuthUser & { sipConfig: AuthSipConfig }> {
+      return goRequest<AuthUser & { sipConfig: AuthSipConfig }>("/auth/me");
     },
     /**
      * Updates the current user's account name. The server identifies the user
@@ -211,6 +220,20 @@ export const goApi = {
         method: "PATCH",
         body: JSON.stringify({ name }),
       });
+    },
+    /**
+     * Clears the server-side httpOnly auth cookies (token + refresh_token).
+     * Uses a bare fetch instead of goRequest so a missing/expired session can't
+     * recurse into goRequest's 401→logout handling. Best-effort: a network
+     * failure here still lets the client tear its own state down.
+     */
+    logout(): Promise<void> {
+      return fetch(`${getGoApiBase()}/api/g/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      })
+        .then(() => undefined)
+        .catch(() => undefined);
     },
   },
 

@@ -117,6 +117,9 @@ async function request<T>(
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options?.headers as Record<string, string> | undefined),
     },
+    // Auth is carried by the httpOnly access-token cookie (the JS token is no
+    // longer persisted); the Node API accepts cookie or Bearer.
+    credentials: "include",
   });
 
   if (res.status === 401 && retryOn401) {

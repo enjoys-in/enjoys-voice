@@ -102,6 +102,10 @@ services:
       VALKEY_DB: "0"
       JWT_SECRET: change-this-to-a-secure-random-string
       UPLOAD_DIR: ./uploads/sounds
+      # The auth cookies (token + refresh_token) are served over HTTPS at
+      # voice.enjoys.in, so mark them Secure. SameSite defaults to "lax" and the
+      # domain is host-only (empty) — correct for the single same-origin domain.
+      COOKIE_SECURE: "true"
       # SIP config returned to the browser in the login response (sipConfig).
       # Without these the login returns ws://127.0.0.1:5065 + sip:localhost,
       # which a remote browser cannot reach. Point them at the public Caddy
@@ -189,6 +193,11 @@ services:
       # PUBLIC_BRIDGE_URL: "wss://voice.enjoys.in/bridge"
       # PUBLIC_BRIDGE_TOKEN: ""
       PUBLIC_ICE_SERVERS: '[{"urls":"stun:stun.l.google.com:19302"}]'
+      # Server-side JWT verification (middleware + Server Components reading the
+      # httpOnly cookie). MUST match the go-api/api JWT_SECRET above so prod
+      # fully verifies token signatures; without it the web falls back to an
+      # unverified decode. NOT exposed to the browser (no PUBLIC_ prefix).
+      JWT_SECRET: change-this-to-a-secure-random-string
     depends_on:
       - go-api
     networks:

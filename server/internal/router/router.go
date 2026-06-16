@@ -51,6 +51,9 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 		api.POST("/auth/login", h.Auth.Login)
 		api.POST("/auth/signup", h.Auth.Signup)
 		api.POST("/auth/refresh", h.Auth.Refresh)
+		// Logout clears the httpOnly auth cookies. Public on purpose: an expired
+		// session must still be able to tear its cookies down.
+		api.POST("/auth/logout", h.Auth.Logout)
 
 		// Protected routes
 		protected := api.Group("")

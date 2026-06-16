@@ -35,7 +35,9 @@ type signupRequest struct {
 }
 
 type refreshRequest struct {
-	RefreshToken string `json:"refreshToken" binding:"required"`
+	// Optional: the refresh token may instead arrive in the httpOnly
+	// refresh_token cookie (cookie-based clients send no body).
+	RefreshToken string `json:"refreshToken"`
 }
 
 type updateMeRequest struct {
@@ -88,15 +90,26 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 	response.Created(c, "Account created", h.authPayload(user, pair))
 }
 
-// Refresh exchanges a valid refresh token for a new access + refresh pair.
+// Refresh exchanges a valid refresh token for a new access + refresh pair. The
+// token is taken from the JSON body when present, otherwise from the httpOnly
+// refresh_token cookie — so a cookie-only browser client can refresh without
+// ever handling the token in JS.
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	var req refreshRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	_ = c.ShouldBindJSON(&req) // body is optional; the cookie is the fallback
+
+	raw := req.RefreshToken
+	if raw == "" {
+		if cookie, err := c.Cookie("refresh_token"); err == nil {
+			raw = cookie
+		}
+	}
+	if raw == "" {
 		response.BadRequest(c, "Missing refresh token")
 		return
 	}
 
-	claims, err := h.tokens.ParseRefresh(req.RefreshToken)
+	claims, err := h.tokens.ParseRefresh(raw)
 	if err != nil {
 		response.Unauthorized(c, "Invalid refresh token")
 		return
@@ -134,11 +147,20 @@ func (h *AuthHandler) Me(c *gin.Context) {
 		return
 	}
 
+	// sipConfig is included so a client that bootstraps its session from the
+	// httpOnly cookie (no login response in hand) can still reconstruct the SIP
+	// connection details without persisting them in localStorage.
 	response.OK(c, gin.H{
 		"extension": user.Extension,
 		"name":      user.Name,
 		"username":  user.Username,
 		"mobile":    user.Mobile,
+		"sipConfig": gin.H{
+			"wsUrl":        h.sip.WsURL(),
+			"sipWsUrl":     h.sip.SipWsURL(),
+			"domain":       h.sip.Domain,
+			"trunkEnabled": h.sip.TrunkEnabled,
+		},
 	})
 }
 
@@ -180,12 +202,32 @@ func (h *AuthHandler) UpdateMe(c *gin.Context) {
 	})
 }
 
+// Logout clears the auth cookies. Because the token + refresh_token cookies are
+// httpOnly, the browser's JS cannot delete them on sign-out — only the server
+// can, by re-issuing them with an immediate expiry. It carries no session
+// requirement (it only tears state down), so it's mounted as a public route and
+// is safe to call even with an already-expired or missing token.
+func (h *AuthHandler) Logout(c *gin.Context) {
+	h.clearAuthCookies(c)
+	response.Success(c, "Logged out", nil)
+}
+
 // can authenticate with `credentials: "include"`. The access token also stays
 // in the JSON body for the Bearer-header flow; both transports are accepted.
 func (h *AuthHandler) setAuthCookies(c *gin.Context, pair *token.Pair) {
 	c.SetSameSite(sameSite(h.cookie.SameSite))
 	c.SetCookie("token", pair.AccessToken, h.cookie.AccessMaxAge, "/", h.cookie.Domain, h.cookie.Secure, true)
 	c.SetCookie("refresh_token", pair.RefreshToken, h.cookie.RefreshMaxAge, "/", h.cookie.Domain, h.cookie.Secure, true)
+}
+
+// clearAuthCookies deletes the auth cookies by re-issuing them empty with a
+// negative MaxAge, which tells the browser to remove them immediately. The
+// path/domain/secure/sameSite attributes must mirror setAuthCookies, otherwise
+// the browser treats them as different cookies and leaves the originals intact.
+func (h *AuthHandler) clearAuthCookies(c *gin.Context) {
+	c.SetSameSite(sameSite(h.cookie.SameSite))
+	c.SetCookie("token", "", -1, "/", h.cookie.Domain, h.cookie.Secure, true)
+	c.SetCookie("refresh_token", "", -1, "/", h.cookie.Domain, h.cookie.Secure, true)
 }
 
 func sameSite(mode string) http.SameSite {

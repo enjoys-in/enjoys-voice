@@ -42,15 +42,28 @@ const SettingsScreen = lazy(() =>
   import("./screens/SettingsScreen").then((m) => ({ default: m.SettingsScreen }))
 );
 
-export function AppShell() {
+interface AppShellProps {
+  /** Extension the server resolved from the httpOnly cookie, or null for a guest. */
+  initialExtension: string | null;
+}
+
+export function AppShell({ initialExtension }: AppShellProps) {
+  // Seed the auth store from the session the server resolved (httpOnly cookie)
+  // BEFORE the subscription read below, so the first paint already shows the
+  // correct screen — no login/splash flash. Client-only, once per mount.
+  const seeded = useRef(false);
+  if (typeof window !== "undefined" && !seeded.current) {
+    seeded.current = true;
+    useAuthStore.getState().applyServerSession(initialExtension);
+  }
+
   const [activeTab, setActiveTab] = useState<TabId>("calls");
   // Tabs the user has opened at least once. A screen stays mounted after its
   // first visit so its data/scroll survive tab switches (we just hide it),
   // while never-visited tabs cost nothing.
   const [visitedTabs, setVisitedTabs] = useState<Set<TabId>>(() => new Set(["calls"]));
   const [hydrated, setHydrated] = useState(false);
-  const [sessionChecked, setSessionChecked] = useState(false);
-  const { isAuthenticated, user, sipConfig, setUser } = useAuthStore();
+  const { isAuthenticated, user, sipConfig, setUser, setSipConfig } = useAuthStore();
   const { activeCall } = useCallStore();
   const { settings } = useSettingsStore();
   const { fetchVoicemails, unreadCount } = useVoicemailStore();
@@ -88,32 +101,29 @@ export function AppShell() {
     setHydrated(true);
   }, []);
 
-  // Validate the persisted session against the server once hydrated. A stored
-  // `isAuthenticated` only means we *were* logged in — the access/refresh tokens
-  // may have expired or been revoked. goApi.auth.me() confirms the session is
-  // still good and refreshes the cached profile; goRequest auto-refreshes once
-  // and logs out if that fails, which flips us to the LoginScreen.
+  // The server already resolved auth from the cookie (seeded above), so we don't
+  // block the UI on a round-trip. When authenticated, refresh the profile + SIP
+  // config from `/me` in the background — and ONLY while authenticated, so signed-
+  // out visitors never hit it. goRequest auto-refreshes once and clears the
+  // session on a hard auth failure, which flips us to the LoginScreen.
   useEffect(() => {
-    if (!hydrated) return;
-    if (!isAuthenticated) {
-      setSessionChecked(true);
-      return;
-    }
+    if (!hydrated || !isAuthenticated) return;
     let cancelled = false;
     (async () => {
       try {
         const me = await goApi.auth.me();
-        if (!cancelled) setUser(me);
+        if (cancelled) return;
+        const { sipConfig: sip, ...profile } = me;
+        setUser(profile);
+        if (sip) setSipConfig(sip);
       } catch {
         // goRequest already cleared the session on a hard auth failure.
-      } finally {
-        if (!cancelled) setSessionChecked(true);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [hydrated, isAuthenticated, setUser]);
+  }, [hydrated, isAuthenticated, setUser, setSipConfig]);
 
   // ─── Call recording (WebSocket-driven, no REST upload) ────────────────
   const finishRecording = useCallback(async () => {
@@ -157,7 +167,7 @@ export function AppShell() {
 
   // Connect WS + register SIP on auth
   useEffect(() => {
-    if (sessionChecked && isAuthenticated && user && sipConfig) {
+    if (isAuthenticated && user && sipConfig) {
       console.log(`🔌 Auto-connecting: SIP + WS for ${user.extension}`);
       connect(user.extension);
       register(user.extension, user.extension, sipConfig.sipWsUrl, sipConfig.domain, displayName);
@@ -167,7 +177,7 @@ export function AppShell() {
       disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionChecked, isAuthenticated, user?.extension]);
+  }, [isAuthenticated, user?.extension, sipConfig?.sipWsUrl]);
 
   // Refetch voicemails when a new one is left for this user.
   useEffect(() => {
@@ -184,14 +194,14 @@ export function AppShell() {
   // 3s reconnect loop) when the feature isn't in use. A forwarded call arrives
   // as a `linked` event and surfaces as an inbound call via the shared store.
   useEffect(() => {
-    if (sessionChecked && isAuthenticated && user && settings.pstnForwardToBrowser) {
+    if (isAuthenticated && user && settings.pstnForwardToBrowser) {
       bridge.connect(user.extension);
     } else {
       bridge.disconnect();
     }
     return () => bridge.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionChecked, isAuthenticated, user?.extension, settings.pstnForwardToBrowser]);
+  }, [isAuthenticated, user?.extension, settings.pstnForwardToBrowser]);
 
   // Re-register when the user changes their display name in settings
   useEffect(() => {
@@ -276,9 +286,9 @@ export function AppShell() {
   const onSendDtmfCall = callIsBridge ? () => {} : sendDtmf;
   const onToggleRecordingCall = callIsBridge ? () => {} : handleToggleRecording;
 
-  // Show a branded splash while hydrating or while validating an existing
-  // session (avoids a login-screen flash for already-logged-in users).
-  if (!hydrated || (isAuthenticated && !sessionChecked)) return <SplashScreen />;
+  // Show a branded splash while hydrating (avoids a login-screen flash for
+  // already-logged-in users; the server already resolved the session).
+  if (!hydrated) return <SplashScreen />;
 
   if (!isAuthenticated) {
     return <LoginScreen />;

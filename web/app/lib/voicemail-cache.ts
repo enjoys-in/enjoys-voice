@@ -12,6 +12,9 @@ async function fetchVoicemailAudio(url: string, retryOn401 = true): Promise<Resp
   const token = getAccessToken();
   const res = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
+    // Cookie-based auth: the httpOnly access-token cookie is attached so the
+    // protected audio route authorizes even without a JS Bearer token.
+    credentials: "include",
   });
   if (res.status === 401 && retryOn401) {
     const newToken = await refreshAccessToken();

@@ -127,6 +127,7 @@ export function useSipPhone() {
       authorizationUsername: extension,
       authorizationPassword: password,
       displayName: fromName,
+                  // contactParams: ["+sip.ice;transport=ws"], // force SIP.js to offer ICE over WebSocket (not UDP/TCP) since we're in-browser
       // Branded User-Agent header on every SIP request (REGISTER/INVITE/…),
       // replacing the default "SIP.js/0.21.1".
       userAgentString: "Enjoys.in Voice/1.0",
