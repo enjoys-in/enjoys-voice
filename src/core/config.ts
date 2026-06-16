@@ -96,6 +96,12 @@ export interface AppConfig {
     // Postgres audit_logs table that the Go API reads.
     flushIntervalMs: number;
   };
+  dialplan: {
+    // Emergency numbers for this deployment's region (configurable per-region).
+    // A call to any of these is classified RouteType.Emergency and sent straight
+    // to the trunk by EmergencyHandler, bypassing internal/IVR matching.
+    emergencyNumbers: string[];
+  };
 }
 
 // ─── Recordings base dirs ────────────────────────────────────────────────
@@ -214,5 +220,13 @@ export const config: AppConfig = {
   audit: {
     enabled: process.env.AUDIT_LOG === 'true',
     flushIntervalMs: parseInt(process.env.AUDIT_FLUSH_MS || '30000'),
+  },
+  dialplan: {
+    // Comma-separated emergency numbers for the deployment region. Defaults to a
+    // common multi-region set; override per-country (e.g. EMERGENCY_NUMBERS=911,112).
+    emergencyNumbers: (process.env.EMERGENCY_NUMBERS || '911,112,100,101,102,108')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
   },
 };

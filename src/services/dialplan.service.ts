@@ -22,8 +22,8 @@ export class DialPlanService {
   private readonly EXTERNAL_PATTERN = /^\+?\d{7,15}$/;
   /** IVR extensions */
   private readonly IVR_PATTERN = /^(5000|18\d{8}|1800\d+|800\d+|888\d+|877\d+|866\d+|855\d+|844\d+|833\d+)$/;
-  /** Emergency numbers (configurable) */
-  private emergencyNumbers = new Set(['911', '112', '100', '101', '102', '108']);
+  /** Emergency numbers — configurable per-region via `EMERGENCY_NUMBERS`. */
+  private emergencyNumbers = new Set(config.dialplan.emergencyNumbers);
 
   resolve(dialed: string): DialResult {
     const cleaned = dialed.replace(/[\s\-()]/g, '');

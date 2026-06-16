@@ -46,11 +46,14 @@
 - [x] Per-user PSTN forward (`pstnForwardToBrowser` / `mobile` / `pstnForwardTarget`)
 - [x] Stale registration returns `410 Gone`; busy `486`, no-answer `408`/timeout mapped to forwarding branches
 
-## Dial Plan
-- [ ] Internal: 7-digit extensions (1001-9999)
-- [ ] External: `+{countryCode}{number}` → route via trunk
-- [ ] IVR: 5000, 1800*, 800* → IVR system
-- [ ] Emergency: configurable per-region
+## Dial Plan — ✅ DONE
+> Implemented in `src/services/dialplan.service.ts` (`resolve()` → `RouteType`)
+> with per-type handlers in `src/sip/routes/` (internal/external/ivr/emergency).
+- [x] Internal: 7-digit extensions (1001-9999) (`INTERNAL_PATTERN` `\d{4,7}` → `InternalHandler`)
+- [x] External: `+{countryCode}{number}` → route via trunk (`normalizeExternal` → `ExternalHandler`)
+- [x] IVR: 5000, 1800*, 800* → IVR system (`IVR_PATTERN` incl. toll-free → `IvrHandler`)
+- [x] Emergency: configurable per-region (`config.dialplan.emergencyNumbers` via
+      `EMERGENCY_NUMBERS` env → `EmergencyHandler` routes straight to the trunk)
 
 ## Production Concerns
 - [x] Registration store → Redis/Valkey (adapter exists; falls back to in-memory when `REDIS_URL` unset)
