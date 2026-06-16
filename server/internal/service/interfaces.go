@@ -49,6 +49,43 @@ type SystemSettingsService interface {
 	Update(ctx context.Context, input *SystemSettingsInput) (*models.SystemSettingsResponse, error)
 }
 
+// RatePlanInput is a partial update of a rate plan — only non-nil fields apply.
+type RatePlanInput struct {
+	Name     *string `json:"name"`
+	Currency *string `json:"currency"`
+	Default  *bool   `json:"default"`
+}
+
+// RateInput is a partial update of a single rate — only non-nil fields apply.
+type RateInput struct {
+	Prefix        *string  `json:"prefix"`
+	Description   *string  `json:"description"`
+	SellPerMin    *float64 `json:"sell_per_min"`
+	BuyPerMin     *float64 `json:"buy_per_min"`
+	SetupFee      *float64 `json:"setup_fee"`
+	IncrementSecs *int     `json:"increment_secs"`
+	MinSecs       *int     `json:"min_secs"`
+}
+
+// RatePlanDetail is a plan plus its full rate table (longest-prefix first).
+type RatePlanDetail struct {
+	models.RatePlanResponse
+	Rates []models.RateResponse `json:"rates"`
+}
+
+type RateService interface {
+	ListPlans(ctx context.Context) ([]models.RatePlanResponse, error)
+	GetPlan(ctx context.Context, id uint) (*RatePlanDetail, error)
+	CreatePlan(ctx context.Context, input *RatePlanInput) (*models.RatePlanResponse, error)
+	UpdatePlan(ctx context.Context, id uint, input *RatePlanInput) (*models.RatePlanResponse, error)
+	DeletePlan(ctx context.Context, id uint) error
+
+	ListRates(ctx context.Context, planID uint) ([]models.RateResponse, error)
+	CreateRate(ctx context.Context, planID uint, input *RateInput) (*models.RateResponse, error)
+	UpdateRate(ctx context.Context, id uint, input *RateInput) (*models.RateResponse, error)
+	DeleteRate(ctx context.Context, id uint) error
+}
+
 type CallService interface {
 	GetAll(ctx context.Context) ([]models.CallRecord, error)
 	GetByExtension(ctx context.Context, ext string) ([]models.CallRecord, error)

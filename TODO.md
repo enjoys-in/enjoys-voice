@@ -242,15 +242,15 @@
 >     `Stats`) can be extended to also `SUM(cost)` for the dashboard.
 
 ### Data model (Go — system of record)
-- [ ] New `RatePlan` model (`server/internal/models/rate_plan.go`):
+- [x] New `RatePlan` model (`server/internal/models/rate_plan.go`):
       `{ ID, Name, Currency(size3 'USD'), Default bool, CreatedAt }`. A plan is a
       named collection of destination rates; users are assigned a plan.
-- [ ] New `Rate` model (`server/internal/models/rate.go`):
+- [x] New `Rate` model (`server/internal/models/rate.go`):
       `{ ID, RatePlanID(index), Prefix(size15,index), Description, SellPerMin
       numeric(12,5), BuyPerMin numeric(12,5), SetupFee numeric(12,5) default 0,
       IncrementSecs int default 60, MinSecs int default 0 }`. Match by
       **longest-prefix** on the dialed E.164 (e.g. `91` India, `9180` Bangalore).
-- [ ] Extend `CallRecord` (`server/internal/models/call.go`): add
+- [x] Extend `CallRecord` (`server/internal/models/call.go`): add
       `Cost numeric(12,5) default 0`, `Currency(size3)`, `RatePrefix(size15)`,
       `BilledSecs int`, `RatedAt *time.Time`. Additive — Go AutoMigrate handles it.
       (Node stays the sole WRITER of these too, like the other call columns.)
@@ -292,7 +292,7 @@
       guard against double-debit if the upsert runs twice).
 
 ### Go API surface (admin rate management + balances)
-- [ ] CRUD for rate plans + rates (admin-only): `GET/POST /api/g/rate-plans`,
+- [x] CRUD for rate plans + rates (admin-only): `GET/POST /api/g/rate-plans`,
       `GET/PUT/DELETE /api/g/rate-plans/:id`, and nested
       `GET/POST/PUT/DELETE /api/g/rate-plans/:id/rates`. Follow the existing
       handler→service→repository→router layering + `response.OK` envelope.

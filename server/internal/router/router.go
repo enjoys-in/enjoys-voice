@@ -20,6 +20,7 @@ type Handlers struct {
 	Ivr            *handler.IvrHandler
 	Audit          *handler.AuditHandler
 	Voicemail      *handler.VoicemailHandler
+	Rate           *handler.RateHandler
 }
 
 func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
@@ -102,6 +103,19 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 
 			// System-wide customization (branding + default policies)
 			protected.PUT("/system-settings", h.SystemSettings.Update)
+
+			// Call rate plans + per-destination rates (billing). Plans hold a
+			// currency + a set of longest-prefix-matched rates; rates are nested
+			// under their plan.
+			protected.GET("/rate-plans", h.Rate.ListPlans)
+			protected.POST("/rate-plans", h.Rate.CreatePlan)
+			protected.GET("/rate-plans/:id", h.Rate.GetPlan)
+			protected.PUT("/rate-plans/:id", h.Rate.UpdatePlan)
+			protected.DELETE("/rate-plans/:id", h.Rate.DeletePlan)
+			protected.GET("/rate-plans/:id/rates", h.Rate.ListRates)
+			protected.POST("/rate-plans/:id/rates", h.Rate.CreateRate)
+			protected.PUT("/rate-plans/:id/rates/:rateId", h.Rate.UpdateRate)
+			protected.DELETE("/rate-plans/:id/rates/:rateId", h.Rate.DeleteRate)
 
 			// Calls
 			protected.GET("/calls", h.Call.GetAll)

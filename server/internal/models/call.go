@@ -23,6 +23,15 @@ type CallRecord struct {
 	CallID    string `gorm:"size:100" json:"call_id"`
 	Direction string `gorm:"size:10" json:"direction"` // inbound | outbound
 	FromName  string `gorm:"size:200" json:"from_name"`
+	// Billing/rating columns — written by the Node engine when a billable leg
+	// ends (longest-prefix rate × billed duration). Additive; the Go API only
+	// reads them for spend reporting, so no index is declared. Non-billable legs
+	// (missed/failed/unreachable/ringing) stay at zero cost.
+	Cost       float64    `gorm:"type:numeric(12,5);default:0" json:"cost"`
+	Currency   string     `gorm:"size:3" json:"currency"`
+	RatePrefix string     `gorm:"size:15" json:"rate_prefix"`
+	BilledSecs int        `gorm:"default:0" json:"billed_secs"`
+	RatedAt    *time.Time `json:"rated_at"`
 }
 
 func (CallRecord) TableName() string { return "call_records" }

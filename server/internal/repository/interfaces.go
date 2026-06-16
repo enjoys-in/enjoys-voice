@@ -28,6 +28,24 @@ type SystemSettingsRepository interface {
 	Save(ctx context.Context, s *models.SystemSettings) error
 }
 
+// RateRepository owns rate plans and their per-destination rates. Rates are
+// returned longest-prefix first so a matcher can take the first leading match.
+type RateRepository interface {
+	ListPlans(ctx context.Context) ([]models.RatePlan, error)
+	GetPlan(ctx context.Context, id uint) (*models.RatePlan, error)
+	CreatePlan(ctx context.Context, plan *models.RatePlan) error
+	UpdatePlan(ctx context.Context, plan *models.RatePlan) error
+	DeletePlan(ctx context.Context, id uint) error
+	ClearDefault(ctx context.Context) error
+	CountRates(ctx context.Context, planID uint) (int64, error)
+
+	ListRates(ctx context.Context, planID uint) ([]models.Rate, error)
+	GetRate(ctx context.Context, id uint) (*models.Rate, error)
+	CreateRate(ctx context.Context, rate *models.Rate) error
+	UpdateRate(ctx context.Context, rate *models.Rate) error
+	DeleteRate(ctx context.Context, id uint) error
+}
+
 type CallRepository interface {
 	Create(ctx context.Context, call *models.CallRecord) error
 	GetAll(ctx context.Context) ([]models.CallRecord, error)

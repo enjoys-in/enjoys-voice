@@ -43,6 +43,8 @@ func main() {
 		&models.IvrFlow{},
 		&models.AuditLog{},
 		&models.SystemSettings{},
+		&models.RatePlan{},
+		&models.Rate{},
 	); err != nil {
 		log.Fatalf("Failed to migrate: %v", err)
 	}
@@ -70,6 +72,7 @@ func main() {
 	auditRepo := repository.NewAuditRepository(db)
 	vmRepo := repository.NewVoicemailRepository(db)
 	systemSettingsRepo := repository.NewSystemSettingsRepository(db)
+	rateRepo := repository.NewRateRepository(db)
 
 	// ─── Services ────────────────────────────────────────
 	authSvc := service.NewAuthService(userRepo, settingsRepo, valkey)
@@ -83,6 +86,7 @@ func main() {
 	auditSvc := service.NewAuditService(auditRepo)
 	vmSvc := service.NewVoicemailService(vmRepo)
 	systemSettingsSvc := service.NewSystemSettingsService(systemSettingsRepo)
+	rateSvc := service.NewRateService(rateRepo)
 
 	// ─── Tokens ──────────────────────────────────────────
 	tokenMgr := token.NewManager(cfg.JWTSecret, cfg.JWTIssuer, cfg.AccessTTL, cfg.RefreshTTL)
@@ -100,6 +104,7 @@ func main() {
 		Audit:          handler.NewAuditHandler(auditSvc),
 		Voicemail:      handler.NewVoicemailHandler(vmSvc, cfg.VoicemailDir),
 		SystemSettings: handler.NewSystemSettingsHandler(systemSettingsSvc),
+		Rate:           handler.NewRateHandler(rateSvc),
 	}
 
 	// ─── Ensure upload dir ───────────────────────────────
