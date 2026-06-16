@@ -34,10 +34,16 @@
       (`contactStore.findContact` provides per-user contact names)
 
 ## User Signup via Mobile
-- [ ] Add `POST /api/signup` — accepts `{ countryCode, mobile, name }`
-- [ ] Generate extension automatically (e.g., mobile number or sequential)
+> Endpoint exists as `POST /api/g/auth/signup` (`{ name, mobile, password }`).
+> OTP/passwordless login still needs an SMS gateway (below).
+- [x] Signup endpoint — `POST /api/g/auth/signup` (name + mobile + password;
+      mobile is normalized and dup-checked)
+- [x] Generate extension automatically — last 7 digits of the mobile, now
+      **collision-free** (`uniqueExtension` probes for a free extension since the
+      extension doubles as the unique username)
 - [ ] OTP verification via SMS gateway (Twilio/MSG91/custom)
-- [ ] On signup: create SIP user, assign extension, store in DB
+- [x] On signup: create SIP user, assign extension, store in DB (user +
+      default `user_settings`; Node hydrates it live via LISTEN/NOTIFY)
 - [ ] Login via mobile + OTP (no password needed for end users)
 
 ## Call Routing: SIP → PSTN Fallback — ✅ DONE

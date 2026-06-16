@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/enjoys-in/enjoys-voice/api/internal/cache"
@@ -84,8 +85,10 @@ func (s *authService) Signup(ctx context.Context, name, mobile, password string)
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// Generate extension from last 7 digits
-	ext := generateExtension(normalized)
+	// Generate extension from last 7 digits, guaranteeing it's free so signup
+	// can't fail on a username/extension collision (two numbers can share their
+	// trailing digits, e.g. across country codes).
+	ext := s.uniqueExtension(ctx, normalized)
 
 	user := &models.User{
 		Extension: ext,
@@ -133,6 +136,37 @@ func (s *authService) warmUserCache(ctx context.Context, user *models.User) {
 		sData, _ := json.Marshal(resp)
 		_ = s.cache.Set(ctx, cache.SettingsKey(user.Extension), string(sData), cache.DefaultTTL)
 	}
+}
+
+// uniqueExtension derives the signup extension from the mobile (generateExtension
+// uses the last 7 digits) and guarantees it is free. Because the extension also
+// becomes the user's unique username, a naive collision would fail signup with a
+// confusing "failed to create user" error even though the phone number itself is
+// new. On collision we probe for the next free extension of the same width so a
+// valid signup always succeeds.
+func (s *authService) uniqueExtension(ctx context.Context, mobile string) string {
+	base := generateExtension(mobile)
+	if _, err := s.userRepo.GetByExtension(ctx, base); err != nil {
+		return base // not found → free
+	}
+	n, err := strconv.Atoi(base)
+	if err != nil {
+		return base // non-numeric base shouldn't happen; let Create surface it
+	}
+	width := len(base)
+	mod := 1
+	for i := 0; i < width; i++ {
+		mod *= 10
+	}
+	// Probe a bounded number of successors (wrapping within the same digit width)
+	// for a free extension. Collisions are rare, so a small cap is plenty.
+	for i := 1; i <= 1000 && i < mod; i++ {
+		cand := fmt.Sprintf("%0*d", width, (n+i)%mod)
+		if _, err := s.userRepo.GetByExtension(ctx, cand); err != nil {
+			return cand // free
+		}
+	}
+	return base // exhausted probes; Create will surface the unique violation
 }
 
 func generateExtension(mobile string) string {
