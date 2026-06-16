@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { useAuthStore } from "../../stores";
 import { goApi, GoApiError } from "../../lib/go-api";
 import { loginSchema } from "../../lib/validations";
+import { useBranding } from "../../hooks/useBranding";
 
 export function LoginScreen() {
   const [extension, setExtension] = useState("");
@@ -16,6 +17,7 @@ export function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const { brandName, tagline, logoUrl } = useBranding();
   const { login } = useAuthStore();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -66,11 +68,16 @@ export function LoginScreen() {
     <div className="flex items-center justify-center min-h-dvh p-4 bg-background">
       <Card className="w-full max-w-sm border-border/50 bg-card/50 backdrop-blur-sm">
         <CardHeader className="text-center space-y-2">
-          <div className="mx-auto w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-            <Phone className="h-6 w-6 text-primary" />
+          <div className="mx-auto w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center overflow-hidden">
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt={brandName} className="h-full w-full object-contain" />
+            ) : (
+              <Phone className="h-6 w-6 text-primary" />
+            )}
           </div>
-          <CardTitle className="text-xl">Enjoys Voice</CardTitle>
-          <CardDescription>Sign in with your extension or phone</CardDescription>
+          <CardTitle className="text-xl">{brandName}</CardTitle>
+          <CardDescription>{tagline || "Sign in with your extension or phone"}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

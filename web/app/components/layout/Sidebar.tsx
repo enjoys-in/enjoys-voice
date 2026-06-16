@@ -3,6 +3,7 @@
 import { Phone, Clock, Users, Hash, Settings, Voicemail, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "../../stores";
+import { useBranding } from "../../hooks/useBranding";
 import type { TabId } from "./BottomNav";
 
 interface SidebarProps {
@@ -21,16 +22,22 @@ const tabs: { id: TabId; label: string; icon: typeof Phone }[] = [
 
 export function Sidebar({ activeTab, onTabChange, voicemailUnread = 0 }: SidebarProps) {
   const { logout } = useAuthStore();
+  const { brandName, logoUrl } = useBranding();
 
   return (
     <aside className="hidden lg:flex flex-col w-64 border-r border-border/50 bg-card/30">
       {/* Brand */}
       <div className="p-4 border-b border-border/50">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-            <Phone className="h-4 w-4 text-primary" />
+          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center overflow-hidden">
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt={brandName} className="h-full w-full object-contain" />
+            ) : (
+              <Phone className="h-4 w-4 text-primary" />
+            )}
           </div>
-          <span className="font-semibold text-sm">Enjoys Voice</span>
+          <span className="font-semibold text-sm">{brandName}</span>
         </div>
       </div>
 
