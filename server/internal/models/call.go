@@ -53,6 +53,8 @@ type CallStats struct {
 	AbandonedRate   float64           `json:"abandonedRate"`  // (missed+unreachable+failed) / total (0..1)
 	AvgDuration     int64             `json:"avgDuration"`    // seconds, answered legs only
 	TotalDuration   int64             `json:"totalDuration"`  // seconds
+	TotalCost       float64           `json:"totalCost"`      // summed billed cost over the range
+	Currency        string            `json:"currency"`       // dominant rated-call currency ("" if none)
 	StatusBreakdown []StatusCount     `json:"statusBreakdown"`
 	Series          []CallStatsBucket `json:"series"` // per-day, oldest → newest
 }
@@ -65,9 +67,10 @@ type StatusCount struct {
 
 // CallStatsBucket is one day of the calls-over-time series.
 type CallStatsBucket struct {
-	Date     string `json:"date"` // YYYY-MM-DD
-	Total    int64  `json:"total"`
-	Inbound  int64  `json:"inbound"`
-	Outbound int64  `json:"outbound"`
-	Answered int64  `json:"answered"`
+	Date     string  `json:"date"` // YYYY-MM-DD
+	Total    int64   `json:"total"`
+	Inbound  int64   `json:"inbound"`
+	Outbound int64   `json:"outbound"`
+	Answered int64   `json:"answered"`
+	Cost     float64 `json:"cost"` // summed billed cost for the day
 }

@@ -28,6 +28,10 @@ export interface CallRecord {
   startTime: string;
   endTime?: string;
   duration?: number;
+  /** Billed amount for the call in `currency` (0 / absent when unrated). */
+  cost?: number;
+  /** ISO-4217 currency the cost is denominated in. */
+  currency?: string;
 }
 
 export interface ActiveCall {

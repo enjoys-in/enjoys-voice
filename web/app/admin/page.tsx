@@ -264,6 +264,12 @@ function OverviewTab({
             color={abandonRate !== null && abandonRate > 30 ? "text-destructive" : undefined}
           />
           <StatCard title="Avg Duration" value={stats ? formatDuration(stats.avgDuration) : "-"} sub="answered calls" />
+          <StatCard
+            title="Total Spend"
+            value={stats ? `${stats.totalCost.toFixed(2)}${stats.currency ? ` ${stats.currency}` : ""}` : "-"}
+            sub="billed this period"
+            color={stats && stats.totalCost > 0 ? "text-emerald-500" : undefined}
+          />
         </div>
       </div>
 
@@ -462,20 +468,21 @@ function CallsTab({ calls, loading }: { calls: CallRecord[]; loading: boolean })
       <h2 className="text-2xl font-bold">Call Logs ({calls.length})</h2>
       <Card className="border-border/50 bg-card/50">
         <CardContent className="p-0">
-          <div className="grid grid-cols-[1fr_1fr_1fr_auto_auto] gap-4 px-4 py-2 border-b border-border/50 text-xs font-medium text-muted-foreground">
+          <div className="grid grid-cols-[1fr_1fr_1fr_auto_auto_auto] gap-4 px-4 py-2 border-b border-border/50 text-xs font-medium text-muted-foreground">
             <span>From</span>
             <span>To</span>
             <span>Time</span>
             <span>Direction</span>
             <span>Status</span>
+            <span className="text-right">Cost</span>
           </div>
           {loading ? (
-            <TableSkeleton cols={5} />
+            <TableSkeleton cols={6} />
           ) : calls.length === 0 ? (
             <p className="px-4 py-8 text-center text-muted-foreground text-sm">No calls logged</p>
           ) : (
             calls.map((c) => (
-              <div key={c.id} className="grid grid-cols-[1fr_1fr_1fr_auto_auto] gap-4 px-4 py-3 border-b border-border/30 last:border-0 text-sm">
+              <div key={c.id} className="grid grid-cols-[1fr_1fr_1fr_auto_auto_auto] gap-4 px-4 py-3 border-b border-border/30 last:border-0 text-sm">
                 <span>{c.fromName || c.from}</span>
                 <span>{c.to}</span>
                 <span className="text-muted-foreground text-xs">{new Date(c.startTime).toLocaleString()}</span>
@@ -486,6 +493,9 @@ function CallsTab({ calls, loading }: { calls: CallRecord[]; loading: boolean })
                 >
                   {c.status}
                 </Badge>
+                <span className="text-right tabular-nums text-xs text-muted-foreground">
+                  {c.cost && c.cost > 0 ? `${c.cost.toFixed(4)} ${c.currency || ""}`.trim() : "—"}
+                </span>
               </div>
             ))
           )}

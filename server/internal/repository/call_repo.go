@@ -67,13 +67,14 @@ func (r *callRepo) Stats(ctx context.Context, days int) (*models.CallStats, erro
 
 	// 1) Status breakdown + duration totals.
 	type statusRow struct {
-		Status string
-		Cnt    int64
-		DurSum int64
+		Status  string
+		Cnt     int64
+		DurSum  int64
+		CostSum float64
 	}
 	var statusRows []statusRow
 	if err := db.
-		Select("status, COUNT(*) AS cnt, COALESCE(SUM(duration),0) AS dur_sum").
+		Select("status, COUNT(*) AS cnt, COALESCE(SUM(duration),0) AS dur_sum, COALESCE(SUM(cost),0) AS cost_sum").
 		Where("started_at >= ?", since).
 		Group("status").
 		Scan(&statusRows).Error; err != nil {
@@ -83,6 +84,7 @@ func (r *callRepo) Stats(ctx context.Context, days int) (*models.CallStats, erro
 	for _, row := range statusRows {
 		stats.TotalCalls += row.Cnt
 		stats.TotalDuration += row.DurSum
+		stats.TotalCost += row.CostSum
 		stats.StatusBreakdown = append(stats.StatusBreakdown, models.StatusCount{Status: row.Status, Count: row.Cnt})
 		switch row.Status {
 		case "answered", "ended":
@@ -129,6 +131,21 @@ func (r *callRepo) Stats(ctx context.Context, days int) (*models.CallStats, erro
 		stats.AvgDuration = stats.TotalDuration / stats.Answered
 	}
 
+	// Dominant currency among rated rows (the currency the cost totals are in).
+	// With a single rate plan this is simply that plan's currency.
+	if stats.TotalCost > 0 {
+		var currency string
+		if err := db.
+			Select("currency").
+			Where("started_at >= ? AND currency <> '' AND cost > 0", since).
+			Group("currency").
+			Order("SUM(cost) DESC").
+			Limit(1).
+			Scan(&currency).Error; err == nil {
+			stats.Currency = currency
+		}
+	}
+
 	// 3) Per-day series (Postgres FILTER aggregates, oldest → newest).
 	var buckets []models.CallStatsBucket
 	if err := db.
@@ -136,7 +153,8 @@ func (r *callRepo) Stats(ctx context.Context, days int) (*models.CallStats, erro
 			COUNT(*) AS total,
 			COUNT(*) FILTER (WHERE direction = 'inbound') AS inbound,
 			COUNT(*) FILTER (WHERE direction = 'outbound') AS outbound,
-			COUNT(*) FILTER (WHERE status IN ('answered','ended')) AS answered`).
+			COUNT(*) FILTER (WHERE status IN ('answered','ended')) AS answered,
+			COALESCE(SUM(cost),0) AS cost`).
 		Where("started_at >= ?", since).
 		Group("started_at::date").
 		Order("started_at::date ASC").

@@ -305,8 +305,9 @@
 - [ ] Balances: `GET /api/g/balance/:ext`, `POST /api/g/balance/:ext/topup`
       (admin/credit), `GET /api/g/balance/:ext/txns` (ledger). Derive `ext` from
       JWT for self-reads; restrict top-up/rate CRUD to admins.
-- [ ] Extend `/api/g/stats` (`call_repo.go` `Stats`) with `SUM(cost)` total +
+- [x] Extend `/api/g/stats` (`call_repo.go` `Stats`) with `SUM(cost)` total +
       per-day cost series + cost-by-direction, so spend shows on the dashboard.
+      (Added totalCost + currency + per-day bucket cost.)
 
 ### Node wiring (rates in memory + stamp cost)
 - [x] Load rate plans/rates + the caller's assigned plan into the in-memory store
@@ -323,11 +324,13 @@
 - [x] Admin **Rates** screen: manage rate plans + rates table (prefix, desc, sell,
       buy, margin, increment). Added methods to `go-api.ts`.
       (CSV import + assign-plans-to-users still pending.)
-- [ ] Show **cost** per call in the admin Call Logs + user recents (new column),
+- [x] Show **cost** per call in the admin Call Logs + user recents (new column),
       and **balance** + recent ledger for the user (if prepaid).
-- [ ] Dashboard (`web/app/admin/page.tsx` OverviewTab): add **Total Cost** /
+      (Admin Call Logs Cost column done; user recents + balance/ledger pending.)
+- [x] Dashboard (`web/app/admin/page.tsx` OverviewTab): add **Total Cost** /
       **Avg Cost per Call** / **Cost over time** cards+chart from the extended
       `/stats` (reuse the recharts setup just added).
+      (Total Spend card done; avg-cost + cost-over-time chart pending.)
 
 ### Guardrails / edge cases
 - [ ] **Money math = integers or fixed-precision.** Store as `numeric` in

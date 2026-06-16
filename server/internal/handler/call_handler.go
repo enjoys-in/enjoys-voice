@@ -32,6 +32,8 @@ type callResponse struct {
 	StartTime string  `json:"startTime"`
 	EndTime   *string `json:"endTime,omitempty"`
 	Duration  int     `json:"duration"`
+	Cost      float64 `json:"cost"`
+	Currency  string  `json:"currency,omitempty"`
 }
 
 func toCallResponse(c models.CallRecord) callResponse {
@@ -67,6 +69,8 @@ func toCallResponse(c models.CallRecord) callResponse {
 		StartTime: c.StartedAt.UTC().Format(time.RFC3339),
 		EndTime:   endTime,
 		Duration:  c.Duration,
+		Cost:      c.Cost,
+		Currency:  c.Currency,
 	}
 }
 

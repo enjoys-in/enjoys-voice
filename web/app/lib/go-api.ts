@@ -295,6 +295,7 @@ export interface CallStatsBucket {
   inbound: number;
   outbound: number;
   answered: number;
+  cost: number;
 }
 
 /**
@@ -315,6 +316,8 @@ export interface CallStats {
   abandonedRate: number;
   avgDuration: number;
   totalDuration: number;
+  totalCost: number;
+  currency: string;
   statusBreakdown: StatusCount[];
   series: CallStatsBucket[];
 }
