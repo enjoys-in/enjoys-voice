@@ -2,7 +2,9 @@ package handler
 
 import (
 	"errors"
+	"io"
 	"strconv"
+	"strings"
 
 	"github.com/enjoys-in/enjoys-voice/api/internal/response"
 	"github.com/enjoys-in/enjoys-voice/api/internal/service"
@@ -183,4 +185,50 @@ func (h *RateHandler) DeleteRate(c *gin.Context) {
 		return
 	}
 	response.Success(c, "Rate deleted", gin.H{"id": rateID})
+}
+
+// ImportRates → POST /rate-plans/:id/rates/import
+// Accepts either a raw CSV body (Content-Type text/csv or text/plain) or a JSON
+// body { "csv": "prefix,description,sell,buy,setup,increment,min\n..." }. Rows
+// are upserted keyed on prefix; existing prefixes are overwritten.
+func (h *RateHandler) ImportRates(c *gin.Context) {
+	planID, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+
+	csvData := ""
+	if strings.HasPrefix(c.ContentType(), "application/json") {
+		var body struct {
+			CSV string `json:"csv"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			response.BadRequest(c, "Invalid request body")
+			return
+		}
+		csvData = body.CSV
+	} else {
+		raw, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			response.BadRequest(c, "Could not read request body")
+			return
+		}
+		csvData = string(raw)
+	}
+
+	if strings.TrimSpace(csvData) == "" {
+		response.BadRequest(c, "No CSV data provided")
+		return
+	}
+
+	result, err := h.svc.ImportRates(c.Request.Context(), planID, csvData)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.NotFound(c, "Rate plan not found")
+			return
+		}
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, "Rates imported", result)
 }

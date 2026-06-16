@@ -74,6 +74,15 @@ type RatePlanDetail struct {
 	Rates []models.RateResponse `json:"rates"`
 }
 
+// RateImportResult summarises a CSV bulk import: how many rows were created vs
+// updated, and any per-row parse errors that were skipped.
+type RateImportResult struct {
+	Created int      `json:"created"`
+	Updated int      `json:"updated"`
+	Skipped int      `json:"skipped"`
+	Errors  []string `json:"errors,omitempty"`
+}
+
 type RateService interface {
 	ListPlans(ctx context.Context) ([]models.RatePlanResponse, error)
 	GetPlan(ctx context.Context, id uint) (*RatePlanDetail, error)
@@ -85,6 +94,9 @@ type RateService interface {
 	CreateRate(ctx context.Context, planID uint, input *RateInput) (*models.RateResponse, error)
 	UpdateRate(ctx context.Context, id uint, input *RateInput) (*models.RateResponse, error)
 	DeleteRate(ctx context.Context, id uint) error
+	// ImportRates parses CSV text (columns: prefix, description, sell, buy, setup,
+	// increment, min) and upserts the rows into the plan keyed on prefix.
+	ImportRates(ctx context.Context, planID uint, csvData string) (*RateImportResult, error)
 }
 
 type CallService interface {

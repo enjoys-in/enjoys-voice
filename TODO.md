@@ -298,7 +298,7 @@
       `GET/PUT/DELETE /api/g/rate-plans/:id`, and nested
       `GET/POST/PUT/DELETE /api/g/rate-plans/:id/rates`. Follow the existing
       handler→service→repository→router layering + `response.OK` envelope.
-- [ ] Bulk rate import: `POST /api/g/rate-plans/:id/rates/import` (CSV: prefix,
+- [x] Bulk rate import: `POST /api/g/rate-plans/:id/rates/import` (CSV: prefix,
       description, sell, buy, setup, increment) — carrier rate sheets are large.
 - [x] Assign a plan to a user: add `RatePlanID` to `UserSettings`
       (`server/internal/models/settings.go`) or a join; default plan when unset.

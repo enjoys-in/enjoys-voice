@@ -114,6 +114,7 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 			protected.DELETE("/rate-plans/:id", h.Rate.DeletePlan)
 			protected.GET("/rate-plans/:id/rates", h.Rate.ListRates)
 			protected.POST("/rate-plans/:id/rates", h.Rate.CreateRate)
+			protected.POST("/rate-plans/:id/rates/import", h.Rate.ImportRates)
 			protected.PUT("/rate-plans/:id/rates/:rateId", h.Rate.UpdateRate)
 			protected.DELETE("/rate-plans/:id/rates/:rateId", h.Rate.DeleteRate)
 

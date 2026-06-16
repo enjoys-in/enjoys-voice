@@ -44,6 +44,9 @@ type RateRepository interface {
 	CreateRate(ctx context.Context, rate *models.Rate) error
 	UpdateRate(ctx context.Context, rate *models.Rate) error
 	DeleteRate(ctx context.Context, id uint) error
+	// UpsertRates inserts or updates the given rates for a plan keyed on prefix,
+	// all in one transaction. Returns counts of created vs updated rows.
+	UpsertRates(ctx context.Context, planID uint, rates []models.Rate) (created int, updated int, err error)
 }
 
 type CallRepository interface {

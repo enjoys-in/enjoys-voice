@@ -2,7 +2,10 @@ package service
 
 import (
 	"context"
+	"encoding/csv"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/enjoys-in/enjoys-voice/api/internal/models"
@@ -160,6 +163,99 @@ func (s *rateService) UpdateRate(ctx context.Context, id uint, input *RateInput)
 
 func (s *rateService) DeleteRate(ctx context.Context, id uint) error {
 	return s.repo.DeleteRate(ctx, id)
+}
+
+// ImportRates parses a CSV rate sheet and bulk-upserts the rows into the plan.
+// Columns (in order): prefix, description, sell, buy, setup, increment, min.
+// Only `prefix` is required; trailing columns may be omitted. A header row is
+// auto-detected and skipped (when the first cell is non-numeric). Rows that fail
+// to parse are skipped and reported in the result rather than aborting the import.
+func (s *rateService) ImportRates(ctx context.Context, planID uint, csvData string) (*RateImportResult, error) {
+	// Make sure the parent plan exists before we touch any rows.
+	if _, err := s.repo.GetPlan(ctx, planID); err != nil {
+		return nil, err
+	}
+
+	reader := csv.NewReader(strings.NewReader(csvData))
+	reader.FieldsPerRecord = -1 // allow a variable number of columns per row
+	reader.TrimLeadingSpace = true
+
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("could not parse CSV: %w", err)
+	}
+
+	result := &RateImportResult{}
+	rates := make([]models.Rate, 0, len(records))
+
+	for i, row := range records {
+		if len(row) == 0 || strings.TrimSpace(strings.Join(row, "")) == "" {
+			continue // blank line
+		}
+		prefix := normalizePrefix(row[0])
+		// Skip a header row: first data column has no digits (e.g. "prefix").
+		if i == 0 && prefix == "" {
+			continue
+		}
+		if prefix == "" {
+			result.Skipped++
+			result.Errors = append(result.Errors, fmt.Sprintf("row %d: missing/invalid prefix", i+1))
+			continue
+		}
+
+		rate := models.Rate{
+			RatePlanID:    planID,
+			Prefix:        prefix,
+			IncrementSecs: 60,
+		}
+		if len(row) > 1 {
+			rate.Description = strings.TrimSpace(row[1])
+		}
+		rate.SellPerMin = parseCSVFloat(row, 2)
+		rate.BuyPerMin = parseCSVFloat(row, 3)
+		rate.SetupFee = parseCSVFloat(row, 4)
+		if inc := parseCSVInt(row, 5); inc > 0 {
+			rate.IncrementSecs = inc
+		}
+		if min := parseCSVInt(row, 6); min > 0 {
+			rate.MinSecs = min
+		}
+		rates = append(rates, rate)
+	}
+
+	if len(rates) > 0 {
+		created, updated, err := s.repo.UpsertRates(ctx, planID, rates)
+		if err != nil {
+			return nil, err
+		}
+		result.Created = created
+		result.Updated = updated
+	}
+	return result, nil
+}
+
+// parseCSVFloat reads column `idx` as a float, returning 0 when missing/blank/bad.
+func parseCSVFloat(row []string, idx int) float64 {
+	if idx >= len(row) {
+		return 0
+	}
+	v, err := strconv.ParseFloat(strings.TrimSpace(row[idx]), 64)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+// parseCSVInt reads column `idx` as an int, returning 0 when missing/blank/bad.
+func parseCSVInt(row []string, idx int) int {
+	if idx >= len(row) {
+		return 0
+	}
+	v, err := strconv.Atoi(strings.TrimSpace(row[idx]))
+	if err != nil {
+		return 0
+	}
+	return v
 }
 
 // applyRateInput copies the provided (non-nil) fields onto a rate.

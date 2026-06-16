@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Plus,
   Pencil,
@@ -8,6 +8,7 @@ import {
   Star,
   Save,
   Loader2,
+  Upload,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +31,7 @@ import {
   type Rate,
   type RatePlanInput,
   type RateInput,
+  type RateImportResult,
 } from "../../lib/go-api";
 
 // ─── Rates Tab ──────────────────────────────────────────
@@ -227,6 +229,7 @@ function PlanDetail({
   const [rateDraft, setRateDraft] = useState<Rate | null>(null);
   const [rateCreating, setRateCreating] = useState(false);
   const [rateToDelete, setRateToDelete] = useState<Rate | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const loadRates = async () => {
     try {
@@ -295,9 +298,14 @@ function PlanDetail({
           <p className="text-xs text-muted-foreground">
             Longest matching prefix wins. Prices are per minute in {plan.currency}.
           </p>
-          <Button size="sm" variant="outline" onClick={openCreate}>
-            <Plus className="h-4 w-4 mr-1.5" /> Add rate
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)}>
+              <Upload className="h-4 w-4 mr-1.5" /> Import CSV
+            </Button>
+            <Button size="sm" variant="outline" onClick={openCreate}>
+              <Plus className="h-4 w-4 mr-1.5" /> Add rate
+            </Button>
+          </div>
         </div>
 
         {rates === null ? (
@@ -392,6 +400,18 @@ function PlanDetail({
         confirmLabel="Delete rate"
         onCancel={() => setRateToDelete(null)}
         onConfirm={handleDeleteRate}
+      />
+
+      {/* CSV bulk import */}
+      <ImportDialog
+        planId={plan.id}
+        currency={plan.currency}
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={async () => {
+          await loadRates();
+          onRatesChanged();
+        }}
       />
     </Card>
   );
@@ -616,6 +636,152 @@ function RateDialog({
           <Button onClick={handleSave} disabled={saving || !form?.prefix.trim()}>
             {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Save className="h-4 w-4 mr-1.5" />}
             {creating ? "Add rate" : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── CSV import dialog ──────────────────────────────────
+//
+// Bulk-loads a carrier rate sheet. Accepts a pasted CSV or a picked .csv file;
+// columns are prefix, description, sell, buy, setup, increment, min (only prefix
+// is required, an optional header row is auto-detected). Existing prefixes are
+// overwritten so re-importing an updated sheet is safe.
+
+const CSV_PLACEHOLDER = `prefix,description,sell,buy,setup,increment,min
+1,United States,0.0090,0.0070,0,60,0
+44,United Kingdom,0.0120,0.0090,0,60,0
+91,India,0.0110,0.0085,0,60,0`;
+
+function ImportDialog({
+  planId,
+  currency,
+  open,
+  onClose,
+  onImported,
+}: {
+  planId: number;
+  currency: string;
+  open: boolean;
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const [csv, setCsv] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<RateImportResult | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Reset transient state whenever the dialog is (re)opened.
+  useEffect(() => {
+    if (open) {
+      setCsv("");
+      setError(null);
+      setResult(null);
+      setBusy(false);
+    }
+  }, [open]);
+
+  const pickFile = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setCsv(String(reader.result ?? ""));
+    reader.onerror = () => setError("Could not read that file.");
+    reader.readAsText(file);
+  };
+
+  const handleImport = async () => {
+    if (!csv.trim()) return;
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await goApi.importRates(planId, csv);
+      setResult(res);
+      onImported();
+    } catch (err) {
+      console.error("Rate import failed:", err);
+      setError(err instanceof Error ? err.message : "Import failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Import rates from CSV</DialogTitle>
+          <DialogDescription>
+            Columns: <code className="font-mono">prefix, description, sell, buy, setup, increment, min</code>.
+            Only <code className="font-mono">prefix</code> is required. Prices are per minute in {currency}.
+            Existing prefixes are overwritten.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,text/csv,text/plain"
+            className="hidden"
+            onChange={(e) => pickFile(e.target.files?.[0])}
+          />
+          <div className="flex items-center justify-between gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => fileRef.current?.click()}
+            >
+              <Upload className="h-4 w-4 mr-1.5" /> Choose .csv file
+            </Button>
+            {csv.trim() && (
+              <span className="text-[11px] text-muted-foreground">
+                {csv.trim().split(/\r?\n/).length} line(s) loaded
+              </span>
+            )}
+          </div>
+
+          <textarea
+            value={csv}
+            onChange={(e) => setCsv(e.target.value)}
+            placeholder={CSV_PLACEHOLDER}
+            spellCheck={false}
+            className="w-full h-44 rounded-md border border-input bg-transparent px-3 py-2 text-xs font-mono resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          />
+
+          {error && (
+            <p className="text-xs text-destructive">{error}</p>
+          )}
+
+          {result && (
+            <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs space-y-1">
+              <p className="font-medium text-foreground">
+                Imported: {result.created} added, {result.updated} updated
+                {result.skipped > 0 ? `, ${result.skipped} skipped` : ""}.
+              </p>
+              {result.errors && result.errors.length > 0 && (
+                <ul className="list-disc pl-4 text-muted-foreground max-h-20 overflow-y-auto">
+                  {result.errors.slice(0, 8).map((e, i) => (
+                    <li key={i}>{e}</li>
+                  ))}
+                  {result.errors.length > 8 && <li>…and {result.errors.length - 8} more</li>}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            {result ? "Done" : "Cancel"}
+          </Button>
+          <Button onClick={handleImport} disabled={busy || !csv.trim()}>
+            {busy ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Upload className="h-4 w-4 mr-1.5" />}
+            Import
           </Button>
         </DialogFooter>
       </DialogContent>

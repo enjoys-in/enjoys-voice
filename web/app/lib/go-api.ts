@@ -270,6 +270,14 @@ export interface RateInput {
   min_secs?: number;
 }
 
+/** Summary returned by a CSV bulk rate import. */
+export interface RateImportResult {
+  created: number;
+  updated: number;
+  skipped: number;
+  errors?: string[];
+}
+
 export interface GoForwarding {
   busy?: string | null;
   noAnswer?: string | null;
@@ -459,6 +467,14 @@ export const goApi = {
   deleteRate(planId: number, rateId: number): Promise<{ id: number }> {
     return goRequest<{ id: number }>(`/rate-plans/${planId}/rates/${rateId}`, {
       method: "DELETE",
+    });
+  },
+  /** Bulk-import rates from CSV text (columns: prefix, description, sell, buy,
+   * setup, increment, min). Existing prefixes are overwritten. */
+  importRates(planId: number, csv: string): Promise<RateImportResult> {
+    return goRequest<RateImportResult>(`/rate-plans/${planId}/rates/import`, {
+      method: "POST",
+      body: JSON.stringify({ csv }),
     });
   },
 
