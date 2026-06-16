@@ -217,3 +217,213 @@
 - [ ] Rate-limit `verify/start` (anti-abuse — each call triggers a real, billable
       Twilio call/SMS).
 
+## Call Rate & Cost / Billing System (per-minute rating + CDR cost)
+> **Goal:** attach a **cost** to every outbound (and optionally inbound) call so
+> we can rate calls per-destination, track spend, and (optionally) enforce
+> prepaid **balance**. A call is rated on hang-up: `cost = setupFee + ratePerMin ×
+> billedMinutes`, where `billedMinutes` is the **billed duration** rounded up to
+> the plan's increment (e.g. 60/60 = whole minutes, 1/1 = exact seconds). Two
+> rate layers: **buy rate** (what the trunk/provider charges us) and **sell rate**
+> (what we charge the user) → the difference is our margin.
+>
+> **What already exists to build on:**
+>   - `call_records` already stores `Duration` (secs), `Direction`, `Status`,
+>     `From`/`To`, `StartedAt`/`EndedAt` (`server/internal/models/call.go`) — the
+>     raw CDR. We add cost columns to it, no new CDR table needed.
+>   - Node already computes duration + writes/upserts the record via
+>     `db.logCall` / `db.updateCall` → `CallUpserted` → Postgres write-queue
+>     (`src/services/database.service.ts`, `src/index.ts`). Rating hooks in at the
+>     same terminal-status update that sets `ended`/`answered`.
+>   - Outbound is a single choke point — `ExternalHandler`
+>     (`src/sip/routes/external.handler.ts`) + `TrunkService.routeCall`
+>     (`src/services/trunk.service.ts`) — ideal for a pre-call balance gate.
+>   - Number normalization to E.164 already exists (`formatOutboundUri` /
+>     `DialPlanService.normalizeExternal`) → reuse for prefix/rate matching.
+>   - The Go `/stats` aggregator (`server/internal/repository/call_repo.go`
+>     `Stats`) can be extended to also `SUM(cost)` for the dashboard.
+
+### Data model (Go — system of record)
+- [ ] New `RatePlan` model (`server/internal/models/rate_plan.go`):
+      `{ ID, Name, Currency(size3 'USD'), Default bool, CreatedAt }`. A plan is a
+      named collection of destination rates; users are assigned a plan.
+- [ ] New `Rate` model (`server/internal/models/rate.go`):
+      `{ ID, RatePlanID(index), Prefix(size15,index), Description, SellPerMin
+      numeric(12,5), BuyPerMin numeric(12,5), SetupFee numeric(12,5) default 0,
+      IncrementSecs int default 60, MinSecs int default 0 }`. Match by
+      **longest-prefix** on the dialed E.164 (e.g. `91` India, `9180` Bangalore).
+- [ ] Extend `CallRecord` (`server/internal/models/call.go`): add
+      `Cost numeric(12,5) default 0`, `Currency(size3)`, `RatePrefix(size15)`,
+      `BilledSecs int`, `RatedAt *time.Time`. Additive — Go AutoMigrate handles it.
+      (Node stays the sole WRITER of these too, like the other call columns.)
+- [ ] (If prepaid) New `UserBalance` model
+      (`server/internal/models/balance.go`): `{ Extension(pk/index), Currency,
+      Balance numeric(12,4), UpdatedAt }` + a `BalanceTxn` ledger
+      `{ ID, Extension(index), Amount(+credit/−debit), Reason, CallID, CreatedAt }`
+      so every deduction/top-up is auditable (never just mutate the balance).
+
+### Rate lookup + cost calculation (decide where it runs)
+- [ ] **Pick the rating owner (document it):**
+      (a) **Node rates inline** at call-end: load rates into memory (like users via
+          LISTEN/NOTIFY), compute cost, stamp it on the `CallLog` before the
+          upsert. Pros: one writer, no extra round-trip. ← preferred, matches the
+          existing in-memory + write-queue pattern.
+      (b) **Go rates async**: Node writes the raw CDR, a Go worker rates it after
+          the fact. Pros: keeps money math server-side; Cons: second pass, eventual.
+- [ ] Longest-prefix matcher: given an E.164, find the `Rate` whose `Prefix` is the
+      longest leading match (sort prefixes desc by length; or a trie). Unmatched →
+      a configurable **default rate** or block (decide).
+- [ ] Billed duration: `billedSecs = max(MinSecs, ceil(duration / IncrementSecs) ×
+      IncrementSecs)`; `cost = SetupFee + SellPerMin × billedSecs/60`. Round to the
+      currency's minor unit; store `BilledSecs` + `RatePrefix` for transparency.
+- [ ] Only rate **billable** legs: charge on `answered`/`ended`; **zero cost** for
+      `missed`/`failed`/`unreachable`/`ringing` (no media). Inbound is usually free
+      — make inbound rating opt-in.
+
+### Pre-call balance gate (only if prepaid is enabled)
+- [ ] In `ExternalHandler` (`src/sip/routes/external.handler.ts`), before
+      `routeCall`: look up the caller's balance + the destination sell rate; if
+      `balance < estimatedMinCharge` (setup fee + 1 increment) → reject with a
+      spoken "insufficient balance" (reuse `IvrSystem.playUnavailable` style) or a
+      SIP `402 Payment Required`/`403`. Mirror the existing toll-fraud gate.
+- [ ] **Mid-call cutoff (optional, harder):** compute max affordable seconds from
+      balance and arm a timer to tear the call down near the limit (FreeSWITCH
+      `sched_hangup` / B2BUA timer). Defer if not needed v1.
+- [ ] On call-end: debit `UserBalance` by the computed cost inside a txn that also
+      writes a `BalanceTxn` row referencing the `CallID` (idempotent on retry —
+      guard against double-debit if the upsert runs twice).
+
+### Go API surface (admin rate management + balances)
+- [ ] CRUD for rate plans + rates (admin-only): `GET/POST /api/g/rate-plans`,
+      `GET/PUT/DELETE /api/g/rate-plans/:id`, and nested
+      `GET/POST/PUT/DELETE /api/g/rate-plans/:id/rates`. Follow the existing
+      handler→service→repository→router layering + `response.OK` envelope.
+- [ ] Bulk rate import: `POST /api/g/rate-plans/:id/rates/import` (CSV: prefix,
+      description, sell, buy, setup, increment) — carrier rate sheets are large.
+- [ ] Assign a plan to a user: add `RatePlanID` to `UserSettings`
+      (`server/internal/models/settings.go`) or a join; default plan when unset.
+- [ ] Balances: `GET /api/g/balance/:ext`, `POST /api/g/balance/:ext/topup`
+      (admin/credit), `GET /api/g/balance/:ext/txns` (ledger). Derive `ext` from
+      JWT for self-reads; restrict top-up/rate CRUD to admins.
+- [ ] Extend `/api/g/stats` (`call_repo.go` `Stats`) with `SUM(cost)` total +
+      per-day cost series + cost-by-direction, so spend shows on the dashboard.
+
+### Node wiring (rates in memory + stamp cost)
+- [ ] Load rate plans/rates + the caller's assigned plan into the in-memory store
+      and keep them fresh via the existing Postgres **LISTEN/NOTIFY** sync
+      (`UserSyncListener`/`SettingsSyncListener` pattern in `src/index.ts`); add a
+      `rates` channel so admin edits in Go reflect without a restart.
+- [ ] Add `cost?`, `currency?`, `ratePrefix?`, `billedSecs?` to `CallLog`
+      (`src/core/types.ts`); compute + set them in the same place the terminal
+      status is written (`updateCall(callId, { status:'ended', endTime, … })` in
+      `src/sip/sip.server.ts` / handlers) so the upsert carries the cost.
+
+### Frontend (admin + user)
+- [ ] Admin **Rates** screen: manage rate plans + rates table (prefix, desc, sell,
+      buy, margin, increment), CSV import, assign plans to users. Add methods to
+      `go-api.ts`.
+- [ ] Show **cost** per call in the admin Call Logs + user recents (new column),
+      and **balance** + recent ledger for the user (if prepaid).
+- [ ] Dashboard (`web/app/admin/page.tsx` OverviewTab): add **Total Cost** /
+      **Avg Cost per Call** / **Cost over time** cards+chart from the extended
+      `/stats` (reuse the recharts setup just added).
+
+### Guardrails / edge cases
+- [ ] **Money math = integers or fixed-precision.** Store as `numeric` in
+      Postgres; in JS avoid float drift (use minor units / a decimal lib) — never
+      bill on `0.1 + 0.2`.
+- [ ] Currency: single currency v1 (config `BILLING_CURRENCY`); multi-currency +
+      FX is a later, separate feature.
+- [ ] Idempotency: rating must run **once** per call even though `updateCall` can
+      fire multiple terminal updates — guard with `RatedAt`/CallID.
+- [ ] Missing rate for a destination → **block or default**, never silently
+      free-call premium/international (toll-fraud + revenue leak).
+- [ ] Rounding/increment policy must match the carrier's so margin isn't negative;
+      keep BOTH buy + sell to monitor margin per destination.
+- [ ] Inbound/internal (browser↔browser) calls are free by default — only PSTN
+      outbound is rated unless explicitly configured.
+
+## Join Microsoft Teams Meeting from Phone/Browser (Audio Conferencing dial-in)
+> **Goal:** let our phone/browser user JOIN a Microsoft Teams meeting by having
+> our server dial the meeting's **PSTN Audio-Conferencing number** and then
+> auto-enter the **Conference ID** via DTMF. The user lands in the Teams meeting
+> as a regular phone participant — no Teams/Azure license or SDK on our side.
+>
+> **Why this is the chosen option (vs. Direct Routing / ACS browser SDK):**
+>   - Teams **Direct Routing** is the *opposite* feature (it makes Teams use OUR
+>     trunk) and needs a Microsoft-**certified** SBC — drachtio/FreeSWITCH are not
+>     certified, so it is out.
+>   - **ACS Calling SDK** (native in-browser Teams join) is a separate client +
+>     Azure subscription + per-minute billing — a much larger project.
+>   - **Audio Conferencing dial-in** works on our EXISTING stack TODAY: outbound
+>     PSTN via the trunk + FreeSWITCH MRF for media/DTMF. **Cost is on the meeting
+>     ORGANIZER's tenant** (they need the Audio Conferencing license that prints
+>     the dial-in number), not on us.
+>
+> **What already exists to build on:**
+>   - Outbound PSTN dial: `TrunkService.routeCall` / `formatOutboundUri`
+>     (`src/services/trunk.service.ts`) — `srf.createUAC` B2BUA to the trunk.
+>   - FreeSWITCH MRF media engine: `IvrSystem` already does
+>     `this.ms.connectCaller(req,res)` → `endpoint.speak/play/record` and
+>     `endpoint.execute('set', …)` (`src/sip/ivr.system.ts`). DTMF send is the
+>     same surface: `endpoint.execute('send_dtmf', '<digits>')`.
+>   - `Endpoint.bridge()` / `MediaServer.createConference()` (`src/drachtio-fsmrf.d.ts`).
+>   - Toll-fraud gate (caller must be a registered user) in `ExternalHandler`
+>     (`src/sip/routes/external.handler.ts`) — reuse the same guard here.
+
+### Trigger / entry point (how a user starts a join)
+- [ ] **Decide the trigger** (pick one, document it):
+      (a) **WS action** (preferred for the browser UI): add a `join_meeting`
+          message to `src/websocket/signaling.server.ts` with
+          `{ pstnNumber, conferenceId }`; the server originates the call.
+      (b) Special dialed string the dial plan recognizes (e.g.
+          `**teams*<number>*<confId>#`) parsed in
+          `src/services/dialplan.service.ts` → new `RouteType.TeamsMeeting`.
+- [ ] Frontend: a "Join Teams meeting" panel — fields for **dial-in number** +
+      **Conference ID**, OR a single textarea to **paste the meeting invite** and
+      auto-extract both (regex e.g. `Phone Conference ID:\s*([\d\s]+)#?` and the
+      toll/toll-free number). A "Join" button fires the trigger.
+
+### Server media flow (answer → dial Teams → DTMF the ID → bridge)
+- [ ] New handler (e.g. `src/sip/routes/teams-meeting.handler.ts`) or an
+      `IvrSystem` method modeled on `recordVoicemail`/`playUnavailable`:
+  - [ ] `connectCaller(req,res)` to answer the user's A-leg onto a FreeSWITCH
+        endpoint (optionally `speak` a "connecting you to the meeting" prompt).
+  - [ ] Originate the **B-leg** to the Teams dial-in number via the trunk
+        (reuse `formatOutboundUri` for E.164 normalization + trunk auth/From).
+  - [ ] After the B-leg ANSWERS and Teams' IVR prompts, send the Conference ID:
+        `endpoint.execute('send_dtmf', '<conferenceId>#')` on the **B-leg toward
+        Teams** (append `#`; some flows also need a trailing confirmation key).
+  - [ ] **Bridge** A-leg ↔ B-leg (`endpoint.bridge(...)`) so the user is in the
+        meeting; tear down both legs on either hangup (mirror the
+        `uac/uas .on('destroy')` cleanup in `TrunkService.routeCall`).
+- [ ] **DTMF timing:** Teams won't accept digits until its greeting starts. Either
+      wait a fixed delay, or (better) gate on B-leg answer + a short pause before
+      `send_dtmf`. Make the pause/`#` behavior configurable.
+- [ ] **DTMF transport:** ensure RFC 2833 / telephone-event is negotiated on the
+      trunk leg (Teams dial-in expects out-of-band DTMF). Verify the trunk’s
+      codec/2833 settings; fall back to inband only if required.
+
+### Config / metadata
+- [ ] Optional convenience config: a default/known Teams dial-in number per
+      region so users only paste the **Conference ID** (the number rarely changes
+      per tenant). Keep per-call override.
+- [ ] Outbound CLI on the Teams leg is irrelevant to dial-in (Teams identifies the
+      participant by Conference ID, not CLI) — use the shared
+      `TRUNK_CALLER_NUMBER`; this is independent of the BYON caller-ID feature.
+
+### Guardrails / edge cases
+- [ ] **Reuse the toll-fraud gate:** only a **registered** user may trigger a join
+      (same check as `ExternalHandler`) so this path can't be abused to dial
+      arbitrary/premium numbers. Rate-limit join attempts.
+- [ ] Wrong/expired Conference ID → Teams re-prompts or rejects; add a timeout +
+      spoken "couldn't join the meeting" fallback, then hang up cleanly.
+- [ ] International dial-in numbers → normalize via `formatOutboundUri`; allow the
+      user to pick the toll vs toll-free number from the invite.
+- [ ] Record the attempt in call history (`db.logCall`) with a recognizable
+      target (e.g. `teams:<confId>`) so it shows in recents/stats.
+- [ ] **Licensing note (document in UI):** joining works only if the meeting
+      ORGANIZER's tenant has **Audio Conferencing** enabled (that's what generates
+      the dial-in number + Conference ID). Nothing to license on our side.
+- [ ] (Optional, later) Outbound name/announcement: have FreeSWITCH speak the
+      caller's name on entry, or DTMF-send a PIN if the meeting requires one.
+
