@@ -30,3 +30,7 @@ func (s *callService) Create(ctx context.Context, call *models.CallRecord) error
 func (s *callService) DeleteByExtension(ctx context.Context, ext string) (int64, error) {
 	return s.callRepo.DeleteByExtension(ctx, ext)
 }
+
+func (s *callService) Stats(ctx context.Context, days int) (*models.CallStats, error) {
+	return s.callRepo.Stats(ctx, days)
+}

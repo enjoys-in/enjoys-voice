@@ -3,6 +3,19 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming } from "lucide-react";
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  Cell,
+} from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,10 +23,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, type UserResponse, type HealthResponse } from "../lib/api";
-import { goApi } from "../lib/go-api";
+import { goApi, type CallStats } from "../lib/go-api";
+import { useLiveMetrics } from "../hooks/useLiveMetrics";
 import { CallRecordStatus, type CallRecord } from "../types";
 
 type Tab = "overview" | "users" | "calls" | "config";
+
+// Selectable stats windows (days) for the dashboard aggregate metrics/charts.
+const RANGE_OPTIONS = [7, 14, 30] as const;
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("overview");
@@ -21,10 +38,32 @@ export default function AdminPage() {
   const [users, setUsers] = useState<UserResponse[]>([]);
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<CallStats | null>(null);
+  const [statsDays, setStatsDays] = useState<number>(7);
+  const [statsLoading, setStatsLoading] = useState(true);
 
   useEffect(() => {
     loadData();
   }, []);
+
+  // Aggregate stats reload whenever the selected range changes (independent of
+  // the health/users/calls load so switching ranges only re-hits /stats).
+  useEffect(() => {
+    let active = true;
+    setStatsLoading(true);
+    goApi
+      .getStats(statsDays)
+      .then((s) => {
+        if (active) setStats(s);
+      })
+      .catch((err) => console.error("Failed to load stats:", err))
+      .finally(() => {
+        if (active) setStatsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [statsDays]);
 
   const loadData = async () => {
     setLoading(true);
@@ -96,7 +135,18 @@ export default function AdminPage() {
       <main className="flex-1 overflow-hidden">
         <ScrollArea className="h-full">
           <div className="p-6 space-y-6 max-w-5xl">
-            {tab === "overview" && <OverviewTab health={health} users={users} calls={calls} loading={loading} />}
+            {tab === "overview" && (
+              <OverviewTab
+                health={health}
+                users={users}
+                calls={calls}
+                loading={loading}
+                stats={stats}
+                statsDays={statsDays}
+                statsLoading={statsLoading}
+                onRangeChange={setStatsDays}
+              />
+            )}
             {tab === "users" && <UsersTab users={users} loading={loading} onRefresh={loadData} />}
             {tab === "calls" && <CallsTab calls={calls} loading={loading} />}
             {tab === "config" && <ConfigTab />}
@@ -114,34 +164,146 @@ function OverviewTab({
   users,
   calls,
   loading,
+  stats,
+  statsDays,
+  statsLoading,
+  onRangeChange,
 }: {
   health: HealthResponse | null;
   users: UserResponse[];
   calls: CallRecord[];
   loading: boolean;
+  stats: CallStats | null;
+  statsDays: number;
+  statsLoading: boolean;
+  onRangeChange: (days: number) => void;
 }) {
+  // Live engine metrics (active concurrency / peak CPS). Hook is called before
+  // any early return to satisfy the rules of hooks.
+  const { metrics: live, connected } = useLiveMetrics();
+
   if (loading) return <OverviewSkeleton />;
 
   const online = users.filter((u) => u.registered).length;
+  const connRate = stats ? Math.round(stats.connectionRate * 100) : null;
+  const abandonRate = stats ? Math.round(stats.abandonedRate * 100) : null;
 
   return (
     <>
-      <h2 className="text-2xl font-bold">Dashboard</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Status" value={health?.status === "ok" ? "Online" : "Offline"} color={health?.status === "ok" ? "text-emerald-500" : "text-destructive"} />
-        <StatCard title="Users" value={`${online} / ${users.length}`} sub="online / total" />
-        <StatCard title="Calls" value={calls.length.toString()} sub="total logged" />
-        <StatCard title="Uptime" value={health ? formatUptime(health.uptime) : "-"} />
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <h2 className="text-2xl font-bold">Dashboard</h2>
+        <div className="flex items-center gap-2">
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground/40"}`} />
+            {connected ? "Live" : "Offline"}
+          </span>
+          <Separator orientation="vertical" className="h-5" />
+          <div className="flex rounded-lg border border-border/50 p-0.5">
+            {RANGE_OPTIONS.map((d) => (
+              <button
+                key={d}
+                onClick={() => onRangeChange(d)}
+                className={`px-2.5 py-1 rounded-md text-xs transition-colors ${
+                  statsDays === d
+                    ? "bg-accent text-accent-foreground font-medium"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
+
+      {/* Live engine metrics */}
+      <div>
+        <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Live</p>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            title="Active Calls"
+            value={live ? live.activeTotal.toString() : "-"}
+            sub={live ? `${live.activeInbound} in · ${live.activeOutbound} out` : "in / out"}
+            color={live && live.activeTotal > 0 ? "text-emerald-500" : undefined}
+          />
+          <StatCard title="Max Concurrent" value={live ? live.maxConcurrent.toString() : "-"} sub="since start" />
+          <StatCard title="Peak Inbound Channels" value={live ? live.peakInboundConcurrent.toString() : "-"} sub="concurrent" />
+          <StatCard
+            title="Outbound CPS"
+            value={live ? live.outboundCurrentCps.toString() : "-"}
+            sub={live ? `peak ${live.outboundPeakCps}/s` : "calls / sec"}
+          />
+        </div>
+      </div>
+
+      {/* Aggregate metrics (last N days) */}
+      <div>
+        <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
+          Last {statsDays} days
+        </p>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard title="Number of Calls" value={stats ? stats.totalCalls.toLocaleString() : "-"} sub={`${stats?.inbound ?? 0} in · ${stats?.outbound ?? 0} out`} />
+          <StatCard
+            title="Connection Rate"
+            value={connRate !== null ? `${connRate}%` : "-"}
+            sub="answered / total"
+            color={connRate !== null && connRate >= 50 ? "text-emerald-500" : connRate !== null ? "text-amber-500" : undefined}
+          />
+          <StatCard
+            title="Abandoned Calls"
+            value={abandonRate !== null ? `${abandonRate}%` : "-"}
+            sub="missed + failed"
+            color={abandonRate !== null && abandonRate > 30 ? "text-destructive" : undefined}
+          />
+          <StatCard title="Avg Duration" value={stats ? formatDuration(stats.avgDuration) : "-"} sub="answered calls" />
+        </div>
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="border-border/50 bg-card/50 lg:col-span-2">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Calls Over Time</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {statsLoading ? (
+              <Skeleton className="h-64 w-full rounded-lg" />
+            ) : stats && stats.series.length > 0 ? (
+              <CallsOverTimeChart series={stats.series} />
+            ) : (
+              <EmptyChart label="No calls in this range" />
+            )}
+          </CardContent>
+        </Card>
+        <Card className="border-border/50 bg-card/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Status Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {statsLoading ? (
+              <Skeleton className="h-64 w-full rounded-lg" />
+            ) : stats && stats.statusBreakdown.length > 0 ? (
+              <StatusBreakdownChart data={stats.statusBreakdown} />
+            ) : (
+              <EmptyChart label="No data" />
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* System + recent calls */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card className="border-border/50 bg-card/50">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">System</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
+            <Row label="Status" value={health?.status === "ok" ? "Online" : "Offline"} />
             <Row label="SIP Connected" value={health?.sipConnected ? "Yes" : "No"} />
             <Row label="IVR Active" value={health?.ivrActive ? "Yes" : "No"} />
             <Row label="Trunk Enabled" value={health?.trunkEnabled ? "Yes" : "No"} />
+            <Row label="Users Online" value={`${online} / ${users.length}`} />
+            <Row label="Uptime" value={health ? formatUptime(health.uptime) : "-"} />
           </CardContent>
         </Card>
         <Card className="border-border/50 bg-card/50">
@@ -162,6 +324,90 @@ function OverviewTab({
     </>
   );
 }
+
+// ─── Dashboard charts ──────────────────────────────────
+
+// Status → fill color (theme-independent so bars stay legible in both modes).
+const STATUS_COLORS: Record<string, string> = {
+  answered: "#10b981",
+  ended: "#10b981",
+  ringing: "#0ea5e9",
+  voicemail: "#8b5cf6",
+  missed: "#f59e0b",
+  failed: "#ef4444",
+  unreachable: "#ef4444",
+};
+
+const CHART_TOOLTIP_STYLE = {
+  background: "var(--popover)",
+  border: "1px solid var(--border)",
+  borderRadius: 8,
+  fontSize: 12,
+  color: "var(--popover-foreground)",
+} as const;
+
+function CallsOverTimeChart({ series }: { series: CallStats["series"] }) {
+  const data = series.map((b) => ({
+    date: b.date.slice(5), // MM-DD
+    Inbound: b.inbound,
+    Outbound: b.outbound,
+  }));
+  return (
+    <div className="h-64 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+          <defs>
+            <linearGradient id="inboundFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#6366f1" stopOpacity={0.5} />
+              <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="outboundFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#10b981" stopOpacity={0.5} />
+              <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickLine={false} axisLine={false} />
+          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickLine={false} axisLine={false} width={32} />
+          <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          <Area type="monotone" dataKey="Inbound" stroke="#6366f1" strokeWidth={2} fill="url(#inboundFill)" />
+          <Area type="monotone" dataKey="Outbound" stroke="#10b981" strokeWidth={2} fill="url(#outboundFill)" />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function StatusBreakdownChart({ data }: { data: CallStats["statusBreakdown"] }) {
+  const rows = data.map((d) => ({ status: d.status, count: d.count }));
+  return (
+    <div className="h-64 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 12, left: 8, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickLine={false} axisLine={false} />
+          <YAxis type="category" dataKey="status" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickLine={false} axisLine={false} width={78} />
+          <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={{ fill: "var(--accent)", opacity: 0.3 }} />
+          <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+            {rows.map((r) => (
+              <Cell key={r.status} fill={STATUS_COLORS[r.status] ?? "#64748b"} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function EmptyChart({ label }: { label: string }) {
+  return (
+    <div className="h-64 w-full flex items-center justify-center text-sm text-muted-foreground">
+      {label}
+    </div>
+  );
+}
+
 
 // ─── Users Tab ─────────────────────────────────────────
 
@@ -285,14 +531,23 @@ function OverviewSkeleton() {
   return (
     <>
       <Skeleton className="h-8 w-40" />
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <Skeleton key={i} className="h-24 w-full rounded-xl" />
         ))}
       </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-24 w-full rounded-xl" />
+        ))}
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Skeleton className="h-80 w-full rounded-xl lg:col-span-2" />
+        <Skeleton className="h-80 w-full rounded-xl" />
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Skeleton className="h-44 w-full rounded-xl" />
-        <Skeleton className="h-44 w-full rounded-xl" />
+        <Skeleton className="h-52 w-full rounded-xl" />
+        <Skeleton className="h-52 w-full rounded-xl" />
       </div>
     </>
   );
@@ -357,4 +612,12 @@ function formatUptime(seconds: number): string {
   const m = Math.floor((seconds % 3600) / 60);
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
+}
+
+function formatDuration(seconds: number): string {
+  if (!seconds || seconds <= 0) return "0s";
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
 }

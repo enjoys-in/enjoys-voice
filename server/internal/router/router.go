@@ -100,6 +100,9 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 			protected.GET("/calls/:ext", h.Call.GetByExtension)
 			protected.DELETE("/calls/:ext", h.Call.DeleteByExtension)
 
+			// Dashboard stats (aggregate call metrics)
+			protected.GET("/stats", h.Call.Stats)
+
 			// Block list
 			protected.GET("/block/:ext", h.Block.Get)
 			protected.POST("/block/:ext", h.Block.Add)

@@ -3,6 +3,7 @@ import cors from 'cors';
 import { createHandlers } from '@enjoys/exception';
 import { config } from '@/core';
 import { DatabaseService, TrunkService } from '@/services';
+import type { CallMetricsService } from '@/services';
 import { SipServer } from '@/sip';
 import type { ITrunkProvider } from '@/trunk';
 import { streamingConfig, createStreamingWebhookRouter } from '@/trunk/streaming';
@@ -21,6 +22,7 @@ export class HttpServer {
     private trunk: TrunkService,
     private sip: SipServer,
     private trunkProvider?: ITrunkProvider,
+    private metrics?: CallMetricsService,
   ) {
     this.app = express();
     this.configure();
@@ -53,7 +55,7 @@ export class HttpServer {
     this.app.use(apiRateLimit);
     // Mounted under /api/n (Node) so a single domain can route both backends via
     // Caddy ( /api/n/* -> Node, /api/g/* -> Go ). Dev also separates by port 3001.
-    this.app.use('/api/n', createRoutes(this.db, this.trunk, this.sip, this.trunkProvider));
+    this.app.use('/api/n', createRoutes(this.db, this.trunk, this.sip, this.trunkProvider, this.metrics));
 
     // Any request that fell through the routes above is unknown → throw a 404,
     // then format every error through the central handler. Mounted pathless

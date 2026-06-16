@@ -180,6 +180,45 @@ export interface GoLookupResponse {
   mobile: string;
 }
 
+// ─── Dashboard stats ────────────────────────────────────
+
+/** One status slice of the call-status breakdown. */
+export interface StatusCount {
+  status: string;
+  count: number;
+}
+
+/** One day of the calls-over-time series (oldest → newest). */
+export interface CallStatsBucket {
+  date: string; // YYYY-MM-DD
+  total: number;
+  inbound: number;
+  outbound: number;
+  answered: number;
+}
+
+/**
+ * Aggregate, read-only call metrics computed by the Go API over call_records
+ * (GET /api/g/stats?days=N). Rates are 0..1 fractions; durations are seconds.
+ */
+export interface CallStats {
+  rangeDays: number;
+  totalCalls: number;
+  answered: number;
+  missed: number;
+  failed: number;
+  voicemail: number;
+  unreachable: number;
+  inbound: number;
+  outbound: number;
+  connectionRate: number;
+  abandonedRate: number;
+  avgDuration: number;
+  totalDuration: number;
+  statusBreakdown: StatusCount[];
+  series: CallStatsBucket[];
+}
+
 // ─── Client ─────────────────────────────────────────────
 
 export const goApi = {
@@ -298,6 +337,12 @@ export const goApi = {
     return goRequest<unknown>(`/calls/${encodeURIComponent(ext)}`, {
       method: "DELETE",
     }).then(() => undefined);
+  },
+
+  // Aggregate dashboard metrics over call_records for the last `days` days
+  // (default 7). Read-only; computed on demand by the Go API.
+  getStats(days = 7): Promise<CallStats> {
+    return goRequest<CallStats>(`/stats?days=${encodeURIComponent(days)}`);
   },
 
   // IVR flows

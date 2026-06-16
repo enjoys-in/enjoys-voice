@@ -3,6 +3,7 @@ import {
   DatabaseService,
   TrunkService,
   AuditService,
+  CallMetricsService,
   createRegistrationStore,
   UserSyncListener,
   SettingsSyncListener,
@@ -25,6 +26,7 @@ class Application {
   private trunk: TrunkService;
   private twilioTrunk?: ITrunkProvider;
   private audit: AuditService;
+  private metrics: CallMetricsService;
   private sip: SipServer;
   private ws: SignalingServer;
   private http: HttpServer;
@@ -41,10 +43,18 @@ class Application {
     // ALONGSIDE the legacy SIP TrunkService — it does not replace it.
     this.twilioTrunk = createTrunkProvider('twilio');
     this.audit = new AuditService();
+    // Live call-concurrency / CPS tracker for the admin dashboard. Listens to
+    // the DatabaseService's CallUpserted event, so it sees every call leg
+    // without per-handler hooks.
+    this.metrics = new CallMetricsService(this.db);
     const registrationStore = createRegistrationStore();
     this.sip = new SipServer(this.db, this.trunk, registrationStore, this.audit);
     this.ws = new SignalingServer(this.db);
-    this.http = new HttpServer(this.db, this.trunk, this.sip, this.twilioTrunk);
+    // Stream live metric snapshots to subscribed dashboard clients, and let the
+    // WS serve the current snapshot on subscribe.
+    this.ws.setMetricsProvider(() => this.metrics.getSnapshot());
+    this.metrics.on('snapshot', (s) => this.ws.broadcastMetrics(s));
+    this.http = new HttpServer(this.db, this.trunk, this.sip, this.twilioTrunk, this.metrics);
     // Twilio media-streaming WS server (separate port, like SignalingServer). Its
     // HTTP voice webhook rides on the existing HttpServer above. Opt-in via
     // MEDIA_STREAM_ENABLED; MEDIA_STREAM_MODE selects log|bridge|ai.
@@ -137,6 +147,9 @@ class Application {
     // Wire SIP call events → WebSocket notifications
     this.sip.setNotifier((ext, event, data) => this.ws.notifyCallEvent(ext, event, data));
 
+    // Begin the live-metrics heartbeat (dashboard concurrency/CPS feed).
+    this.metrics.start();
+
     await this.sip.start();
     this.ws.start();
     this.http.start();
@@ -146,6 +159,7 @@ class Application {
   /** Best-effort graceful shutdown: persist any buffered audit events before exit. */
   async shutdown(): Promise<void> {
     this.media?.stop();
+    this.metrics.stop();
     await this.audit.stop();
   }
 }

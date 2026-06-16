@@ -26,3 +26,39 @@ type CallRecord struct {
 }
 
 func (CallRecord) TableName() string { return "call_records" }
+
+// CallStats is an aggregate, read-only view of the call_records table used by
+// the admin dashboard. It is computed on demand (COUNT/GROUP BY) and is NOT a
+// persisted table — it has no TableName and is never auto-migrated.
+type CallStats struct {
+	RangeDays       int               `json:"rangeDays"`
+	TotalCalls      int64             `json:"totalCalls"`
+	Answered        int64             `json:"answered"`
+	Missed          int64             `json:"missed"`
+	Failed          int64             `json:"failed"`
+	Voicemail       int64             `json:"voicemail"`
+	Unreachable     int64             `json:"unreachable"`
+	Inbound         int64             `json:"inbound"`
+	Outbound        int64             `json:"outbound"`
+	ConnectionRate  float64           `json:"connectionRate"` // answered / total (0..1)
+	AbandonedRate   float64           `json:"abandonedRate"`  // (missed+unreachable+failed) / total (0..1)
+	AvgDuration     int64             `json:"avgDuration"`    // seconds, answered legs only
+	TotalDuration   int64             `json:"totalDuration"`  // seconds
+	StatusBreakdown []StatusCount     `json:"statusBreakdown"`
+	Series          []CallStatsBucket `json:"series"` // per-day, oldest → newest
+}
+
+// StatusCount is one slice of the status breakdown (status → count).
+type StatusCount struct {
+	Status string `json:"status"`
+	Count  int64  `json:"count"`
+}
+
+// CallStatsBucket is one day of the calls-over-time series.
+type CallStatsBucket struct {
+	Date     string `json:"date"` // YYYY-MM-DD
+	Total    int64  `json:"total"`
+	Inbound  int64  `json:"inbound"`
+	Outbound int64  `json:"outbound"`
+	Answered int64  `json:"answered"`
+}

@@ -21,7 +21,7 @@ export class ExternalHandler implements RouteHandler {
       services.audit?.log('call_blocked', caller || 'unknown', {
         reason: 'unregistered_external', to: route.normalizedNumber, callId: ctx.callId,
       }, ctx.req.source_address);
-      services.db.updateCall(ctx.callId, { status: 'failed' });
+      services.db.updateCall(ctx.callId, { status: 'failed', direction: 'outbound' });
       ctx.res.send(403, 'Forbidden');
       return true;
     }

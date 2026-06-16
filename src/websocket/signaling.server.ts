@@ -5,6 +5,7 @@ import path from 'path';
 import { config, verifyAccessToken, parseCookies } from '@/core';
 import type { JwtClaims } from '@/core';
 import { DatabaseService } from '@/services';
+import type { MetricsSnapshot } from '@/services';
 
 interface WsClient {
   ws: WebSocket;
@@ -17,8 +18,17 @@ interface WsClient {
 export class SignalingServer {
   private wss!: WsServer;
   private clients = new Map<string, WsClient>();
+  // Clients that opted in to live dashboard metrics (admin dashboard). Kept
+  // separate from `clients` so normal users never receive metric pushes.
+  private metricsSubscribers = new Set<WsClient>();
+  private metricsProvider?: () => MetricsSnapshot;
 
   constructor(private db: DatabaseService) {}
+
+  /** Supply the current-metrics getter (wired to CallMetricsService). */
+  setMetricsProvider(fn: () => MetricsSnapshot): void {
+    this.metricsProvider = fn;
+  }
 
   start(): void {
     this.wss = new WsServer({
@@ -61,11 +71,13 @@ export class SignalingServer {
 
       ws.on('close', () => {
         if (client.extension) this.clients.delete(client.extension);
+        this.metricsSubscribers.delete(client);
         this.broadcastPresence();
       });
 
       ws.on('error', () => {
         if (client.extension) this.clients.delete(client.extension);
+        this.metricsSubscribers.delete(client);
       });
     });
   }
@@ -105,6 +117,12 @@ export class SignalingServer {
         break;
       case 'recording':
         this.handleRecording(client, msg);
+        break;
+      case 'subscribe_metrics':
+        this.handleSubscribeMetrics(client);
+        break;
+      case 'unsubscribe_metrics':
+        this.metricsSubscribers.delete(client);
         break;
       default:
         this.send(client.ws, { type: 'error', message: `Unknown type: ${msg.type}` });
@@ -273,6 +291,33 @@ export class SignalingServer {
     const client = this.clients.get(extension);
     if (client?.authenticated && client.ws.readyState === WebSocket.OPEN) {
       this.send(client.ws, { type: 'call_event', event, ...data });
+    }
+  }
+
+  /**
+   * Add an authenticated client to the live-metrics feed and immediately push
+   * the current snapshot so the dashboard paints without waiting for the next
+   * change/heartbeat.
+   */
+  private handleSubscribeMetrics(client: WsClient): void {
+    if (!client.authenticated) {
+      this.send(client.ws, { type: 'error', message: 'Not authenticated' });
+      return;
+    }
+    this.metricsSubscribers.add(client);
+    if (this.metricsProvider) {
+      this.send(client.ws, { type: 'metrics', ...this.metricsProvider() });
+    }
+  }
+
+  /** Push a metrics snapshot to every subscribed client (called per change). */
+  broadcastMetrics(snapshot: MetricsSnapshot): void {
+    for (const client of this.metricsSubscribers) {
+      if (client.ws.readyState === WebSocket.OPEN) {
+        client.ws.send(JSON.stringify({ type: 'metrics', ...snapshot }));
+      } else {
+        this.metricsSubscribers.delete(client);
+      }
     }
   }
 

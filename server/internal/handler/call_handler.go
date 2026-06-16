@@ -108,3 +108,21 @@ func (h *CallHandler) DeleteByExtension(c *gin.Context) {
 	}
 	response.OK(c, gin.H{"deleted": deleted})
 }
+
+// Stats → GET /stats?days=N : aggregate call metrics for the admin dashboard
+// (totals, connection/abandoned rates, direction split, status breakdown, and a
+// per-day series). Defaults to the last 7 days; clamped to 1..365.
+func (h *CallHandler) Stats(c *gin.Context) {
+	days := 7
+	if v := c.Query("days"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			days = n
+		}
+	}
+	stats, err := h.callSvc.Stats(c.Request.Context(), days)
+	if err != nil {
+		response.Internal(c, "Failed to compute stats")
+		return
+	}
+	response.OK(c, stats)
+}

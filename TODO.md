@@ -121,3 +121,99 @@
 - [ ] Frontend: add `dnd` to the settings store + a toggle in `SettingsScreen`
       and persist via the Go settings update (`go-api.ts`)
 
+## Outbound Caller ID — Verified BYON (per-user real number)
+> **Goal:** a browser→PSTN call presents the *caller's own* real mobile as the
+> Caller ID (CLI), not one shared company number. Browser↔browser keeps using the
+> **extension** (it never touches the trunk, so no CLI rules apply). The IVR /
+> inbound hotline keeps its own **shared** number (toll-free) — intentionally
+> separate, no change needed: the dial plan already routes `5000` / `1800*` /
+> `800*…` to IVR (`src/services/dialplan.service.ts`), distinct from user calls.
+>
+> **Why this isn't just "set the From header" — two independent trust layers:**
+>   1. *App trust* — the user controls that SIM (who they are to us).
+>   2. *Carrier authorization* — the trunk is **allowed** to present that number
+>      as `From`. Enforced by the provider + STIR/SHAKEN. **This is the layer that
+>      actually decides whether the call goes through.**
+> Proving layer 1 alone is not enough: if the number isn't registered as a
+> **Verified Caller ID on the trunk account**, the provider rejects it, overrides
+> the `From`, or STIR/SHAKEN flags it as spoofed.
+>
+> **Decision (this iteration): use PROVIDER-NATIVE verification. Do NOT build our
+> own SMS OTP sender.** The provider (Twilio *Outgoing Caller IDs* API) places the
+> verification call/SMS to the user's number and reads them a code; we just
+> confirm it. The number then becomes verified *on our account* → only then may we
+> present it. `trunk.sendSms` stays **unused** for this feature. Only **Twilio** is
+> wired into the live app today (`src/index.ts`); Telnyx/Plivo/Vonage providers are
+> dormant, so BYON starts Twilio-only.
+
+### Data model (Go) — store the verified number + status
+- [ ] Extend `UserSettings` (`server/internal/models/settings.go`, already holds
+      `PstnMobile` + `PstnCountryCode`): add `OutboundCallerId string` (E.164),
+      `CallerIdVerified bool` (default false), `CallerIdVerifiedAt *time.Time`, and
+      `CallerIdValidationSid string` (the Twilio validation-request id). Mirror the
+      first three into `SettingsResponse`.
+- [ ] Additive migration columns (Go AutoMigrate handles it). Do **not** treat
+      `User.Mobile` as "verified for outbound" — it's only the signup number.
+- [ ] Accept the fields in the settings update handler/service, but keep
+      `CallerIdVerified` / `...At` **read-only to the client** — only the verify
+      flow may flip them.
+
+### Verification flow (provider-native, NO self-sent SMS)
+- [ ] Go: `POST /api/g/caller-id/verify/start` — body `{ number, countryCode }`.
+      Normalize to E.164, then create a Twilio **Validation Request**
+      (`/2010-04-01/Accounts/{Sid}/OutgoingCallerIds`). Twilio calls/texts the
+      number with a 6-digit code. Persist the returned `ValidationRequestSid`;
+      respond `{ status: "pending" }`. (Twilio speaks/sends the code — we send nothing.)
+- [ ] Go: `POST /api/g/caller-id/verify/confirm` — Twilio finalizes once the user
+      enters the code on the call, so "confirm" really means *re-check status*:
+      look up the `OutgoingCallerId` by number; when present → set
+      `CallerIdVerified=true`, `CallerIdVerifiedAt=now`, `OutboundCallerId=<number>`.
+- [ ] Go: `GET /api/g/caller-id` — return `{ number, verified, verifiedAt }`.
+- [ ] Go: `DELETE /api/g/caller-id` — clear the verified CLI **and** delete the
+      Twilio `OutgoingCallerId`, so the user can re-verify a different number.
+- [ ] Ownership: derive `extension` / `user_id` from the JWT
+      (`c.GetString("extension")`), never from the request body (same IDOR fix as
+      voicemail/sounds).
+- [ ] **Out of scope (explicit):** our own SMS OTP sender (`trunk.sendSms`) — the
+      provider performs the verification.
+
+### Outbound `From` override (Node SIP path)
+- [ ] Node: add `outboundCallerId?: string` to `SipUser` (`src/core/types.ts`),
+      populated by the existing settings LISTEN/NOTIFY sync that already carries
+      mobile/forwarding (`src/services/database.service.ts` → `hydrateUserDetail`).
+- [ ] `ExternalHandler` (`src/sip/routes/external.handler.ts`) already resolves the
+      registered caller — look up that user's `outboundCallerId` and pass it into
+      `routeCall(...)` as a new `callerId` argument.
+- [ ] `TrunkService.routeCall` (`src/services/trunk.service.ts`) currently hardcodes
+      `From: <sip:{config.trunk.callerNumber}@host>` — use the passed `callerId`
+      when present, else fall back to `config.trunk.callerNumber`.
+- [ ] **Fallback policy (decide + document):** when a user has **no** verified
+      caller ID → either (a) block outbound PSTN with a clear "verify your number"
+      error, or (b) fall back to the shared `TRUNK_CALLER_NUMBER`.
+
+### Frontend
+- [ ] `SettingsScreen`: a "Caller ID" panel — show the current verified number and
+      a "Verify my number" button → calls `/caller-id/verify/start`, then shows
+      "Twilio is calling you, enter the code", then a "Done / refresh" that calls
+      confirm. Surface the verified / pending / none states.
+- [ ] Add the endpoints to `go-api.ts`; add the fields to the settings store.
+- [ ] If outbound is blocked while unverified, the dialer should explain why and
+      deep-link to the verify panel.
+
+### IVR / inbound — unchanged (shared toll-free), note only
+- [ ] No change required: IVR keeps its own **shared** business number; the dial
+      plan already classifies `5000` / `18\d{8}` / `1800*` / `800*…` as
+      `RouteType.IVR` (`src/services/dialplan.service.ts`), separate from per-user
+      outbound CLI.
+
+### Guardrails / edge cases
+- [ ] STIR/SHAKEN: a verified-but-not-owned number gets ~B-level attestation (fine
+      for most; a few carriers may still label the call). Full A-level needs an
+      **owned** DID (a larger, separate feature).
+- [ ] Re-verify on number change; expire/invalidate stale verifications; one
+      verified CLI per user for now.
+- [ ] Provider lock-in: verified caller ID is per-provider (Twilio-only until the
+      other providers are wired into the live app).
+- [ ] Rate-limit `verify/start` (anti-abuse — each call triggers a real, billable
+      Twilio call/SMS).
+

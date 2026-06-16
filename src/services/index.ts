@@ -1,6 +1,8 @@
 export { DatabaseService } from './database.service';
 export { TrunkService } from './trunk.service';
 export { AuditService } from './audit.service';
+export { CallMetricsService } from './metrics.service';
+export type { MetricsSnapshot } from './metrics.service';
 export { DialPlanService, RouteType } from './dialplan.service';
 export { createRegistrationStore, MemoryRegistrationStore, RedisRegistrationStore } from './registration';
 export type { RegistrationStore } from './registration';

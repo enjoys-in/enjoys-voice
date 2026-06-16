@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { DatabaseService, TrunkService } from '@/services';
+import type { CallMetricsService } from '@/services';
 import { SipServer } from '@/sip';
 import type { ITrunkProvider, MediaStreamTrack } from '@/trunk';
 import { config } from '@/core';
@@ -13,6 +14,7 @@ export function createRoutes(
   trunk: TrunkService,
   sip: SipServer,
   trunkProvider?: ITrunkProvider,
+  metrics?: CallMetricsService,
 ): Router {
   const router = Router();
 
@@ -25,6 +27,16 @@ export function createRoutes(
       trunkEnabled: trunk.isEnabled,
       uptime: process.uptime(),
     });
+  });
+
+  // ─── Live metrics ────────────────────────────────────
+  // Real-time call concurrency / CPS snapshot for the admin dashboard. The same
+  // data streams over the signaling WS (`metrics` event); this REST route gives
+  // the dashboard its first paint and a non-WS fallback. Auth-guarded since it
+  // exposes system-wide call activity.
+  router.get('/metrics', requireAuth, (_req: Request, res: Response) => {
+    if (!metrics) { fail(res, 503, 'Metrics not available'); return; }
+    ok(res, metrics.getSnapshot());
   });
 
   // The Go API (/api/g) is the system of record for persistent, per-user CRUD

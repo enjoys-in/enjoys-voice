@@ -25,6 +25,22 @@ export interface HealthResponse {
   uptime: number;
 }
 
+/**
+ * Live call-engine metrics snapshot from the Node SIP server
+ * (GET /api/n/metrics, also streamed over the signaling WS `metrics` event).
+ */
+export interface LiveMetrics {
+  activeTotal: number;
+  activeInbound: number;
+  activeOutbound: number;
+  maxConcurrent: number;
+  peakInboundConcurrent: number;
+  outboundCurrentCps: number;
+  outboundPeakCps: number;
+  since: string;
+  updatedAt: string;
+}
+
 export interface UserResponse {
   extension: string;
   name: string;
@@ -149,6 +165,9 @@ async function request<T>(
 export const api = {
   // Health
   health: () => request<HealthResponse>("/health"),
+
+  // Live call-engine metrics (active concurrency, peak CPS, etc.)
+  metrics: () => request<LiveMetrics>("/metrics"),
 
   // Users
   getUsers: () => request<UserResponse[]>("/users"),
