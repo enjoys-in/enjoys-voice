@@ -115,6 +115,9 @@ export class SignalingServer {
       case 'get_online_users':
         this.handlePresence(client);
         break;
+      case 'lookup':
+        this.handleLookup(client, msg);
+        break;
       case 'recording':
         this.handleRecording(client, msg);
         break;
@@ -186,6 +189,31 @@ export class SignalingServer {
       from: client.extension, fromName: this.db.getUser(client.extension)?.name,
       data: msg.data,
     });
+  }
+
+  /**
+   * Resolve a dial target (extension/username or phone number) to the callee's
+   * saved display name so the caller can show a name instead of a raw number
+   * BEFORE the call connects. This covers offline users too — presence only
+   * carries names for online peers, so an offline internal contact would
+   * otherwise dial as a bare number. Identity-safe: returns only public profile
+   * fields (name/mobile), never credentials, and requires an authenticated WS.
+   */
+  private handleLookup(client: WsClient, msg: any): void {
+    if (!client.authenticated) {
+      this.send(client.ws, { type: 'error', message: 'Not authenticated' });
+      return;
+    }
+    const target = String(msg.target ?? '').trim();
+    if (!target) {
+      this.send(client.ws, { type: 'lookup_result', target: '', found: false });
+      return;
+    }
+    // Prefer an extension/username match, then fall back to a phone-number index.
+    const user = this.db.getUser(target) ?? this.db.getUserByPhone(target);
+    this.send(client.ws, user
+      ? { type: 'lookup_result', target, found: true, extension: user.extension, name: user.name, mobile: user.mobile }
+      : { type: 'lookup_result', target, found: false });
   }
 
   /**

@@ -18,7 +18,8 @@ export type WSMessage =
   | { type: "call_ended"; callId: string }
   | { type: "call_event"; event: string; from?: string; fromName?: string; target?: string; callId?: string; reason?: string; [key: string]: any }
   | { type: "hangup"; callId: string; from: string }
-  | { type: "dtmf_sent"; callId: string; digit: string };
+  | { type: "dtmf_sent"; callId: string; digit: string }
+  | { type: "lookup_result"; target: string; found: boolean; extension?: string; name?: string; mobile?: string };
 
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
@@ -108,5 +109,41 @@ export function useWebSocket() {
     };
   }, []);
 
-  return { connect, disconnect, send, onMessage, connected };
+  // Resolve a dial target's saved display name from the server before calling.
+  // Presence only names ONLINE peers, so this fills the gap for offline
+  // internal contacts. Resolves null on miss, closed socket, or a 2.5s timeout
+  // so the caller can fall back to the raw number without ever blocking a dial.
+  const lookup = useCallback(
+    (target: string): Promise<{ extension: string; name: string; mobile?: string } | null> =>
+      new Promise((resolve) => {
+        if (wsRef.current?.readyState !== WebSocket.OPEN) {
+          resolve(null);
+          return;
+        }
+        let settled = false;
+        let off: () => void = () => {};
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const finish = (val: { extension: string; name: string; mobile?: string } | null) => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          off();
+          resolve(val);
+        };
+        off = onMessage((msg) => {
+          if (msg.type === "lookup_result" && msg.target === target) {
+            finish(
+              msg.found && msg.extension
+                ? { extension: msg.extension, name: msg.name || msg.extension, mobile: msg.mobile }
+                : null
+            );
+          }
+        });
+        timer = setTimeout(() => finish(null), 2500);
+        send({ type: "lookup", target });
+      }),
+    [onMessage, send]
+  );
+
+  return { connect, disconnect, send, onMessage, lookup, connected };
 }

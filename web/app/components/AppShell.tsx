@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react"
 import { Phone } from "lucide-react";
 import { useAuthStore, useCallStore, useVoicemailStore } from "../stores";
 import { useSettingsStore } from "../stores";
+import { useContactStore } from "../stores";
 import { BottomNav, type TabId } from "./layout/BottomNav";
 import { Sidebar } from "./layout/Sidebar";
 import { AppHeader } from "./layout/AppHeader";
@@ -69,7 +70,7 @@ export function AppShell({ initialExtension }: AppShellProps) {
   const { fetchVoicemails, unreadCount } = useVoicemailStore();
 
   const { register, makeCall, hangUp, answer, sendDtmf, isRecording, startRecording, stopRecording } = useSipPhone();
-  const { connect, disconnect, onMessage, send: wsSend } = useWebSocket();
+  const { connect, disconnect, onMessage, send: wsSend, lookup: wsLookup } = useWebSocket();
   const bridge = useBrowserBridge();
 
   // Mark a tab visited (so it mounts and stays mounted) as we switch to it.
@@ -84,6 +85,26 @@ export function AppShell({ initialExtension }: AppShellProps) {
 
   // The display name shown to the other party (From header).
   const displayName = settings.displayName?.trim() || user?.name || user?.extension;
+
+  // Resolve the callee's display name BEFORE dialing so the call UI shows a
+  // name, not a bare number. Priority: explicit name → saved contact → server
+  // lookup over WS (covers offline internal users that presence doesn't name) →
+  // fall back to the number itself. The lookup is timeout-guarded, so a slow or
+  // closed socket never blocks the call.
+  const onCall = useCallback(
+    async (target: string, targetName?: string) => {
+      let name = targetName?.trim() || undefined;
+      if (!name) {
+        name = useContactStore.getState().findContact(target)?.name || undefined;
+      }
+      if (!name) {
+        const found = await wsLookup(target);
+        name = found?.name || undefined;
+      }
+      makeCall(target, name);
+    },
+    [makeCall, wsLookup]
+  );
 
   // Load the user's voicemail messages. TTL-guarded in the store, so the
   // initial preload here and the VoicemailScreen mount share one request.
@@ -327,14 +348,14 @@ export function AppShell({ initialExtension }: AppShellProps) {
           {visitedTabs.has("calls") && (
             <div className={activeTab === "calls" ? "" : "hidden"}>
               <Suspense fallback={<ListScreenSkeleton />}>
-                <CallsScreen onCall={makeCall} />
+                <CallsScreen onCall={onCall} />
               </Suspense>
             </div>
           )}
           {visitedTabs.has("contacts") && (
             <div className={activeTab === "contacts" ? "" : "hidden"}>
               <Suspense fallback={<ContactsScreenSkeleton />}>
-                <ContactsScreen onCall={makeCall} />
+                <ContactsScreen onCall={onCall} />
               </Suspense>
             </div>
           )}
@@ -343,14 +364,14 @@ export function AppShell({ initialExtension }: AppShellProps) {
               {/* No skeleton: the keypad has no data fetch, so the only delay is
                   the lazy chunk load — a flash of skeleton there isn't useful. */}
               <Suspense fallback={null}>
-                <KeypadScreen onCall={makeCall} active={activeTab === "keypad"} />
+                <KeypadScreen onCall={onCall} active={activeTab === "keypad"} />
               </Suspense>
             </div>
           )}
           {visitedTabs.has("voicemail") && (
             <div className={activeTab === "voicemail" ? "" : "hidden"}>
               <Suspense fallback={<ListScreenSkeleton />}>
-                <VoicemailScreen onCall={makeCall} />
+                <VoicemailScreen onCall={onCall} />
               </Suspense>
             </div>
           )}

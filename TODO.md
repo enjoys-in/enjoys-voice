@@ -99,25 +99,24 @@
 - [ ] (Optional) Expose a delete route — `sound_service.Delete` exists but is
       not routed
 
-## Do Not Disturb (DND)
+## Do Not Disturb (DND) — ✅ DONE
 > When a user enables DND, an inbound call must NOT ring their device. Treat it
 > as "no answer" (silent) — never a hard decline/unreachable. Route straight to
 > voicemail; fall back to a plain SIP 480 only when voicemail is disabled. DND
 > also SKIPS the PSTN-mobile leg and the "person is unavailable" announcement
 > (those are for genuine unreachability, not an intentional silence).
-- [ ] Go: add `DND bool` (default false) to `UserSettings` + `SettingsResponse`
-      (`api/internal/models/settings.go`), a migration column, and accept it in
-      the settings update handler/service
-- [ ] Node: add `dnd?: boolean` to `SipUser` (`src/core/types.ts`) and populate
-      it on the in-memory user via the same settings LISTEN/NOTIFY sync that
-      already carries mobile/forwarding (`database.service.ts`)
-- [ ] Node: in `InternalHandler.handle` (`src/sip/routes/internal.handler.ts`),
-      when `reg && targetUser.dnd` → go STRAIGHT to voicemail (skip ringing /
-      B2BUA). Do NOT reuse `routeUnreachable` as-is (it does PSTN-first +
-      announcement). Add a small DND branch: voicemail if
-      `config.voicemail.enabled && ivr`, else send SIP 480.
-- [ ] Record the call as `voicemail` (message left) or `missed`/`unreachable`
-      (no message) so it still shows in the callee's recents
+- [x] Go: `DND bool` (`column:dnd;default:false`) on `UserSettings` +
+      `SettingsResponse` + `SettingsInput`; applied in settings update; `dnd`
+      added to the Upsert `DoUpdates` column list so it persists on existing rows
+- [x] Node: `dnd?: boolean` on `SipUser`; populated via the settings sync that
+      already carries pstn (`COALESCE(dnd,false)` in the `user_settings` loaders,
+      `applyPstn(...,dnd)`)
+- [x] Node: `InternalHandler` routes `reg && user.dnd` → `routeDoNotDisturb`
+      (new on `RouteServices`/`SipServer`): voicemail when
+      `config.voicemail.enabled && ivr`, else a silent SIP 480 "Do Not Disturb"
+- [x] Records the call as `voicemail` (message left) or `missed` (no message)
+- [x] Frontend: `dnd` in settings store/type, `go-api` get/updateSettings, DND
+      toggle in `SettingsScreen` persisted to the Go settings endpoint
 - [ ] Frontend: add `dnd` to the settings store + a toggle in `SettingsScreen`
       and persist via the Go settings update (`go-api.ts`)
 
