@@ -26,10 +26,11 @@ export function useSettingsSync() {
     settingsLoaded = true;
     setLoading(true);
     try {
-      const [blockRes, fwdRes, pstnFwdRes] = await Promise.all([
+      const [blockRes, fwdRes, pstnFwdRes, settingsRes] = await Promise.all([
         goApi.getBlockedNumbers(user.extension),
         goApi.getForwarding(user.extension),
         goApi.getPstnForward(user.extension),
+        goApi.getSettings(user.extension).catch(() => null),
       ]);
       setSettings({
         blockedNumbers: blockRes.blocked,
@@ -40,6 +41,7 @@ export function useSettingsSync() {
         },
         pstnForwardToBrowser: pstnFwdRes.enabled,
         pstnForwardTarget: pstnFwdRes.target || "",
+        ...(settingsRes ? { dnd: settingsRes.dnd } : {}),
       });
     } catch {
       settingsLoaded = false; // Allow retry on failure
@@ -104,5 +106,18 @@ export function useSettingsSync() {
     [user]
   );
 
-  return { loadSettings, saveForwarding, blockNumber, unblockNumber, savePstnForward };
+  // Save Do Not Disturb setting
+  const saveDnd = useCallback(
+    async (dnd: boolean) => {
+      if (!user) return;
+      try {
+        await goApi.updateSettings(user.extension, { dnd });
+      } catch {
+        // silent
+      }
+    },
+    [user]
+  );
+
+  return { loadSettings, saveForwarding, blockNumber, unblockNumber, savePstnForward, saveDnd };
 }

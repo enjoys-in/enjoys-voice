@@ -25,6 +25,12 @@ export interface RouteServices {
    * failures so both paths behave identically.
    */
   routeUnreachable: (req: any, res: any, calledExt: string, callId: string, callingNumber: string) => Promise<void>;
+  /**
+   * Handle a call to a registered user who has Do Not Disturb enabled: skip
+   * ringing and send the caller straight to voicemail (or a silent SIP 480 when
+   * voicemail is off). Records the call as `voicemail` or `missed`.
+   */
+  routeDoNotDisturb: (req: any, res: any, calledExt: string, callId: string, callingNumber: string) => Promise<void>;
 }
 
 export interface RouteHandler {

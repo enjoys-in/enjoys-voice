@@ -87,6 +87,9 @@ func (s *settingsService) Update(ctx context.Context, ext string, input *Setting
 	if input.VoicemailEnabled != nil {
 		settings.VoicemailEnabled = *input.VoicemailEnabled
 	}
+	if input.DND != nil {
+		settings.DND = *input.DND
+	}
 
 	if err := s.settingsRepo.Upsert(ctx, settings); err != nil {
 		return nil, err

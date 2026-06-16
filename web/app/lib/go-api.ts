@@ -168,6 +168,27 @@ export interface PstnForward {
   target: string;
 }
 
+/**
+ * Flat per-user settings persisted by the Go API (GET/PUT /settings/:ext).
+ * snake_case keys mirror models.SettingsResponse on the server.
+ */
+export interface GoSettings {
+  extension: string;
+  sounds_enabled: boolean;
+  dtmf_enabled: boolean;
+  caller_tune: string;
+  ringtone: string;
+  pstn_enabled: boolean;
+  pstn_mobile: string;
+  pstn_country_code: string;
+  recording_enabled: boolean;
+  voicemail_enabled: boolean;
+  dnd: boolean;
+}
+
+/** Partial settings update — only the provided keys are changed server-side. */
+export type GoSettingsInput = Partial<Omit<GoSettings, "extension">>;
+
 export interface GoForwarding {
   busy?: string | null;
   noAnswer?: string | null;
@@ -288,6 +309,17 @@ export const goApi = {
   setPstnForward(ext: string, payload: PstnForward): Promise<PstnForward> {
     return goRequest<PstnForward>(`/pstn-forward/${encodeURIComponent(ext)}`, {
       method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  // Per-user settings (sounds / DTMF / recording / voicemail / DND).
+  getSettings(ext: string): Promise<GoSettings> {
+    return goRequest<GoSettings>(`/settings/${encodeURIComponent(ext)}`);
+  },
+  updateSettings(ext: string, payload: GoSettingsInput): Promise<GoSettings> {
+    return goRequest<GoSettings>(`/settings/${encodeURIComponent(ext)}`, {
+      method: "PUT",
       body: JSON.stringify(payload),
     });
   },

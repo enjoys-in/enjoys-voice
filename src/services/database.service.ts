@@ -83,6 +83,7 @@ export class DatabaseService extends EventEmitter {
       user.forwardOnUnavailable = undefined;
       user.pstnForwardToBrowser = false;
       user.pstnForwardTarget = undefined;
+      user.dnd = false;
     }
 
     for (const b of blocked) {
@@ -93,7 +94,7 @@ export class DatabaseService extends EventEmitter {
       this.applyForwardingRow(this.users.get(f.extension), f);
     }
     for (const p of pstn) {
-      this.applyPstn(this.users.get(p.extension), p.pstn_enabled, p.pstn_mobile);
+      this.applyPstn(this.users.get(p.extension), p.pstn_enabled, p.pstn_mobile, p.dnd);
     }
   }
 
@@ -117,7 +118,7 @@ export class DatabaseService extends EventEmitter {
     user.forwardOnNoAnswer = undefined;
     user.forwardOnUnavailable = undefined;
     for (const f of forwarding) this.applyForwardingRow(user, f);
-    this.applyPstn(user, pstn?.pstn_enabled ?? false, pstn?.pstn_mobile ?? null);
+    this.applyPstn(user, pstn?.pstn_enabled ?? false, pstn?.pstn_mobile ?? null, pstn?.dnd ?? false);
   }
 
   /** Map a forwarding_rules row onto the matching SipUser field. */
@@ -131,11 +132,12 @@ export class DatabaseService extends EventEmitter {
     }
   }
 
-  /** Map user_settings PSTN fields onto the SipUser. */
-  private applyPstn(user: SipUser | undefined, enabled: boolean, mobile: string | null): void {
+  /** Map user_settings PSTN + DND fields onto the SipUser. */
+  private applyPstn(user: SipUser | undefined, enabled: boolean, mobile: string | null, dnd = false): void {
     if (!user) return;
     user.pstnForwardToBrowser = enabled;
     user.pstnForwardTarget = mobile || undefined;
+    user.dnd = dnd;
   }
 
   /**

@@ -8,6 +8,13 @@ export class InternalHandler implements RouteHandler {
 
     const reg = services.db.getRegistration(route.target);
     if (reg) {
+      // Registered but Do Not Disturb is on → don't ring the device; send the
+      // caller straight to voicemail (or a silent 480 when voicemail is off).
+      const user = services.db.getUser(route.target);
+      if (user?.dnd) {
+        await services.routeDoNotDisturb(ctx.req, ctx.res, route.target, ctx.callId, ctx.callingNumber);
+        return true;
+      }
       await services.routeToExtension(ctx.req, ctx.res, reg.contact, ctx.callId);
       return true;
     }

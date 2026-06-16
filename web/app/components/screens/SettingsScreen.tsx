@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { LogOut, Shield, PhoneForwarded, Volume2, Voicemail, Music, Radio, Mic, Play, Square, Upload, Trash2, Phone, Globe, Settings2 } from "lucide-react";
+import { LogOut, Shield, PhoneForwarded, Volume2, Voicemail, Music, Radio, Mic, Play, Square, Upload, Trash2, Phone, Globe, Settings2, BellOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -41,7 +41,7 @@ const RINGTONES = [
 export function SettingsScreen() {
   const { user, logout } = useAuthStore();
   const { settings, setSettings, setForwarding, addBlockedNumber, removeBlockedNumber } = useSettingsStore();
-  const { saveForwarding, blockNumber, unblockNumber, savePstnForward } = useSettingsSync();
+  const { saveForwarding, blockNumber, unblockNumber, savePstnForward, saveDnd } = useSettingsSync();
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [customCallerTunes, setCustomCallerTunes] = useState<{ id: string; name: string }[]>([]);
@@ -236,6 +236,33 @@ export function SettingsScreen() {
                     <p className="text-xs text-muted-foreground">
                       Shown as the caller name to people you call.
                     </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Do Not Disturb */}
+              <Card className="border-border/50 bg-card/50">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <span className="mt-0.5 rounded-md bg-muted p-1.5">
+                        <BellOff className="h-4 w-4" />
+                      </span>
+                      <div>
+                        <Label htmlFor="dnd" className="text-sm font-medium">Do Not Disturb</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Silence incoming calls. Callers go straight to voicemail.
+                        </p>
+                      </div>
+                    </div>
+                    <Switch
+                      id="dnd"
+                      checked={settings.dnd}
+                      onCheckedChange={(v) => {
+                        setSettings({ dnd: v });
+                        saveDnd(v);
+                      }}
+                    />
                   </div>
                 </CardContent>
               </Card>

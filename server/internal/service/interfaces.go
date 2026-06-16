@@ -91,4 +91,5 @@ type SettingsInput struct {
 	PstnCountryCode  *string `json:"pstn_country_code"`
 	RecordingEnabled *bool   `json:"recording_enabled"`
 	VoicemailEnabled *bool   `json:"voicemail_enabled"`
+	DND              *bool   `json:"dnd"`
 }

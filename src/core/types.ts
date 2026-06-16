@@ -74,6 +74,9 @@ export interface SipUser {
   forwardOnUnavailable?: string;
   pstnForwardToBrowser?: boolean;
   pstnForwardTarget?: string; // extension or IVR number to forward inbound PSTN calls to
+  /** Do Not Disturb: when true, inbound calls skip ringing → voicemail (or a
+   * silent SIP 480 when voicemail is off). Intentional silence, NOT unreachable. */
+  dnd?: boolean;
 }
 
 export interface SipRegistration {

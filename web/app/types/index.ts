@@ -60,6 +60,7 @@ export interface UserSettings {
   pstnForwardTarget?: string;
   recordingEnabled: boolean;
   voicemailEnabled: boolean;
+  dnd: boolean;
   forwarding: ForwardingRules;
   blockedNumbers: string[];
 }

@@ -42,11 +42,13 @@ export class SipServer {
     this.boundRouteToExtension = this.routeToExtension.bind(this);
     this.boundForwardCall = this.forwardCall.bind(this);
     this.boundRouteUnreachable = this.routeUnreachable.bind(this);
+    this.boundRouteDoNotDisturb = this.routeDoNotDisturb.bind(this);
   }
 
   private readonly boundRouteToExtension: RouteServices['routeToExtension'];
   private readonly boundForwardCall: RouteServices['forwardCall'];
   private readonly boundRouteUnreachable: RouteServices['routeUnreachable'];
+  private readonly boundRouteDoNotDisturb: RouteServices['routeDoNotDisturb'];
 
   /** Register a callback to notify users of call events via WebSocket */
   setNotifier(fn: (extension: string, event: string, data?: any) => void): void {
@@ -214,6 +216,7 @@ export class SipServer {
           routeToExtension: this.boundRouteToExtension,
           forwardCall: this.boundForwardCall,
           routeUnreachable: this.boundRouteUnreachable,
+          routeDoNotDisturb: this.boundRouteDoNotDisturb,
         };
 
         // Try trunk inbound first (before dial plan)
@@ -440,6 +443,37 @@ export class SipServer {
     if (!res.finalResponseSent) {
       res.send(SipStatus.TemporarilyUnavailable, 'User Unavailable', {
         headers: { 'Reason': 'SIP;cause=480;text="User is unreachable"' },
+      });
+    }
+  }
+
+  /**
+   * Do Not Disturb: the target IS registered but has DND switched on, so we do
+   * NOT ring their device. Send the caller straight to voicemail (so they can
+   * still leave a message); when voicemail is off, return a silent SIP 480.
+   * This is intentional silence — distinct from `routeUnreachable`, which runs
+   * the PSTN/forward/announce fallback chain for a genuinely offline user.
+   */
+  private async routeDoNotDisturb(
+    req: any, res: any, calledExt: string, callId: string, callingNumber: string,
+  ): Promise<void> {
+    // Voicemail: let the caller leave a message even though the device is silent.
+    if (config.voicemail.enabled && this.ivr) {
+      console.log(`🔕 ${calledExt} on DND → voicemail`);
+      const fromName = req.callingName || callingNumber;
+      const saved = await this.ivr.recordVoicemail(req, res, calledExt, callingNumber, fromName);
+      this.db.updateCall(callId, { status: saved ? 'voicemail' : 'missed' });
+      this.notifyFn?.(callingNumber, 'unavailable', { target: calledExt, reason: 'dnd', callId });
+      return;
+    }
+
+    // No voicemail → silent rejection. Record as missed for the callee's recents.
+    console.log(`🔕 ${calledExt} on DND → no voicemail; sending 480`);
+    this.notifyFn?.(callingNumber, 'unavailable', { target: calledExt, reason: 'dnd', callId });
+    this.db.updateCall(callId, { status: 'missed' });
+    if (!res.finalResponseSent) {
+      res.send(SipStatus.TemporarilyUnavailable, 'Do Not Disturb', {
+        headers: { 'Reason': 'SIP;cause=480;text="Do Not Disturb"' },
       });
     }
   }

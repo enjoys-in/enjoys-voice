@@ -19,6 +19,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   pstnForwardTarget: "",
   recordingEnabled: false,
   voicemailEnabled: false,
+  dnd: false,
   forwarding: {},
   blockedNumbers: [],
 };
