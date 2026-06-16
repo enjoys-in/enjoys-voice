@@ -25,7 +25,7 @@ import { useAuthStore, useSettingsStore } from "../../stores";
 import { useSettingsSync } from "../../hooks/useSettingsSync";
 import { useSystemPolicies } from "../../hooks/useBranding";
 import { getCachedSoundUrl, invalidateSoundCache } from "../../lib/sound-cache";
-import { goApi } from "../../lib/go-api";
+import { goApi, type GoSound } from "../../lib/go-api";
 
 const CALLER_TUNES = [
   { id: "caller_tune.wav", name: "Default Tune" },
@@ -48,6 +48,8 @@ export function SettingsScreen() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [customCallerTunes, setCustomCallerTunes] = useState<{ id: string; name: string }[]>([]);
   const [customRingtones, setCustomRingtones] = useState<{ id: string; name: string }[]>([]);
+  const [uploadingTune, setUploadingTune] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [activeTab, setActiveTab] = useState<"general" | "call" | "pstn">("general");
 
@@ -61,6 +63,31 @@ export function SettingsScreen() {
   useEffect(() => {
     setAccountName(user?.name ?? "");
   }, [user?.name]);
+
+  // Load previously uploaded custom sounds so they persist across reloads (the
+  // server is the source of truth; the local lists are just a display cache).
+  useEffect(() => {
+    const ext = user?.extension;
+    if (!ext) return;
+    let cancelled = false;
+    goApi
+      .getSounds(ext)
+      .then((sounds) => {
+        if (cancelled) return;
+        const toEntry = (s: GoSound) => ({
+          id: s.filename,
+          name: s.original_name.replace(/\.[^.]+$/, ""),
+        });
+        setCustomCallerTunes(sounds.filter((s) => s.type === "caller_tune").map(toEntry));
+        setCustomRingtones(sounds.filter((s) => s.type === "ringtone").map(toEntry));
+      })
+      .catch(() => {
+        /* custom sounds are optional; ignore load failures */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.extension]);
 
   const handleSaveName = async () => {
     const next = accountName.trim();
@@ -115,20 +142,37 @@ export function SettingsScreen() {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "audio/*";
-    input.onchange = (e) => {
+    input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
-      const url = URL.createObjectURL(file);
-      const entry = { id: url, name: file.name.replace(/\.[^.]+$/, "") };
-      if (type === "callerTune") {
-        setCustomCallerTunes((prev) => [...prev, entry]);
-        setSettings({ callerTune: url });
-      } else {
-        setCustomRingtones((prev) => [...prev, entry]);
-        setSettings({ ringtone: url });
+      // Fast client-side guard mirroring the server's 250KB cap.
+      if (file.size > 250 * 1024) {
+        setUploadError("File too large (max 250KB).");
+        return;
       }
-      // Invalidate sound cache so new uploads are fetched fresh
-      invalidateSoundCache();
+      setUploadError(null);
+      setUploadingTune(true);
+      try {
+        // Persist to the server (extension derived from the JWT) and use the
+        // returned filename — served at /sounds/<filename> — instead of an
+        // ephemeral in-browser blob that is lost on reload.
+        const soundType = type === "callerTune" ? "caller_tune" : "ringtone";
+        const { filename } = await goApi.uploadSound(soundType, file);
+        const entry = { id: filename, name: file.name.replace(/\.[^.]+$/, "") };
+        if (type === "callerTune") {
+          setCustomCallerTunes((prev) => [...prev, entry]);
+          setSettings({ callerTune: filename });
+        } else {
+          setCustomRingtones((prev) => [...prev, entry]);
+          setSettings({ ringtone: filename });
+        }
+        // New server file → drop any stale cached blob for this path.
+        invalidateSoundCache();
+      } catch {
+        setUploadError("Upload failed. Please try again.");
+      } finally {
+        setUploadingTune(false);
+      }
     };
     input.click();
   };
@@ -328,6 +372,7 @@ export function SettingsScreen() {
                         variant="ghost"
                         className="h-8 w-8 shrink-0"
                         onClick={() => handleUpload("callerTune")}
+                        disabled={uploadingTune}
                         title="Upload custom tune"
                       >
                         <Upload className="h-3.5 w-3.5" />
@@ -365,12 +410,16 @@ export function SettingsScreen() {
                         variant="ghost"
                         className="h-8 w-8 shrink-0"
                         onClick={() => handleUpload("ringtone")}
+                        disabled={uploadingTune}
                         title="Upload custom ringtone"
                       >
                         <Upload className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </div>
+                  {uploadError && (
+                    <p className="text-xs text-destructive">{uploadError}</p>
+                  )}
                 </CardContent>
               </Card>
 

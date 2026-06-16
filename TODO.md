@@ -104,9 +104,10 @@
       caller_tune/ringtone which the browser fetches and resamples itself
 - [x] Fix IDOR: derive `extension` from the JWT (`c.GetString("extension")`),
       not from `PostForm("extension")` — same ownership fix as voicemail
-- [ ] Wire the frontend `SettingsScreen` upload to actually POST to the Go
-      endpoint (currently local-only `URL.createObjectURL`); add `uploadSound`
-      to `go-api.ts` and settle the `type` key contract (snake_case on the wire)
+- [x] Wire the frontend `SettingsScreen` upload to actually POST to the Go
+      endpoint (was local-only `URL.createObjectURL`); added `uploadSound` +
+      `getSounds` to `go-api.ts` (FormData bypasses JSON `Content-Type`), sends
+      snake_case `type` on the wire, and loads persisted sounds on mount
 - [ ] (Optional) Expose a delete route — `sound_service.Delete` exists but is
       not routed
 

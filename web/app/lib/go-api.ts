@@ -99,8 +99,11 @@ async function goRequest<T>(
   retryOn401 = true
 ): Promise<T> {
   const { token } = authTokens();
+  // Multipart uploads must NOT carry a JSON Content-Type — the browser sets the
+  // multipart boundary itself when the body is FormData.
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...((options.headers as Record<string, string>) ?? {}),
   };
@@ -190,6 +193,16 @@ export interface GoSettings {
 
 /** Partial settings update — only the provided keys are changed server-side. */
 export type GoSettingsInput = Partial<Omit<GoSettings, "extension">>;
+
+/** A user-uploaded sound record (mirrors models.Sound). Served at `/sounds/<filename>`. */
+export interface GoSound {
+  id: number;
+  extension: string;
+  type: "caller_tune" | "ringtone" | "ivr";
+  filename: string;
+  original_name: string;
+  created_at: string;
+}
 
 /**
  * Workspace-wide customization (branding + default policies) managed from the
@@ -413,6 +426,24 @@ export const goApi = {
     return goRequest<GoSettings>(`/settings/${encodeURIComponent(ext)}`, {
       method: "PUT",
       body: JSON.stringify(payload),
+    });
+  },
+
+  // Custom sounds (caller_tune / ringtone / ivr). The server derives the owning
+  // extension from the JWT, so upload only sends the type + file (multipart).
+  getSounds(ext: string): Promise<GoSound[]> {
+    return goRequest<GoSound[]>(`/sounds/${encodeURIComponent(ext)}`);
+  },
+  uploadSound(
+    type: "caller_tune" | "ringtone" | "ivr",
+    file: File,
+  ): Promise<{ filename: string; id: number }> {
+    const form = new FormData();
+    form.append("type", type);
+    form.append("file", file);
+    return goRequest<{ filename: string; id: number }>(`/sounds/upload`, {
+      method: "POST",
+      body: form,
     });
   },
 
