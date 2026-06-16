@@ -231,6 +231,9 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {formatPhone(row.peer)}
                             {latest.duration ? ` · ${formatDuration(latest.duration)}` : ""}
+                            {latest.cost && latest.cost > 0
+                              ? ` · ${latest.cost.toFixed(4)}${latest.currency ? ` ${latest.currency}` : ""}`
+                              : ""}
                           </p>
                         </button>
                         <div className="flex items-center gap-2">
@@ -264,6 +267,11 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
                               <span className="text-muted-foreground/70">
                                 {c.duration ? formatDuration(c.duration) : ""}
                               </span>
+                              {c.cost && c.cost > 0 && (
+                                <span className="text-muted-foreground/70">
+                                  {c.cost.toFixed(4)}{c.currency ? ` ${c.currency}` : ""}
+                                </span>
+                              )}
                               <span className="ml-auto text-muted-foreground">{formatTime(c.startTime)}</span>
                             </div>
                           ))}

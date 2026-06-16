@@ -326,7 +326,8 @@
       (CSV import + assign-plans-to-users still pending.)
 - [x] Show **cost** per call in the admin Call Logs + user recents (new column),
       and **balance** + recent ledger for the user (if prepaid).
-      (Admin Call Logs Cost column done; user recents + balance/ledger pending.)
+      (Admin Call Logs Cost column + user recents cost done; balance/ledger is
+      prepaid-only, deferred.)
 - [x] Dashboard (`web/app/admin/page.tsx` OverviewTab): add **Total Cost** /
       **Avg Cost per Call** / **Cost over time** cards+chart from the extended
       `/stats` (reuse the recharts setup just added).
