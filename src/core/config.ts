@@ -24,6 +24,12 @@ export interface AppConfig {
   sipWs: {
     port: number;
   };
+  sip: {
+    // Per-source-IP cap on REGISTER/INVITE within `rateWindowMs` (SIP-level
+    // flood/scan defense, applied in SipServer.checkSipRate). Tunable per deploy.
+    rateLimit: number;
+    rateWindowMs: number;
+  };
   trunk: {
     name: string;
     host: string;
@@ -151,6 +157,10 @@ export const config: AppConfig = {
   },
   sipWs: {
     port: parseInt(process.env.SIP_WS_PORT || '5065'),
+  },
+  sip: {
+    rateLimit: parseInt(process.env.SIP_RATE_LIMIT || '30'),
+    rateWindowMs: parseInt(process.env.SIP_RATE_WINDOW_MS || '60000'),
   },
   trunk: {
     name: process.env.TRUNK_NAME || 'custom',

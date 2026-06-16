@@ -19,8 +19,8 @@ export class SipServer {
   private dialPlan = new DialPlanService();
   /** SIP rate limiter: tracks REGISTER/INVITE per IP */
   private sipRateMap = new Map<string, { count: number; resetAt: number }>();
-  private readonly SIP_RATE_LIMIT = 30; // per minute per IP
-  private readonly SIP_RATE_WINDOW = 60_000;
+  private readonly SIP_RATE_LIMIT = config.sip.rateLimit; // per window per IP (env SIP_RATE_LIMIT)
+  private readonly SIP_RATE_WINDOW = config.sip.rateWindowMs;
 
   // ─── Route Handlers (ordered by priority) ────────────
   private routeHandlers: RouteHandler[] = [

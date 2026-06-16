@@ -61,7 +61,9 @@
 - [x] Live data sync → Postgres LISTEN/NOTIFY (Node mirrors Go-owned tables, no polling)
 - [x] WSS for SIP + drachtio `<tls>` on :5066 + `<spammers>` scanner drop + internal-only control socket
 - [ ] User store migrations hardening (seed + idempotent; Go AutoMigrate in place)
-- [🟡] Rate limiting on register/invite (HTTP `rate-limit` middleware exists; SIP-level pending)
+- [x] Rate limiting on register/invite — HTTP `rate-limit` middleware **and**
+      SIP-level per-IP cap (`SipServer.checkSipRate` → 429 on REGISTER/INVITE,
+      tunable via `SIP_RATE_LIMIT` / `SIP_RATE_WINDOW_MS`)
 - [ ] SRTP for media encryption end-to-end (browser already DTLS-SRTP; trunk leg pending)
 - [ ] Horizontal scaling: multiple drachtio instances behind load balancer
 
