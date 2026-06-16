@@ -368,7 +368,7 @@ export class IVRSystem {
     if (!existingCallId) {
       this.db.logCall({
         id: callId, from: callerNumber, to: calledNumber,
-        fromName: callerNumber, status: 'ringing',
+        fromName: this.db.getUser(callerNumber)?.name || callerNumber, status: 'ringing',
         direction: 'inbound', startTime: state.startTime,
       });
     }

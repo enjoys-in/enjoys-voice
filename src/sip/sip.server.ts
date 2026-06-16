@@ -418,7 +418,7 @@ export class SipServer {
     // 3) Voicemail: let the caller leave a message for the offline user.
     if (config.voicemail.enabled && this.ivr) {
       console.log(`📭 ${calledExt} unreachable → voicemail`);
-      const fromName = req.callingName || callingNumber;
+      const fromName = req.callingName || this.db.getUser(callingNumber)?.name || callingNumber;
       const saved = await this.ivr.recordVoicemail(req, res, calledExt, callingNumber, fromName);
       // A left message is its own outcome (`voicemail`), not `answered` — the
       // callee never picked up. If nothing was recorded it's `unreachable`.
@@ -460,7 +460,7 @@ export class SipServer {
     // Voicemail: let the caller leave a message even though the device is silent.
     if (config.voicemail.enabled && this.ivr) {
       console.log(`🔕 ${calledExt} on DND → voicemail`);
-      const fromName = req.callingName || callingNumber;
+      const fromName = req.callingName || this.db.getUser(callingNumber)?.name || callingNumber;
       const saved = await this.ivr.recordVoicemail(req, res, calledExt, callingNumber, fromName);
       this.db.updateCall(callId, { status: saved ? 'voicemail' : 'missed' });
       this.notifyFn?.(callingNumber, 'unavailable', { target: calledExt, reason: 'dnd', callId });

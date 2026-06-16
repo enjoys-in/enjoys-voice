@@ -16,16 +16,22 @@
 - [ ] Server side: accept registrations for `@enjoys.in` domain
 - [ ] From/To headers use `sip:1001@enjoys.in` format
 
-## Caller Name Display (show name, not number)
+## Caller Name Display (show name, not number) — ✅ DONE
 > We ALREADY save `name` at signup: `{ extension, username(=phone), password, name, mobile, registered }`.
 > Inbound already shows names (`fromName` via WS, `remoteIdentity.displayName` via SIP).
 > Gap is outbound + SIP-level display name. Tasks:
-- [ ] Outbound: resolve callee name before dialing via **WebSocket** (add a `lookup`/`get_user` WS message → server replies with `{ extension, name, mobile }`; do NOT use REST `/api/lookup`) and pass it as `makeCall(target, targetName)` so `peerName` shows the name
-- [ ] Set SIP `From` display name on outbound INVITE (UserAgent `displayName` / Inviter `fromDisplayName`) so the callee sees OUR name, not extension
-- [ ] Set `displayName` to the user's saved `name` (currently set to `extension` in `useSipPhone.register`)
-- [ ] Server: stamp `fromName` from `db.getUser(ext)?.name` on all call signaling events (partially done for `incoming_call`)
-- [ ] Fallback chain for display: saved contact name → user `name` → mobile/extension number
-- [ ] (Optional) Local contacts/address book so users can name unknown numbers
+- [x] Outbound: resolve callee name before dialing via **WebSocket** (add a `lookup`/`get_user` WS message → server replies with `{ extension, name, mobile }`; do NOT use REST `/api/lookup`) and pass it as `makeCall(target, targetName)` so `peerName` shows the name
+      (`AppShell` resolves explicit name → local contact → WS `lookup` before `makeCall`)
+- [x] Set SIP `From` display name on outbound INVITE (UserAgent `displayName` / Inviter `fromDisplayName`) so the callee sees OUR name, not extension
+      (`useSipPhone.register` sets `UserAgent.displayName` = our name)
+- [x] Set `displayName` to the user's saved `name` (currently set to `extension` in `useSipPhone.register`)
+      (`AppShell` passes `settings.displayName ?? user.name ?? extension`)
+- [x] Server: stamp `fromName` from `db.getUser(ext)?.name` on all call signaling events (partially done for `incoming_call`)
+      (INVITE log, WS `call_event`, and voicemail/IVR paths now fall back to the saved DB name)
+- [x] Fallback chain for display: saved contact name → user `name` → mobile/extension number
+      (`makeCall`: `targetName || contact.name || target`; voicemail: `callingName || db name || number`)
+- [x] (Optional) Local contacts/address book so users can name unknown numbers
+      (`contactStore.findContact` provides per-user contact names)
 
 ## User Signup via Mobile
 - [ ] Add `POST /api/signup` — accepts `{ countryCode, mobile, name }`
