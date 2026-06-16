@@ -8,7 +8,10 @@ export { createRegistrationStore, MemoryRegistrationStore, RedisRegistrationStor
 export type { RegistrationStore } from './registration';
 export { UserSyncListener } from './postgres';
 export { SettingsSyncListener } from './postgres';
+export { RateSyncListener } from './postgres';
 export { ensureCallSchema, upsertCall } from './postgres';
 export { WriteQueue } from './queue';
+export { RatingService } from './rating.service';
+export type { RatingResult } from './rating.service';
 export type { AuditEntry, AuditEvent } from './audit.service';
 export type { DialResult } from './dialplan.service';

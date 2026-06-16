@@ -268,15 +268,17 @@
           existing in-memory + write-queue pattern.
       (b) **Go rates async**: Node writes the raw CDR, a Go worker rates it after
           the fact. Pros: keeps money math server-side; Cons: second pass, eventual.
-- [ ] Longest-prefix matcher: given an E.164, find the `Rate` whose `Prefix` is the
+- [x] Longest-prefix matcher: given an E.164, find the `Rate` whose `Prefix` is the
       longest leading match (sort prefixes desc by length; or a trie). Unmatched →
       a configurable **default rate** or block (decide).
-- [ ] Billed duration: `billedSecs = max(MinSecs, ceil(duration / IncrementSecs) ×
+      (Done in `RatingService`; unmatched → unrated/cost 0.)
+- [x] Billed duration: `billedSecs = max(MinSecs, ceil(duration / IncrementSecs) ×
       IncrementSecs)`; `cost = SetupFee + SellPerMin × billedSecs/60`. Round to the
       currency's minor unit; store `BilledSecs` + `RatePrefix` for transparency.
-- [ ] Only rate **billable** legs: charge on `answered`/`ended`; **zero cost** for
+- [x] Only rate **billable** legs: charge on `answered`/`ended`; **zero cost** for
       `missed`/`failed`/`unreachable`/`ringing` (no media). Inbound is usually free
       — make inbound rating opt-in.
+      (Rated at the `ended` choke point; external `to` only — internal/inbound free.)
 
 ### Pre-call balance gate (only if prepaid is enabled)
 - [ ] In `ExternalHandler` (`src/sip/routes/external.handler.ts`), before
@@ -307,11 +309,12 @@
       per-day cost series + cost-by-direction, so spend shows on the dashboard.
 
 ### Node wiring (rates in memory + stamp cost)
-- [ ] Load rate plans/rates + the caller's assigned plan into the in-memory store
+- [x] Load rate plans/rates + the caller's assigned plan into the in-memory store
       and keep them fresh via the existing Postgres **LISTEN/NOTIFY** sync
       (`UserSyncListener`/`SettingsSyncListener` pattern in `src/index.ts`); add a
       `rates` channel so admin edits in Go reflect without a restart.
-- [ ] Add `cost?`, `currency?`, `ratePrefix?`, `billedSecs?` to `CallLog`
+      (`RateSyncListener` on `rates_changed`; per-user plan assignment still pending.)
+- [x] Add `cost?`, `currency?`, `ratePrefix?`, `billedSecs?` to `CallLog`
       (`src/core/types.ts`); compute + set them in the same place the terminal
       status is written (`updateCall(callId, { status:'ended', endTime, … })` in
       `src/sip/sip.server.ts` / handlers) so the upsert carries the cost.

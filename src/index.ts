@@ -7,6 +7,8 @@ import {
   createRegistrationStore,
   UserSyncListener,
   SettingsSyncListener,
+  RateSyncListener,
+  RatingService,
   WriteQueue,
   ensureCallSchema,
   upsertCall,
@@ -33,6 +35,8 @@ class Application {
   private media?: MediaStreamRuntime;
   private userSync: UserSyncListener;
   private settingsSync: SettingsSyncListener;
+  private rateSync: RateSyncListener;
+  private rating: RatingService;
   private writeQueue: WriteQueue;
 
   constructor() {
@@ -43,6 +47,12 @@ class Application {
     // ALONGSIDE the legacy SIP TrunkService — it does not replace it.
     this.twilioTrunk = createTrunkProvider('twilio');
     this.audit = new AuditService();
+    // Call-rating engine: prices billable (external) calls at end-of-call using
+    // the workspace rate plans. Injected into the DatabaseService so cost is
+    // stamped at the single `ended` choke point, before the record is mirrored
+    // to Postgres.
+    this.rating = new RatingService();
+    this.db.setRater(this.rating);
     // Live call-concurrency / CPS tracker for the admin dashboard. Listens to
     // the DatabaseService's CallUpserted event, so it sees every call leg
     // without per-handler hooks.
@@ -79,6 +89,15 @@ class Application {
       onSettingsChanged: (ext) => this.db.hydrateUserDetail(ext),
       onReconnect: async () => {
         await this.db.hydrateFromPostgres();
+      },
+    });
+    // Live-reconcile the rate book (rate plans + rates) the moment an admin
+    // edits pricing via the Go API. onConnected does the initial load, so a full
+    // reload runs on first connect and after any reconnect — keeping in-memory
+    // pricing current without a restart.
+    this.rateSync = new RateSyncListener({
+      onRatesChanged: async () => {
+        await this.rating.reload();
       },
     });
     // Write-behind queue: call-record upserts are emitted as events, enqueued to
@@ -121,6 +140,11 @@ class Application {
     // Same LISTEN/NOTIFY mechanism for per-user settings (block/forward/PSTN).
     this.settingsSync.start().catch((err: any) =>
       console.warn(`   Sync:   ⚠️  settings-sync listener failed to start (${err?.message})`),
+    );
+    // And for the billing rate book. Best-effort: if it can't start (or billing
+    // tables don't exist yet), calls simply go unrated (cost 0).
+    this.rateSync.start().catch((err: any) =>
+      console.warn(`   Sync:   ⚠️  rate-sync listener failed to start (${err?.message})`),
     );
 
     // Start the write-behind queue worker (voicemail → Postgres). Best-effort:

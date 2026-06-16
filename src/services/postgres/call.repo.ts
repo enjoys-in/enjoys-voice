@@ -18,6 +18,14 @@ const ENSURE_SCHEMA_SQL = [
   // is external / not a local user.
   `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS from_ext VARCHAR(20)`,
   `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS to_ext VARCHAR(20)`,
+  // Billing fields (Node rates the call at end-of-call and stamps these). The Go
+  // API reads cost for reporting but never writes it. All nullable/defaulted so
+  // dropping them fully reverses billing without touching call history.
+  `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS cost NUMERIC(12,5) DEFAULT 0`,
+  `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS currency VARCHAR(3)`,
+  `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS rate_prefix VARCHAR(15)`,
+  `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS billed_secs INTEGER DEFAULT 0`,
+  `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS rated_at TIMESTAMPTZ`,
   // Arbiter for the upsert. NULL call_ids (legacy rows) are allowed to repeat.
   `CREATE UNIQUE INDEX IF NOT EXISTS uniq_call_records_call_id ON call_records(call_id)`,
   `CREATE INDEX IF NOT EXISTS idx_call_records_from_ext ON call_records(from_ext)`,
@@ -48,13 +56,21 @@ function durationSeconds(call: CallLog): number {
  */
 export async function upsertCall(call: CallLog): Promise<void> {
   const pool = getPool();
+  // Stamp rated_at only once a cost has been computed, so re-upserts of the same
+  // (already-rated) call keep the original rating timestamp.
+  const rated = typeof call.cost === 'number';
   await pool.query(
-    `INSERT INTO call_records (call_id, "from", "to", from_name, direction, status, duration, started_at, ended_at, from_ext, to_ext)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `INSERT INTO call_records (call_id, "from", "to", from_name, direction, status, duration, started_at, ended_at, from_ext, to_ext, cost, currency, rate_prefix, billed_secs, rated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
      ON CONFLICT (call_id) DO UPDATE SET
        status = EXCLUDED.status,
        duration = EXCLUDED.duration,
-       ended_at = EXCLUDED.ended_at`,
+       ended_at = EXCLUDED.ended_at,
+       cost = EXCLUDED.cost,
+       currency = EXCLUDED.currency,
+       rate_prefix = EXCLUDED.rate_prefix,
+       billed_secs = EXCLUDED.billed_secs,
+       rated_at = COALESCE(call_records.rated_at, EXCLUDED.rated_at)`,
     [
       call.id,
       call.from,
@@ -67,6 +83,11 @@ export async function upsertCall(call: CallLog): Promise<void> {
       call.endTime ?? null,
       call.fromExt ?? null,
       call.toExt ?? null,
+      call.cost ?? 0,
+      call.currency ?? null,
+      call.ratePrefix ?? null,
+      call.billedSecs ?? 0,
+      rated ? new Date().toISOString() : null,
     ],
   );
 }
@@ -87,7 +108,8 @@ function toIso(value: Date | string): string {
 export async function loadRecentCalls(limit = 500): Promise<CallLog[]> {
   const { rows } = await getPool().query(
     `SELECT id, call_id, "from", "to", from_name, direction, status,
-            duration, started_at, ended_at, from_ext, to_ext
+            duration, started_at, ended_at, from_ext, to_ext,
+            cost, currency, rate_prefix, billed_secs
        FROM call_records
       ORDER BY started_at DESC NULLS LAST, id DESC
       LIMIT $1`,
@@ -105,5 +127,9 @@ export async function loadRecentCalls(limit = 500): Promise<CallLog[]> {
     duration: r.duration ?? undefined,
     fromExt: r.from_ext ?? undefined,
     toExt: r.to_ext ?? undefined,
+    cost: r.cost != null ? Number(r.cost) : undefined,
+    currency: r.currency ?? undefined,
+    ratePrefix: r.rate_prefix ?? undefined,
+    billedSecs: r.billed_secs ?? undefined,
   }));
 }

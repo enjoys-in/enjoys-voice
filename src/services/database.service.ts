@@ -19,12 +19,33 @@ import {
   type ForwardingRow,
 } from './postgres';
 
+/**
+ * Minimal shape of the rating engine the DatabaseService depends on. Declared
+ * structurally (rather than importing RatingService) so the rating service can
+ * import call types from here without a circular dependency.
+ */
+export interface CallRater {
+  applyToEndedCall(call: CallLog, updates: Partial<CallLog>): Partial<CallLog>;
+}
+
 export class DatabaseService extends EventEmitter {
   private users = new Map<string, SipUser>();
   private callLogs: CallLog[] = [];
   private registrations = new Map<string, SipRegistration>();
   /** phone number → extension lookup */
   private phoneIndex = new Map<string, string>();
+  /**
+   * Optional call rater. Injected (not imported) to avoid a module cycle with
+   * the rating service. When set, a call transitioning to `ended` is priced here
+   * — the single choke point every terminal `ended` flows through — so cost is
+   * stamped before the record is mirrored to Postgres, with no per-handler hooks.
+   */
+  private rater?: CallRater;
+
+  /** Provide the rating engine used to price calls at end-of-call. */
+  setRater(rater: CallRater): void {
+    this.rater = rater;
+  }
 
   /**
    * Hydrate the in-memory user store from the shared Postgres database so that
@@ -286,7 +307,15 @@ export class DatabaseService extends EventEmitter {
   updateCall(callId: string, updates: Partial<CallLog>): void {
     const call = this.callLogs.find(c => c.id === callId);
     if (call) {
-      Object.assign(call, updates);
+      // Price billable calls exactly once, as they reach the terminal `ended`
+      // state (the only status that carries final talk time). The rater merges
+      // cost/currency/ratePrefix/billedSecs into the updates before they're
+      // applied and mirrored to Postgres; non-billable calls pass through.
+      let next = updates;
+      if (this.rater && updates.status === 'ended' && call.cost === undefined) {
+        next = this.rater.applyToEndedCall(call, updates);
+      }
+      Object.assign(call, next);
       this.emit(DbEvent.CallUpserted, call);
     }
   }

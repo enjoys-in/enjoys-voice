@@ -47,6 +47,14 @@ export interface CallLog {
   fromExt?: string;
   /** Local extension the `to` leg resolves to (undefined for external/PSTN). */
   toExt?: string;
+  /** Billed amount for the call in the plan currency (0 when unrated/non-billable). */
+  cost?: number;
+  /** ISO-4217 currency the cost is denominated in (from the matched rate plan). */
+  currency?: string;
+  /** Leading E.164 digits of the rate that matched (audit/debug; undefined if none). */
+  ratePrefix?: string;
+  /** Duration actually billed in seconds (after increment rounding + minimum). */
+  billedSecs?: number;
 }
 
 export interface Voicemail {
