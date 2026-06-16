@@ -42,6 +42,7 @@ func main() {
 		&models.Voicemail{},
 		&models.IvrFlow{},
 		&models.AuditLog{},
+		&models.SystemSettings{},
 	); err != nil {
 		log.Fatalf("Failed to migrate: %v", err)
 	}
@@ -68,6 +69,7 @@ func main() {
 	ivrRepo := repository.NewIvrFlowRepository(db)
 	auditRepo := repository.NewAuditRepository(db)
 	vmRepo := repository.NewVoicemailRepository(db)
+	systemSettingsRepo := repository.NewSystemSettingsRepository(db)
 
 	// ─── Services ────────────────────────────────────────
 	authSvc := service.NewAuthService(userRepo, settingsRepo, valkey)
@@ -80,22 +82,24 @@ func main() {
 	ivrSvc := service.NewIvrService(ivrRepo, valkey)
 	auditSvc := service.NewAuditService(auditRepo)
 	vmSvc := service.NewVoicemailService(vmRepo)
+	systemSettingsSvc := service.NewSystemSettingsService(systemSettingsRepo)
 
 	// ─── Tokens ──────────────────────────────────────────
 	tokenMgr := token.NewManager(cfg.JWTSecret, cfg.JWTIssuer, cfg.AccessTTL, cfg.RefreshTTL)
 
 	// ─── Handlers ────────────────────────────────────────
 	handlers := &router.Handlers{
-		Auth:       handler.NewAuthHandler(authSvc, tokenMgr, cfg.Sip, cfg.Cookie),
-		User:       handler.NewUserHandler(userSvc),
-		Settings:   handler.NewSettingsHandler(settingsSvc),
-		Call:       handler.NewCallHandler(callSvc),
-		Block:      handler.NewBlockHandler(blockSvc),
-		Forwarding: handler.NewForwardingHandler(fwdSvc),
-		Sound:      handler.NewSoundHandler(soundSvc, cfg.UploadDir),
-		Ivr:        handler.NewIvrHandler(ivrSvc),
-		Audit:      handler.NewAuditHandler(auditSvc),
-		Voicemail:  handler.NewVoicemailHandler(vmSvc, cfg.VoicemailDir),
+		Auth:           handler.NewAuthHandler(authSvc, tokenMgr, cfg.Sip, cfg.Cookie),
+		User:           handler.NewUserHandler(userSvc),
+		Settings:       handler.NewSettingsHandler(settingsSvc),
+		Call:           handler.NewCallHandler(callSvc),
+		Block:          handler.NewBlockHandler(blockSvc),
+		Forwarding:     handler.NewForwardingHandler(fwdSvc),
+		Sound:          handler.NewSoundHandler(soundSvc, cfg.UploadDir),
+		Ivr:            handler.NewIvrHandler(ivrSvc),
+		Audit:          handler.NewAuditHandler(auditSvc),
+		Voicemail:      handler.NewVoicemailHandler(vmSvc, cfg.VoicemailDir),
+		SystemSettings: handler.NewSystemSettingsHandler(systemSettingsSvc),
 	}
 
 	// ─── Ensure upload dir ───────────────────────────────

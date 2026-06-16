@@ -23,6 +23,11 @@ type SettingsRepository interface {
 	Delete(ctx context.Context, ext string) error
 }
 
+type SystemSettingsRepository interface {
+	Get(ctx context.Context) (*models.SystemSettings, error)
+	Save(ctx context.Context, s *models.SystemSettings) error
+}
+
 type CallRepository interface {
 	Create(ctx context.Context, call *models.CallRecord) error
 	GetAll(ctx context.Context) ([]models.CallRecord, error)

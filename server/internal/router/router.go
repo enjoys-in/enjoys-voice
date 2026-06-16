@@ -9,16 +9,17 @@ import (
 )
 
 type Handlers struct {
-	Auth       *handler.AuthHandler
-	User       *handler.UserHandler
-	Settings   *handler.SettingsHandler
-	Call       *handler.CallHandler
-	Block      *handler.BlockHandler
-	Forwarding *handler.ForwardingHandler
-	Sound      *handler.SoundHandler
-	Ivr        *handler.IvrHandler
-	Audit      *handler.AuditHandler
-	Voicemail  *handler.VoicemailHandler
+	Auth           *handler.AuthHandler
+	User           *handler.UserHandler
+	Settings       *handler.SettingsHandler
+	SystemSettings *handler.SystemSettingsHandler
+	Call           *handler.CallHandler
+	Block          *handler.BlockHandler
+	Forwarding     *handler.ForwardingHandler
+	Sound          *handler.SoundHandler
+	Ivr            *handler.IvrHandler
+	Audit          *handler.AuditHandler
+	Voicemail      *handler.VoicemailHandler
 }
 
 func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
@@ -54,6 +55,10 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 		// Logout clears the httpOnly auth cookies. Public on purpose: an expired
 		// session must still be able to tear its cookies down.
 		api.POST("/auth/logout", h.Auth.Logout)
+
+		// Public branding/customization read so the login screen can theme itself
+		// before a session exists. Writes are admin-gated under the protected group.
+		api.GET("/system-settings", h.SystemSettings.Get)
 
 		// Protected routes
 		protected := api.Group("")
@@ -94,6 +99,9 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 			// Settings
 			protected.GET("/settings/:ext", h.Settings.Get)
 			protected.PUT("/settings/:ext", h.Settings.Update)
+
+			// System-wide customization (branding + default policies)
+			protected.PUT("/system-settings", h.SystemSettings.Update)
 
 			// Calls
 			protected.GET("/calls", h.Call.GetAll)

@@ -29,6 +29,26 @@ type SettingsService interface {
 	WarmCache(ctx context.Context, ext string) error
 }
 
+// SystemSettingsInput is a partial update of the workspace-wide settings — only
+// non-nil fields are applied so the dashboard can PATCH individual cards.
+type SystemSettingsInput struct {
+	BrandName              *string `json:"brand_name"`
+	BrandTagline           *string `json:"brand_tagline"`
+	AccentColor            *string `json:"accent_color"`
+	LogoURL                *string `json:"logo_url"`
+	SupportEmail           *string `json:"support_email"`
+	DefaultRecording       *bool   `json:"default_recording"`
+	DefaultVoicemail       *bool   `json:"default_voicemail"`
+	AllowUserDND           *bool   `json:"allow_user_dnd"`
+	RecordingRetentionDays *int    `json:"recording_retention_days"`
+	MaxConcurrentCalls     *int    `json:"max_concurrent_calls"`
+}
+
+type SystemSettingsService interface {
+	Get(ctx context.Context) (*models.SystemSettingsResponse, error)
+	Update(ctx context.Context, input *SystemSettingsInput) (*models.SystemSettingsResponse, error)
+}
+
 type CallService interface {
 	GetAll(ctx context.Context) ([]models.CallRecord, error)
 	GetByExtension(ctx context.Context, ext string) ([]models.CallRecord, error)

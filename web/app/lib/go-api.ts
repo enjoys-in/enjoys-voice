@@ -189,6 +189,26 @@ export interface GoSettings {
 /** Partial settings update — only the provided keys are changed server-side. */
 export type GoSettingsInput = Partial<Omit<GoSettings, "extension">>;
 
+/**
+ * Workspace-wide customization (branding + default policies) managed from the
+ * admin Customization tab. GET is public (login screen branding); PUT is gated.
+ */
+export interface SystemSettings {
+  brand_name: string;
+  brand_tagline: string;
+  accent_color: string;
+  logo_url: string;
+  support_email: string;
+  default_recording: boolean;
+  default_voicemail: boolean;
+  allow_user_dnd: boolean;
+  recording_retention_days: number;
+  max_concurrent_calls: number;
+}
+
+/** Partial system-settings update. */
+export type SystemSettingsInput = Partial<SystemSettings>;
+
 export interface GoForwarding {
   busy?: string | null;
   noAnswer?: string | null;
@@ -319,6 +339,17 @@ export const goApi = {
   },
   updateSettings(ext: string, payload: GoSettingsInput): Promise<GoSettings> {
     return goRequest<GoSettings>(`/settings/${encodeURIComponent(ext)}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  // Workspace-wide customization (branding + default policies).
+  getSystemSettings(): Promise<SystemSettings> {
+    return goRequest<SystemSettings>(`/system-settings`);
+  },
+  updateSystemSettings(payload: SystemSettingsInput): Promise<SystemSettings> {
+    return goRequest<SystemSettings>(`/system-settings`, {
       method: "PUT",
       body: JSON.stringify(payload),
     });

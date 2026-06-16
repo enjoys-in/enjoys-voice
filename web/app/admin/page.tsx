@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import Link from "next/link";
-import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming } from "lucide-react";
+import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming, Palette, Save, RotateCcw, Check } from "lucide-react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -22,12 +22,15 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { api, type UserResponse, type HealthResponse } from "../lib/api";
-import { goApi, type CallStats } from "../lib/go-api";
+import { goApi, type CallStats, type SystemSettings as SystemSettingsT } from "../lib/go-api";
 import { useLiveMetrics } from "../hooks/useLiveMetrics";
 import { CallRecordStatus, type CallRecord } from "../types";
 
-type Tab = "overview" | "users" | "calls" | "config";
+type Tab = "overview" | "users" | "calls" | "customization" | "config";
 
 // Selectable stats windows (days) for the dashboard aggregate metrics/charts.
 const RANGE_OPTIONS = [7, 14, 30] as const;
@@ -87,6 +90,7 @@ export default function AdminPage() {
     { id: "overview", label: "Overview", icon: Activity },
     { id: "users", label: "Users", icon: Users },
     { id: "calls", label: "Call Logs", icon: Phone },
+    { id: "customization", label: "Customization", icon: Palette },
     { id: "config", label: "Config", icon: Settings },
   ];
 
@@ -149,6 +153,7 @@ export default function AdminPage() {
             )}
             {tab === "users" && <UsersTab users={users} loading={loading} onRefresh={loadData} />}
             {tab === "calls" && <CallsTab calls={calls} loading={loading} />}
+            {tab === "customization" && <CustomizationTab />}
             {tab === "config" && <ConfigTab />}
           </div>
         </ScrollArea>
@@ -491,6 +496,247 @@ function CallsTab({ calls, loading }: { calls: CallRecord[]; loading: boolean })
 
 // Module-level cache so switching away from and back to the Config tab
 // (which unmounts/remounts this component) does not re-hit the API.
+// ─── Customization Tab (SaaS branding + default policies) ──────────────
+
+// Cached across tab switches so re-opening Customization doesn't re-fetch/flash.
+let cachedSystemSettings: SystemSettingsT | null = null;
+
+function CustomizationTab() {
+  const [baseline, setBaseline] = useState<SystemSettingsT | null>(cachedSystemSettings);
+  const [form, setForm] = useState<SystemSettingsT | null>(cachedSystemSettings);
+  const [loadErr, setLoadErr] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (cachedSystemSettings) return;
+    goApi
+      .getSystemSettings()
+      .then((s) => {
+        cachedSystemSettings = s;
+        setBaseline(s);
+        setForm(s);
+      })
+      .catch(() => setLoadErr(true));
+  }, []);
+
+  const patch = (updates: Partial<SystemSettingsT>) =>
+    setForm((f) => (f ? { ...f, ...updates } : f));
+
+  const dirty = !!form && !!baseline && JSON.stringify(form) !== JSON.stringify(baseline);
+
+  const handleSave = async () => {
+    if (!form || !dirty || saving) return;
+    setSaving(true);
+    setSaved(false);
+    try {
+      const updated = await goApi.updateSystemSettings(form);
+      cachedSystemSettings = updated;
+      setBaseline(updated);
+      setForm(updated);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      console.error("Failed to save system settings:", err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReset = () => baseline && setForm(baseline);
+
+  if (loadErr) {
+    return (
+      <>
+        <h2 className="text-2xl font-bold">Customization</h2>
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardContent className="p-4 text-sm text-muted-foreground">
+            Couldn&apos;t load workspace settings. Check the API connection and try again.
+          </CardContent>
+        </Card>
+      </>
+    );
+  }
+
+  if (!form) return <CustomizationSkeleton />;
+
+  const accent = form.accent_color || "#6366f1";
+
+  return (
+    <>
+      {/* Header + save bar */}
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-2xl font-bold">Customization</h2>
+          <p className="text-sm text-muted-foreground">
+            Brand the workspace and set the defaults new accounts inherit.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {dirty && (
+            <Button variant="ghost" size="sm" onClick={handleReset} disabled={saving}>
+              <RotateCcw className="h-4 w-4 mr-1.5" /> Reset
+            </Button>
+          )}
+          <Button size="sm" onClick={handleSave} disabled={!dirty || saving}>
+            {saved ? (
+              <><Check className="h-4 w-4 mr-1.5" /> Saved</>
+            ) : (
+              <><Save className="h-4 w-4 mr-1.5" /> {saving ? "Saving…" : "Save changes"}</>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Live brand preview */}
+      <Card className="overflow-hidden border-border/50">
+        <div className="h-1.5 w-full" style={{ background: accent }} />
+        <CardContent className="p-4 flex items-center gap-3">
+          <div
+            className="h-11 w-11 rounded-xl flex items-center justify-center text-base font-bold text-white shrink-0"
+            style={{ background: accent }}
+          >
+            {(form.brand_name || "E").trim().charAt(0).toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <p className="font-semibold truncate">{form.brand_name || "Brand name"}</p>
+            <p className="text-xs text-muted-foreground truncate">
+              {form.brand_tagline || "Your tagline appears here"}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Branding */}
+      <Card className="border-border/50 bg-card/50">
+        <CardHeader className="p-4 pb-2">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Palette className="h-4 w-4" /> Branding
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 pt-2 grid gap-4 sm:grid-cols-2">
+          <Field label="Brand name">
+            <Input value={form.brand_name} maxLength={120}
+              onChange={(e) => patch({ brand_name: e.target.value })} />
+          </Field>
+          <Field label="Tagline">
+            <Input value={form.brand_tagline} maxLength={200}
+              placeholder="Cloud telephony, simplified"
+              onChange={(e) => patch({ brand_tagline: e.target.value })} />
+          </Field>
+          <Field label="Accent color">
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                aria-label="Accent color"
+                value={/^#[0-9a-fA-F]{6}$/.test(accent) ? accent : "#6366f1"}
+                onChange={(e) => patch({ accent_color: e.target.value })}
+                className="h-9 w-10 rounded-md border border-border bg-transparent p-1 cursor-pointer"
+              />
+              <Input value={form.accent_color} maxLength={9}
+                onChange={(e) => patch({ accent_color: e.target.value })} />
+            </div>
+          </Field>
+          <Field label="Support email">
+            <Input type="email" value={form.support_email} maxLength={200}
+              placeholder="support@example.com"
+              onChange={(e) => patch({ support_email: e.target.value })} />
+          </Field>
+          <Field label="Logo URL" className="sm:col-span-2">
+            <Input value={form.logo_url} maxLength={500}
+              placeholder="https://…/logo.svg"
+              onChange={(e) => patch({ logo_url: e.target.value })} />
+          </Field>
+        </CardContent>
+      </Card>
+
+      {/* Default policies */}
+      <Card className="border-border/50 bg-card/50">
+        <CardHeader className="p-4 pb-2">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Shield className="h-4 w-4" /> Default user policies
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 pt-2 space-y-1">
+          <ToggleRow
+            label="Call recording"
+            hint="Record calls by default for new accounts."
+            checked={form.default_recording}
+            onChange={(v) => patch({ default_recording: v })}
+          />
+          <Separator className="opacity-40" />
+          <ToggleRow
+            label="Voicemail"
+            hint="Enable voicemail by default for new accounts."
+            checked={form.default_voicemail}
+            onChange={(v) => patch({ default_voicemail: v })}
+          />
+          <Separator className="opacity-40" />
+          <ToggleRow
+            label="Allow Do Not Disturb"
+            hint="Let users silence incoming calls from their settings."
+            checked={form.allow_user_dnd}
+            onChange={(v) => patch({ allow_user_dnd: v })}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Limits & retention */}
+      <Card className="border-border/50 bg-card/50">
+        <CardHeader className="p-4 pb-2">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Settings className="h-4 w-4" /> Limits &amp; retention
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 pt-2 grid gap-4 sm:grid-cols-2">
+          <Field label="Recording retention (days)">
+            <Input type="number" min={0} value={form.recording_retention_days}
+              onChange={(e) => patch({ recording_retention_days: Math.max(0, Number(e.target.value) || 0) })} />
+          </Field>
+          <Field label="Max concurrent calls" hint="0 = unlimited">
+            <Input type="number" min={0} value={form.max_concurrent_calls}
+              onChange={(e) => patch({ max_concurrent_calls: Math.max(0, Number(e.target.value) || 0) })} />
+          </Field>
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
+function Field({ label, hint, className, children }: { label: string; hint?: string; className?: string; children: ReactNode }) {
+  return (
+    <div className={`space-y-1.5 ${className || ""}`}>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      {children}
+      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+function ToggleRow({ label, hint, checked, onChange }: { label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{label}</p>
+        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      </div>
+      <Switch checked={checked} onCheckedChange={onChange} />
+    </div>
+  );
+}
+
+function CustomizationSkeleton() {
+  return (
+    <>
+      <Skeleton className="h-8 w-48" />
+      <Skeleton className="h-20 w-full rounded-xl" />
+      <Skeleton className="h-56 w-full rounded-xl" />
+      <Skeleton className="h-44 w-full rounded-xl" />
+      <Skeleton className="h-32 w-full rounded-xl" />
+    </>
+  );
+}
+
 let cachedConfig: Record<string, string | number | boolean> | null = null;
 
 function ConfigTab() {
