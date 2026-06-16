@@ -25,6 +25,14 @@ func (r *soundRepo) GetByExtension(ctx context.Context, ext string) ([]models.So
 	return sounds, err
 }
 
+func (r *soundRepo) GetByID(ctx context.Context, id uint) (*models.Sound, error) {
+	var sound models.Sound
+	if err := r.db.WithContext(ctx).First(&sound, id).Error; err != nil {
+		return nil, err
+	}
+	return &sound, nil
+}
+
 func (r *soundRepo) Delete(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Delete(&models.Sound{}, id).Error
 }

@@ -108,8 +108,9 @@
       endpoint (was local-only `URL.createObjectURL`); added `uploadSound` +
       `getSounds` to `go-api.ts` (FormData bypasses JSON `Content-Type`), sends
       snake_case `type` on the wire, and loads persisted sounds on mount
-- [ ] (Optional) Expose a delete route — `sound_service.Delete` exists but is
-      not routed
+- [x] Expose a delete route — `DELETE /api/g/sounds/:id` (ext from JWT, IDOR
+      guard: a sound is only deletable by its owner; best-effort file cleanup).
+      Client `goApi.deleteSound` + per-item trash control in `SettingsScreen`
 
 ## Do Not Disturb (DND) — ✅ DONE
 > When a user enables DND, an inbound call must NOT ring their device. Treat it

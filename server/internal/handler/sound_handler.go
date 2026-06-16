@@ -85,3 +85,24 @@ func (h *SoundHandler) GetByExtension(c *gin.Context) {
 	}
 	response.OK(c, sounds)
 }
+
+// Delete removes one of the authenticated user's custom sounds. The owning
+// extension is taken from the verified JWT claim (never the client), so a user
+// cannot delete another extension's sound by guessing its id (IDOR).
+func (h *SoundHandler) Delete(c *gin.Context) {
+	ext := c.GetString("extension")
+	if ext == "" {
+		response.Unauthorized(c, "missing extension claim")
+		return
+	}
+	id, ok := parseID(c.Param("id"))
+	if !ok {
+		response.BadRequest(c, "Invalid sound id")
+		return
+	}
+	if err := h.soundSvc.Delete(c.Request.Context(), id, ext); err != nil {
+		response.NotFound(c, "Sound not found")
+		return
+	}
+	response.Success(c, "Sound deleted", gin.H{"id": id})
+}

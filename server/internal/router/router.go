@@ -138,6 +138,7 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 			// Sounds (upload)
 			protected.POST("/sounds/upload", h.Sound.Upload)
 			protected.GET("/sounds/:ext", h.Sound.GetByExtension)
+			protected.DELETE("/sounds/:id", h.Sound.Delete)
 		}
 	}
 

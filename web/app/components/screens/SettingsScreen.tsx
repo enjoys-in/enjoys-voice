@@ -46,8 +46,8 @@ export function SettingsScreen() {
   const { allowUserDnd } = useSystemPolicies();
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [customCallerTunes, setCustomCallerTunes] = useState<{ id: string; name: string }[]>([]);
-  const [customRingtones, setCustomRingtones] = useState<{ id: string; name: string }[]>([]);
+  const [customCallerTunes, setCustomCallerTunes] = useState<{ id: string; name: string; soundId: number }[]>([]);
+  const [customRingtones, setCustomRingtones] = useState<{ id: string; name: string; soundId: number }[]>([]);
   const [uploadingTune, setUploadingTune] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -77,6 +77,7 @@ export function SettingsScreen() {
         const toEntry = (s: GoSound) => ({
           id: s.filename,
           name: s.original_name.replace(/\.[^.]+$/, ""),
+          soundId: s.id,
         });
         setCustomCallerTunes(sounds.filter((s) => s.type === "caller_tune").map(toEntry));
         setCustomRingtones(sounds.filter((s) => s.type === "ringtone").map(toEntry));
@@ -157,8 +158,8 @@ export function SettingsScreen() {
         // returned filename — served at /sounds/<filename> — instead of an
         // ephemeral in-browser blob that is lost on reload.
         const soundType = type === "callerTune" ? "caller_tune" : "ringtone";
-        const { filename } = await goApi.uploadSound(soundType, file);
-        const entry = { id: filename, name: file.name.replace(/\.[^.]+$/, "") };
+        const { filename, id } = await goApi.uploadSound(soundType, file);
+        const entry = { id: filename, name: file.name.replace(/\.[^.]+$/, ""), soundId: id };
         if (type === "callerTune") {
           setCustomCallerTunes((prev) => [...prev, entry]);
           setSettings({ callerTune: filename });
@@ -175,6 +176,29 @@ export function SettingsScreen() {
       }
     };
     input.click();
+  };
+
+  // Remove a previously uploaded custom sound (caller tune / ringtone). Presets
+  // are not deletable; the trash control only appears for custom selections.
+  const handleDeleteSound = async (type: "callerTune" | "ringtone") => {
+    const current = type === "callerTune" ? settings.callerTune : settings.ringtone;
+    const list = type === "callerTune" ? customCallerTunes : customRingtones;
+    const entry = list.find((t) => t.id === current);
+    if (!entry) return;
+    setUploadError(null);
+    try {
+      await goApi.deleteSound(entry.soundId);
+      if (type === "callerTune") {
+        setCustomCallerTunes((prev) => prev.filter((t) => t.id !== current));
+        setSettings({ callerTune: "caller_tune.wav" });
+      } else {
+        setCustomRingtones((prev) => prev.filter((t) => t.id !== current));
+        setSettings({ ringtone: "ringtone.wav" });
+      }
+      invalidateSoundCache();
+    } catch {
+      setUploadError("Delete failed. Please try again.");
+    }
   };
 
   const handleForwardingChange = (type: "busy" | "noAnswer" | "unavailable", value: string) => {
@@ -377,6 +401,18 @@ export function SettingsScreen() {
                       >
                         <Upload className="h-3.5 w-3.5" />
                       </Button>
+                      {customCallerTunes.some((t) => t.id === settings.callerTune) && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 shrink-0 text-destructive"
+                          onClick={() => handleDeleteSound("callerTune")}
+                          disabled={uploadingTune}
+                          title="Delete custom tune"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -415,6 +451,18 @@ export function SettingsScreen() {
                       >
                         <Upload className="h-3.5 w-3.5" />
                       </Button>
+                      {customRingtones.some((t) => t.id === settings.ringtone) && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 shrink-0 text-destructive"
+                          onClick={() => handleDeleteSound("ringtone")}
+                          disabled={uploadingTune}
+                          title="Delete custom ringtone"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                   {uploadError && (

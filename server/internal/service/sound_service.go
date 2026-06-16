@@ -3,11 +3,15 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
 
 	"github.com/enjoys-in/enjoys-voice/api/internal/cache"
 	"github.com/enjoys-in/enjoys-voice/api/internal/models"
 	"github.com/enjoys-in/enjoys-voice/api/internal/repository"
 )
+
+var errSoundNotFound = errors.New("sound not found")
 
 type soundService struct {
 	soundRepo repository.SoundRepository
@@ -64,7 +68,19 @@ func (s *soundService) GetByExtension(ctx context.Context, ext string) ([]models
 	return sounds, nil
 }
 
+// Delete removes a sound owned by ext. It verifies ownership (IDOR guard),
+// best-effort removes the file from disk, deletes the row, and invalidates the
+// per-extension sounds cache. A sound that is missing or owned by another
+// extension is reported as not found so callers cannot probe for foreign ids.
 func (s *soundService) Delete(ctx context.Context, id uint, ext string) error {
+	sound, err := s.soundRepo.GetByID(ctx, id)
+	if err != nil || sound.Extension != ext {
+		return errSoundNotFound
+	}
+	// Best-effort file cleanup; a missing file must not block the row delete.
+	if sound.Path != "" {
+		_ = os.Remove(sound.Path)
+	}
 	if err := s.soundRepo.Delete(ctx, id); err != nil {
 		return err
 	}

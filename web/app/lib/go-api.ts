@@ -446,6 +446,9 @@ export const goApi = {
       body: form,
     });
   },
+  deleteSound(id: number): Promise<{ id: number }> {
+    return goRequest<{ id: number }>(`/sounds/${id}`, { method: "DELETE" });
+  },
 
   // Workspace-wide customization (branding + default policies).
   getSystemSettings(): Promise<SystemSettings> {

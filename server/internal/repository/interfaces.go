@@ -73,6 +73,7 @@ type ForwardingRepository interface {
 type SoundRepository interface {
 	Create(ctx context.Context, sound *models.Sound) error
 	GetByExtension(ctx context.Context, ext string) ([]models.Sound, error)
+	GetByID(ctx context.Context, id uint) (*models.Sound, error)
 	Delete(ctx context.Context, id uint) error
 	DeleteAll(ctx context.Context, ext string) error
 }
