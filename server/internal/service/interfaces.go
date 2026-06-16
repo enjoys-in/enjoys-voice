@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/enjoys-in/enjoys-voice/api/internal/models"
 	"github.com/enjoys-in/enjoys-voice/api/internal/repository"
@@ -149,4 +150,9 @@ type SettingsInput struct {
 	RecordingEnabled *bool   `json:"recording_enabled"`
 	VoicemailEnabled *bool   `json:"voicemail_enabled"`
 	DND              *bool   `json:"dnd"`
+	// RatePlanID assigns a billing plan. Raw so we can tell "field omitted"
+	// (leave as-is) from an explicit null / 0 (clear → use the workspace default
+	// plan) from a positive id (assign that plan). A single *uint can't make that
+	// distinction because omitted and null both decode to nil.
+	RatePlanID json.RawMessage `json:"rate_plan_id"`
 }

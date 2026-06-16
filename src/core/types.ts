@@ -85,6 +85,8 @@ export interface SipUser {
   /** Do Not Disturb: when true, inbound calls skip ringing → voicemail (or a
    * silent SIP 480 when voicemail is off). Intentional silence, NOT unreachable. */
   dnd?: boolean;
+  /** Billing rate plan assigned to this user; undefined → workspace default plan. */
+  ratePlanId?: number;
 }
 
 export interface SipRegistration {

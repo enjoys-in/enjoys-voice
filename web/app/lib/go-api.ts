@@ -184,6 +184,8 @@ export interface GoSettings {
   recording_enabled: boolean;
   voicemail_enabled: boolean;
   dnd: boolean;
+  /** Assigned billing rate plan id, or null to use the workspace default plan. */
+  rate_plan_id: number | null;
 }
 
 /** Partial settings update — only the provided keys are changed server-side. */

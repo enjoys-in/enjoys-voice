@@ -90,6 +90,23 @@ func (s *settingsService) Update(ctx context.Context, ext string, input *Setting
 	if input.DND != nil {
 		settings.DND = *input.DND
 	}
+	// Rate plan: only touch it when the field was present in the request body.
+	// An explicit null or 0 clears the assignment (→ workspace default); a
+	// positive id assigns that plan.
+	if len(input.RatePlanID) > 0 {
+		if string(input.RatePlanID) == "null" {
+			settings.RatePlanID = nil
+		} else {
+			var id uint
+			if err := json.Unmarshal(input.RatePlanID, &id); err == nil {
+				if id == 0 {
+					settings.RatePlanID = nil
+				} else {
+					settings.RatePlanID = &id
+				}
+			}
+		}
+	}
 
 	if err := s.settingsRepo.Upsert(ctx, settings); err != nil {
 		return nil, err

@@ -18,9 +18,14 @@ type UserSettings struct {
 	// DND (Do Not Disturb): when true, inbound calls do NOT ring the user's
 	// device — they go straight to voicemail (or a silent SIP 480 when voicemail
 	// is off). Intentional silence, distinct from genuine unreachability.
-	DND       bool      `gorm:"column:dnd;default:false" json:"dnd"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	DND bool `gorm:"column:dnd;default:false" json:"dnd"`
+	// Billing rate plan assigned to this user. NULL = use the workspace default
+	// plan (the Node rating engine falls back to the default when unset). Points
+	// at rate_plans.id; no FK constraint so deleting a plan just reverts affected
+	// users to the default rather than blocking the delete.
+	RatePlanID *uint     `gorm:"column:rate_plan_id" json:"rate_plan_id"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 
 	User User `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"-"`
 }
@@ -40,6 +45,7 @@ type SettingsResponse struct {
 	RecordingEnabled bool   `json:"recording_enabled"`
 	VoicemailEnabled bool   `json:"voicemail_enabled"`
 	DND              bool   `json:"dnd"`
+	RatePlanID       *uint  `json:"rate_plan_id"`
 }
 
 func (s *UserSettings) ToResponse() SettingsResponse {
@@ -55,5 +61,6 @@ func (s *UserSettings) ToResponse() SettingsResponse {
 		RecordingEnabled: s.RecordingEnabled,
 		VoicemailEnabled: s.VoicemailEnabled,
 		DND:              s.DND,
+		RatePlanID:       s.RatePlanID,
 	}
 }

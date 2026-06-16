@@ -23,10 +23,17 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { api, type UserResponse, type HealthResponse } from "../lib/api";
-import { goApi, type CallStats, type SystemSettings as SystemSettingsT } from "../lib/go-api";
+import { goApi, type CallStats, type SystemSettings as SystemSettingsT, type RatePlan } from "../lib/go-api";
 import { RatesTab } from "./components/RatesTab";
 import { useLiveMetrics } from "../hooks/useLiveMetrics";
 import { CallRecordStatus, type CallRecord } from "../types";
@@ -426,6 +433,17 @@ function EmptyChart({ label }: { label: string }) {
 // ─── Users Tab ─────────────────────────────────────────
 
 function UsersTab({ users, loading, onRefresh }: { users: UserResponse[]; loading: boolean; onRefresh: () => void }) {
+  // Rate plans for the per-user billing selector. Loaded once for the tab and
+  // shared across rows (so N user rows don't each refetch the plan list).
+  const [plans, setPlans] = useState<RatePlan[] | null>(null);
+
+  useEffect(() => {
+    goApi
+      .getRatePlans()
+      .then(setPlans)
+      .catch(() => setPlans([]));
+  }, []);
+
   return (
     <>
       <div className="flex items-center justify-between">
@@ -434,29 +452,91 @@ function UsersTab({ users, loading, onRefresh }: { users: UserResponse[]; loadin
       </div>
       <Card className="border-border/50 bg-card/50">
         <CardContent className="p-0">
-          <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-4 px-4 py-2 border-b border-border/50 text-xs font-medium text-muted-foreground">
+          <div className="grid grid-cols-[1fr_1fr_1fr_auto_180px] gap-4 px-4 py-2 border-b border-border/50 text-xs font-medium text-muted-foreground">
             <span>Extension</span>
             <span>Name</span>
             <span>Username</span>
             <span>Status</span>
+            <span>Rate plan</span>
           </div>
           {loading ? (
-            <TableSkeleton cols={4} />
+            <TableSkeleton cols={5} />
           ) : (
             users.map((u) => (
-              <div key={u.extension} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-4 px-4 py-3 border-b border-border/30 last:border-0 text-sm">
+              <div key={u.extension} className="grid grid-cols-[1fr_1fr_1fr_auto_180px] gap-4 px-4 py-3 border-b border-border/30 last:border-0 text-sm items-center">
                 <span className="font-mono">{u.extension}</span>
                 <span>{u.name}</span>
                 <span className="text-muted-foreground">{u.username}</span>
                 <Badge variant={u.registered ? "default" : "secondary"} className="text-[10px]">
                   {u.registered ? "online" : "offline"}
                 </Badge>
+                <UserRatePlanSelect extension={u.extension} plans={plans} />
               </div>
             ))
           )}
         </CardContent>
       </Card>
     </>
+  );
+}
+
+// Per-user billing rate-plan selector. Lazy-loads the user's current settings
+// on mount to show their assigned plan, then PATCHes rate_plan_id on change
+// (0 = clear → workspace default). `plans` is provided by the parent so the
+// option list is fetched once for the whole table.
+function UserRatePlanSelect({ extension, plans }: { extension: string; plans: RatePlan[] | null }) {
+  const [value, setValue] = useState<string | null>(null); // null until loaded
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    goApi
+      .getSettings(extension)
+      .then((s) => {
+        if (active) setValue(s.rate_plan_id ? String(s.rate_plan_id) : "0");
+      })
+      .catch(() => {
+        if (active) setValue("0");
+      });
+    return () => {
+      active = false;
+    };
+  }, [extension]);
+
+  const handleChange = async (next: string | null) => {
+    if (next === null) return;
+    const prev = value;
+    setValue(next);
+    setSaving(true);
+    try {
+      // Send a number; the Go API treats 0/null as "clear → default".
+      await goApi.updateSettings(extension, { rate_plan_id: Number(next) });
+    } catch (err) {
+      console.error("Failed to assign rate plan:", err);
+      setValue(prev); // revert on failure
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (value === null || plans === null) {
+    return <Skeleton className="h-8 w-full" />;
+  }
+
+  return (
+    <Select value={value} onValueChange={handleChange} disabled={saving}>
+      <SelectTrigger className="h-8 text-xs">
+        <SelectValue placeholder="Default" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="0">Default plan</SelectItem>
+        {plans.map((p) => (
+          <SelectItem key={p.id} value={String(p.id)}>
+            {p.name} ({p.currency})
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 

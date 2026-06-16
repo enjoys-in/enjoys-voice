@@ -300,7 +300,7 @@
       handler→service→repository→router layering + `response.OK` envelope.
 - [ ] Bulk rate import: `POST /api/g/rate-plans/:id/rates/import` (CSV: prefix,
       description, sell, buy, setup, increment) — carrier rate sheets are large.
-- [ ] Assign a plan to a user: add `RatePlanID` to `UserSettings`
+- [x] Assign a plan to a user: add `RatePlanID` to `UserSettings`
       (`server/internal/models/settings.go`) or a join; default plan when unset.
 - [ ] Balances: `GET /api/g/balance/:ext`, `POST /api/g/balance/:ext/topup`
       (admin/credit), `GET /api/g/balance/:ext/txns` (ledger). Derive `ext` from

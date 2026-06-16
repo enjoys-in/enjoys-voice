@@ -95,8 +95,10 @@ export class RatingService {
    * outbound destination and merge the billing fields into those updates. Only
    * rates outbound legs to an external number; inbound / internal calls return
    * the updates unchanged. Never throws.
+   *
+   * @param planId optional rate plan for the calling user; falls back to default.
    */
-  applyToEndedCall(call: CallLog, updates: Partial<CallLog>): Partial<CallLog> {
+  applyToEndedCall(call: CallLog, updates: Partial<CallLog>, planId?: number | null): Partial<CallLog> {
     try {
       // Only external/PSTN destinations are billable; an internal `to` resolves
       // to a local extension (toExt set) and costs nothing.
@@ -107,7 +109,7 @@ export class RatingService {
           ? updates.duration
           : derivedDuration(call.startTime, updates.endTime ?? call.endTime);
 
-      const result = this.rate(call.to, durationSecs);
+      const result = this.rate(call.to, durationSecs, planId);
       if (!result) return updates;
 
       return {

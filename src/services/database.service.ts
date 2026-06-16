@@ -25,7 +25,7 @@ import {
  * import call types from here without a circular dependency.
  */
 export interface CallRater {
-  applyToEndedCall(call: CallLog, updates: Partial<CallLog>): Partial<CallLog>;
+  applyToEndedCall(call: CallLog, updates: Partial<CallLog>, planId?: number | null): Partial<CallLog>;
 }
 
 export class DatabaseService extends EventEmitter {
@@ -105,6 +105,7 @@ export class DatabaseService extends EventEmitter {
       user.pstnForwardToBrowser = false;
       user.pstnForwardTarget = undefined;
       user.dnd = false;
+      user.ratePlanId = undefined;
     }
 
     for (const b of blocked) {
@@ -115,7 +116,7 @@ export class DatabaseService extends EventEmitter {
       this.applyForwardingRow(this.users.get(f.extension), f);
     }
     for (const p of pstn) {
-      this.applyPstn(this.users.get(p.extension), p.pstn_enabled, p.pstn_mobile, p.dnd);
+      this.applyPstn(this.users.get(p.extension), p.pstn_enabled, p.pstn_mobile, p.dnd, p.rate_plan_id);
     }
   }
 
@@ -139,7 +140,7 @@ export class DatabaseService extends EventEmitter {
     user.forwardOnNoAnswer = undefined;
     user.forwardOnUnavailable = undefined;
     for (const f of forwarding) this.applyForwardingRow(user, f);
-    this.applyPstn(user, pstn?.pstn_enabled ?? false, pstn?.pstn_mobile ?? null, pstn?.dnd ?? false);
+    this.applyPstn(user, pstn?.pstn_enabled ?? false, pstn?.pstn_mobile ?? null, pstn?.dnd ?? false, pstn?.rate_plan_id ?? null);
   }
 
   /** Map a forwarding_rules row onto the matching SipUser field. */
@@ -153,12 +154,19 @@ export class DatabaseService extends EventEmitter {
     }
   }
 
-  /** Map user_settings PSTN + DND fields onto the SipUser. */
-  private applyPstn(user: SipUser | undefined, enabled: boolean, mobile: string | null, dnd = false): void {
+  /** Map user_settings PSTN + DND + billing fields onto the SipUser. */
+  private applyPstn(
+    user: SipUser | undefined,
+    enabled: boolean,
+    mobile: string | null,
+    dnd = false,
+    ratePlanId: number | null = null,
+  ): void {
     if (!user) return;
     user.pstnForwardToBrowser = enabled;
     user.pstnForwardTarget = mobile || undefined;
     user.dnd = dnd;
+    user.ratePlanId = ratePlanId ?? undefined;
   }
 
   /**
@@ -313,7 +321,11 @@ export class DatabaseService extends EventEmitter {
       // applied and mirrored to Postgres; non-billable calls pass through.
       let next = updates;
       if (this.rater && updates.status === 'ended' && call.cost === undefined) {
-        next = this.rater.applyToEndedCall(call, updates);
+        // Price with the calling user's assigned plan (falls back to the default
+        // plan inside the rater when undefined). The caller is the local leg on
+        // an outbound call — resolve their extension to read ratePlanId.
+        const caller = call.fromExt ? this.users.get(call.fromExt) : this.getUserByPhone(call.from);
+        next = this.rater.applyToEndedCall(call, updates, caller?.ratePlanId ?? null);
       }
       Object.assign(call, next);
       this.emit(DbEvent.CallUpserted, call);

@@ -29,6 +29,8 @@ export interface PstnRow {
   pstn_enabled: boolean;
   pstn_mobile: string | null;
   dnd: boolean;
+  /** Assigned billing rate plan id, or null to use the workspace default. */
+  rate_plan_id: number | null;
 }
 
 export async function loadAllBlocked(): Promise<BlockedRow[]> {
@@ -63,14 +65,14 @@ export async function loadForwardingByExtension(extension: string): Promise<Forw
 
 export async function loadAllPstn(): Promise<PstnRow[]> {
   const { rows } = await getPool().query<PstnRow>(
-    'SELECT extension, pstn_enabled, pstn_mobile, COALESCE(dnd, false) AS dnd FROM user_settings',
+    'SELECT extension, pstn_enabled, pstn_mobile, COALESCE(dnd, false) AS dnd, rate_plan_id FROM user_settings',
   );
   return rows;
 }
 
 export async function loadPstnByExtension(extension: string): Promise<PstnRow | null> {
   const { rows } = await getPool().query<PstnRow>(
-    'SELECT extension, pstn_enabled, pstn_mobile, COALESCE(dnd, false) AS dnd FROM user_settings WHERE extension = $1 LIMIT 1',
+    'SELECT extension, pstn_enabled, pstn_mobile, COALESCE(dnd, false) AS dnd, rate_plan_id FROM user_settings WHERE extension = $1 LIMIT 1',
     [extension],
   );
   return rows[0] ?? null;
