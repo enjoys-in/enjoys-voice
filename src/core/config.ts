@@ -117,8 +117,13 @@ export interface AppConfig {
     //   the Conference ID, so Teams' greeting/IVR is ready to receive digits.
     // defaultDialIn: optional fallback dial-in number (E.164) when the client
     //   sends only a Conference ID; per-call number always overrides it.
+    // joinFailMs: if the Teams/trunk leg drops within this window after the two
+    //   legs are bridged, the Conference ID was most likely wrong/expired
+    //   (Teams rejects it and hangs up) — we play a spoken "couldn't join"
+    //   prompt to the caller instead of dropping them silently.
     dtmfDelayMs: number;
     defaultDialIn: string;
+    joinFailMs: number;
   };
   billing: {
     // Prepaid wallet. When enabled, ExternalHandler refuses an outbound call
@@ -128,6 +133,11 @@ export interface AppConfig {
     // MUST agree with the Go API's BILLING_PREPAID_ENABLED / BILLING_CURRENCY.
     prepaidEnabled: boolean;
     currency: string;
+    // Anti-toll-fraud: when true AND a rate book is loaded, refuse outbound
+    // calls to a destination that has NO configured rate (instead of letting
+    // them route free). Skipped when no rates are configured, so a workspace
+    // that hasn't set up a rate book still places calls normally.
+    blockUnrated: boolean;
   };
 }
 
@@ -265,9 +275,11 @@ export const config: AppConfig = {
   teams: {
     dtmfDelayMs: parseInt(process.env.TEAMS_DTMF_DELAY_MS || '4000'),
     defaultDialIn: (process.env.TEAMS_DEFAULT_DIALIN || '').trim(),
+    joinFailMs: parseInt(process.env.TEAMS_JOIN_FAIL_MS || '8000'),
   },
   billing: {
     prepaidEnabled: process.env.BILLING_PREPAID_ENABLED === 'true',
     currency: (process.env.BILLING_CURRENCY || 'USD').trim(),
+    blockUnrated: process.env.BILLING_BLOCK_UNRATED === 'true',
   },
 };

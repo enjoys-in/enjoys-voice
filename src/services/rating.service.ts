@@ -115,6 +115,26 @@ export class RatingService {
   }
 
   /**
+   * Whether dialing `dialed` would go UNRATED under the effective plan: a rate
+   * book is loaded but no prefix matches the destination. Drives the optional
+   * anti-toll-fraud gate that refuses calls to destinations with no configured
+   * rate (e.g. premium/international prefixes an operator never priced) instead
+   * of letting them route free.
+   *
+   * Returns false when no rate book is loaded at all (rating isn't in use, so
+   * blocking would break every outbound call) or when the number has no digits
+   * to match — the gate only fires when rating is genuinely in effect.
+   */
+  isUnrated(dialed: string, planId?: number | null): boolean {
+    if (!this.hasRates) return false;
+    const plan = this.resolvePlan(planId);
+    if (!plan) return false;
+    const digits = toDigits(dialed);
+    if (!digits) return false;
+    return longestPrefixMatch(plan.rates, digits) === null;
+  }
+
+  /**
    * Convenience for the SIP layer: given the call's terminal updates, rate the
    * outbound destination and merge the billing fields into those updates. Only
    * rates outbound legs to an external number; inbound / internal calls return

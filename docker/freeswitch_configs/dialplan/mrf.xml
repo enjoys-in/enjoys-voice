@@ -6,9 +6,14 @@
     <extension name="socket">
       <condition field="${sip_user_agent}" expression="^drachtio-fsmrf:(.*)$">
         <!-- Browser legs arrive as WebRTC offers (UDP/TLS/RTP/SAVPF) relayed
-             by drachtio. Enable DTLS-SRTP so FreeSWITCH answers the secure
-             media offer instead of rejecting it with 488 Not Acceptable. -->
-        <action application="set" data="rtp_secure_media=true"/>
+             by drachtio. rtp_secure_media_inbound=true pins the inbound browser
+             leg to DTLS-SRTP so FreeSWITCH answers the secure media offer
+             instead of rejecting it with 488 Not Acceptable.
+             rtp_secure_media (the general/trunk-facing policy) is driven by the
+             mrf_secure_media global var (see vars.xml) so operators can relax
+             SRTP on the outbound trunk/Teams leg without touching the browser
+             leg. Default true = behaviour-preserving. -->
+        <action application="set" data="rtp_secure_media=${mrf_secure_media}"/>
         <action application="set" data="rtp_secure_media_inbound=true"/>
         <action application="answer"/>
         <action application="set" data="send_silence_when_idle=-1"/>

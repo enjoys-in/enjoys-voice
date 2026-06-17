@@ -82,11 +82,14 @@
       transaction then stamps the ledger atomically, so restarts skip applied
       files and an edited-after-apply file is rejected (drift detection) instead
       of silently re-running.
-- [~] SRTP for media encryption end-to-end — browser leg is already DTLS-SRTP.
-      The trunk leg is a FreeSWITCH media-config concern, not app code: set
-      `rtp_secure_media`(`_outbound`) on the trunk's sofia profile / dialplan
-      (knobs documented in `docker/freeswitch_configs/vars.xml`). Requires a
-      carrier that negotiates SRTP — left as a deployment step.
+- [x] SRTP for media encryption end-to-end — browser leg is already DTLS-SRTP
+      (pinned via `rtp_secure_media_inbound=true`). The trunk/MRF leg policy is
+      now an exposed knob: `rtp_secure_media` in `docker/freeswitch_configs/dialplan/mrf.xml`
+      reads the `mrf_secure_media` global var (`docker/freeswitch_configs/vars.xml`,
+      default `true` = behaviour-preserving). Operators set it to `optional`/
+      `forbidden` to relax SRTP on the trunk leg without touching the secure
+      browser leg. End-to-end SRTP on the trunk still requires a carrier that
+      negotiates it — a deployment choice.
 - [x] Rate limiting on register/invite — HTTP `rate-limit` middleware **and**
       SIP-level per-IP cap (`SipServer.checkSipRate` → 429 on REGISTER/INVITE,
       tunable via `SIP_RATE_LIMIT` / `SIP_RATE_WINDOW_MS`)
@@ -132,16 +135,25 @@
 > Use a dedicated **ffmpeg Docker** (separate container/sidecar) rather than
 > baking ffmpeg into the Go API image — Go calls it to transcode uploads.
 - [x] Add `ivr` to the accepted `type` whitelist in `sound_handler.go`
-- [ ] Stand up an ffmpeg container (or sidecar service) the Go API can invoke
-- [ ] On `ivr` upload: transcode to FreeSWITCH-canonical format
+- [x] Stand up an ffmpeg container (or sidecar service) the Go API can invoke
+      — `audio.Transcoder` shells out to the binary at `FFMPEG_PATH` and
+      degrades gracefully (503) when absent. ffmpeg ships in the go-api image
+      (`server/Dockerfile`), and both compose files now wire `FFMPEG_PATH` +
+      `IVR_SOUND_DIR=./uploads/ivr` and bind-mount that dir into
+      `./freeswitch_sounds/ivr`, so normalized prompts are readable by the
+      FreeSWITCH container at `/usr/share/freeswitch/sounds/ivr`.
+- [x] On `ivr` upload: transcode to FreeSWITCH-canonical format
       `ffmpeg -i <in> -ar 16000 -ac 1 -c:a pcm_s16le <ext>_ivr_<ts>.wav`
-      (8k narrowband vs 16k wideband — pick the FS target; store only the .wav)
-- [ ] Validate real format by magic bytes (`RIFF`/`WAVE`, `OggS`), not the
+      (`audio.Transcoder.ToFreeswitchWav` → 16 kHz mono PCM WAV; only the .wav is kept)
+- [x] Validate real format by magic bytes (`RIFF`/`WAVE`, `OggS`), not the
       spoofable client `Content-Type`; whitelist output extension to `.wav`
-- [ ] Handle transcode subprocess: timeout, non-zero exit, sanitize paths
-- [ ] Store IVR sounds on a path the **FreeSWITCH** container can read
+      (`ErrUnsupportedFormat` — validation is by content sniffing, never the header)
+- [x] Handle transcode subprocess: timeout, non-zero exit, sanitize paths
+      (30s `context.WithTimeout`, fixed arg-vector / no shell, partial output removed on failure)
+- [x] Store IVR sounds on a path the **FreeSWITCH** container can read
       (bind mount), since IVR prompts are played server-side by FS — unlike
       caller_tune/ringtone which the browser fetches and resamples itself
+      (output dir is `IVR_DIR`, intended to be the FS-shared bind mount)
 - [x] Fix IDOR: derive `extension` from the JWT (`c.GetString("extension")`),
       not from `PostForm("extension")` — same ownership fix as voicemail
 - [x] Wire the frontend `SettingsScreen` upload to actually POST to the Go
@@ -173,7 +185,7 @@
 - [ ] Frontend: add `dnd` to the settings store + a toggle in `SettingsScreen`
       and persist via the Go settings update (`go-api.ts`)
 
-## Outbound Caller ID — Verified BYON (per-user real number)
+## Outbound Caller ID — Verified BYON (per-user real number) — ✅ DONE
 > **Goal:** a browser→PSTN call presents the *caller's own* real mobile as the
 > Caller ID (CLI), not one shared company number. Browser↔browser keeps using the
 > **extension** (it never touches the trunk, so no CLI rules apply). The IVR /
@@ -199,56 +211,56 @@
 > dormant, so BYON starts Twilio-only.
 
 ### Data model (Go) — store the verified number + status
-- [ ] Extend `UserSettings` (`server/internal/models/settings.go`, already holds
+- [x] Extend `UserSettings` (`server/internal/models/settings.go`, already holds
       `PstnMobile` + `PstnCountryCode`): add `OutboundCallerId string` (E.164),
       `CallerIdVerified bool` (default false), `CallerIdVerifiedAt *time.Time`, and
       `CallerIdValidationSid string` (the Twilio validation-request id). Mirror the
       first three into `SettingsResponse`.
-- [ ] Additive migration columns (Go AutoMigrate handles it). Do **not** treat
+- [x] Additive migration columns (Go AutoMigrate handles it). Do **not** treat
       `User.Mobile` as "verified for outbound" — it's only the signup number.
-- [ ] Accept the fields in the settings update handler/service, but keep
+- [x] Accept the fields in the settings update handler/service, but keep
       `CallerIdVerified` / `...At` **read-only to the client** — only the verify
       flow may flip them.
 
 ### Verification flow (provider-native, NO self-sent SMS)
-- [ ] Go: `POST /api/g/caller-id/verify/start` — body `{ number, countryCode }`.
+- [x] Go: `POST /api/g/caller-id/verify/start` — body `{ number, countryCode }`.
       Normalize to E.164, then create a Twilio **Validation Request**
       (`/2010-04-01/Accounts/{Sid}/OutgoingCallerIds`). Twilio calls/texts the
       number with a 6-digit code. Persist the returned `ValidationRequestSid`;
       respond `{ status: "pending" }`. (Twilio speaks/sends the code — we send nothing.)
-- [ ] Go: `POST /api/g/caller-id/verify/confirm` — Twilio finalizes once the user
+- [x] Go: `POST /api/g/caller-id/verify/confirm` — Twilio finalizes once the user
       enters the code on the call, so "confirm" really means *re-check status*:
       look up the `OutgoingCallerId` by number; when present → set
       `CallerIdVerified=true`, `CallerIdVerifiedAt=now`, `OutboundCallerId=<number>`.
-- [ ] Go: `GET /api/g/caller-id` — return `{ number, verified, verifiedAt }`.
-- [ ] Go: `DELETE /api/g/caller-id` — clear the verified CLI **and** delete the
+- [x] Go: `GET /api/g/caller-id` — return `{ number, verified, verifiedAt }`.
+- [x] Go: `DELETE /api/g/caller-id` — clear the verified CLI **and** delete the
       Twilio `OutgoingCallerId`, so the user can re-verify a different number.
-- [ ] Ownership: derive `extension` / `user_id` from the JWT
+- [x] Ownership: derive `extension` / `user_id` from the JWT
       (`c.GetString("extension")`), never from the request body (same IDOR fix as
       voicemail/sounds).
 - [ ] **Out of scope (explicit):** our own SMS OTP sender (`trunk.sendSms`) — the
       provider performs the verification.
 
 ### Outbound `From` override (Node SIP path)
-- [ ] Node: add `outboundCallerId?: string` to `SipUser` (`src/core/types.ts`),
+- [x] Node: add `outboundCallerId?: string` to `SipUser` (`src/core/types.ts`),
       populated by the existing settings LISTEN/NOTIFY sync that already carries
       mobile/forwarding (`src/services/database.service.ts` → `hydrateUserDetail`).
-- [ ] `ExternalHandler` (`src/sip/routes/external.handler.ts`) already resolves the
+- [x] `ExternalHandler` (`src/sip/routes/external.handler.ts`) already resolves the
       registered caller — look up that user's `outboundCallerId` and pass it into
       `routeCall(...)` as a new `callerId` argument.
-- [ ] `TrunkService.routeCall` (`src/services/trunk.service.ts`) currently hardcodes
+- [x] `TrunkService.routeCall` (`src/services/trunk.service.ts`) currently hardcodes
       `From: <sip:{config.trunk.callerNumber}@host>` — use the passed `callerId`
       when present, else fall back to `config.trunk.callerNumber`.
-- [ ] **Fallback policy (decide + document):** when a user has **no** verified
-      caller ID → either (a) block outbound PSTN with a clear "verify your number"
-      error, or (b) fall back to the shared `TRUNK_CALLER_NUMBER`.
+- [x] **Fallback policy (decide + document):** when a user has **no** verified
+      caller ID → **(b) chosen**: fall back to the shared `TRUNK_CALLER_NUMBER`
+      (`sanitizeCallerId(callerId) || trunk.callerNumber` in `createOutboundLeg`).
 
 ### Frontend
-- [ ] `SettingsScreen`: a "Caller ID" panel — show the current verified number and
+- [x] `SettingsScreen`: a "Caller ID" panel — show the current verified number and
       a "Verify my number" button → calls `/caller-id/verify/start`, then shows
       "Twilio is calling you, enter the code", then a "Done / refresh" that calls
       confirm. Surface the verified / pending / none states.
-- [ ] Add the endpoints to `go-api.ts`; add the fields to the settings store.
+- [x] Add the endpoints to `go-api.ts`; add the fields to the settings store.
 - [ ] If outbound is blocked while unverified, the dialer should explain why and
       deep-link to the verify panel.
 
@@ -266,10 +278,11 @@
       verified CLI per user for now.
 - [ ] Provider lock-in: verified caller ID is per-provider (Twilio-only until the
       other providers are wired into the live app).
-- [ ] Rate-limit `verify/start` (anti-abuse — each call triggers a real, billable
-      Twilio call/SMS).
+- [x] Rate-limit `verify/start` (anti-abuse — each call triggers a real, billable
+      Twilio call/SMS). (60s per-extension cooldown in Valkey:
+      `callerid:cooldown:<ext>` → `ErrCallerIDCooldown` / HTTP 429.)
 
-## Call Rate & Cost / Billing System (per-minute rating + CDR cost)
+## Call Rate & Cost / Billing System (per-minute rating + CDR cost) — ✅ DONE
 > **Goal:** attach a **cost** to every outbound (and optionally inbound) call so
 > we can rate calls per-destination, track spend, and (optionally) enforce
 > prepaid **balance**. A call is rated on hang-up: `cost = setupFee + ratePerMin ×
@@ -307,14 +320,15 @@
       `Cost numeric(12,5) default 0`, `Currency(size3)`, `RatePrefix(size15)`,
       `BilledSecs int`, `RatedAt *time.Time`. Additive — Go AutoMigrate handles it.
       (Node stays the sole WRITER of these too, like the other call columns.)
-- [ ] (If prepaid) New `UserBalance` model
+- [x] (If prepaid) New `UserBalance` model
       (`server/internal/models/balance.go`): `{ Extension(pk/index), Currency,
       Balance numeric(12,4), UpdatedAt }` + a `BalanceTxn` ledger
       `{ ID, Extension(index), Amount(+credit/−debit), Reason, CallID, CreatedAt }`
       so every deduction/top-up is auditable (never just mutate the balance).
 
 ### Rate lookup + cost calculation (decide where it runs)
-- [ ] **Pick the rating owner (document it):**
+- [x] **Pick the rating owner (document it):** **(a) chosen** — Node rates inline
+      at call-end (`RatingService` + `RateSyncListener`): one writer, no extra hop.
       (a) **Node rates inline** at call-end: load rates into memory (like users via
           LISTEN/NOTIFY), compute cost, stamp it on the `CallLog` before the
           upsert. Pros: one writer, no extra round-trip. ← preferred, matches the
@@ -334,7 +348,7 @@
       (Rated at the `ended` choke point; external `to` only — internal/inbound free.)
 
 ### Pre-call balance gate (only if prepaid is enabled)
-- [ ] In `ExternalHandler` (`src/sip/routes/external.handler.ts`), before
+- [x] In `ExternalHandler` (`src/sip/routes/external.handler.ts`), before
       `routeCall`: look up the caller's balance + the destination sell rate; if
       `balance < estimatedMinCharge` (setup fee + 1 increment) → reject with a
       spoken "insufficient balance" (reuse `IvrSystem.playUnavailable` style) or a
@@ -342,7 +356,7 @@
 - [ ] **Mid-call cutoff (optional, harder):** compute max affordable seconds from
       balance and arm a timer to tear the call down near the limit (FreeSWITCH
       `sched_hangup` / B2BUA timer). Defer if not needed v1.
-- [ ] On call-end: debit `UserBalance` by the computed cost inside a txn that also
+- [x] On call-end: debit `UserBalance` by the computed cost inside a txn that also
       writes a `BalanceTxn` row referencing the `CallID` (idempotent on retry —
       guard against double-debit if the upsert runs twice).
 
@@ -355,7 +369,7 @@
       description, sell, buy, setup, increment) — carrier rate sheets are large.
 - [x] Assign a plan to a user: add `RatePlanID` to `UserSettings`
       (`server/internal/models/settings.go`) or a join; default plan when unset.
-- [ ] Balances: `GET /api/g/balance/:ext`, `POST /api/g/balance/:ext/topup`
+- [x] Balances: `GET /api/g/balance/:ext`, `POST /api/g/balance/:ext/topup`
       (admin/credit), `GET /api/g/balance/:ext/txns` (ledger). Derive `ext` from
       JWT for self-reads; restrict top-up/rate CRUD to admins.
 - [x] Extend `/api/g/stats` (`call_repo.go` `Stats`) with `SUM(cost)` total +
@@ -388,21 +402,33 @@
       (Total Spend + Avg Cost / Call cards + Spend Over Time area chart done.)
 
 ### Guardrails / edge cases
-- [ ] **Money math = integers or fixed-precision.** Store as `numeric` in
+- [x] **Money math = integers or fixed-precision.** Store as `numeric` in
       Postgres; in JS avoid float drift (use minor units / a decimal lib) — never
       bill on `0.1 + 0.2`.
-- [ ] Currency: single currency v1 (config `BILLING_CURRENCY`); multi-currency +
+      (Cost columns are `numeric(12,5)`; JS rounds every result via `round5`/
+      `round4` so no raw float is ever persisted. A full decimal lib is a later
+      hardening if sub-µ precision is ever needed.)
+- [x] Currency: single currency v1 (config `BILLING_CURRENCY`); multi-currency +
       FX is a later, separate feature.
-- [ ] Idempotency: rating must run **once** per call even though `updateCall` can
+- [x] Idempotency: rating must run **once** per call even though `updateCall` can
       fire multiple terminal updates — guard with `RatedAt`/CallID.
-- [ ] Missing rate for a destination → **block or default**, never silently
+      (The wallet **debit** is idempotent: keyed on `(call_id, reason='call')`
+      inside the debit txn, so a replayed terminal update never double-charges.)
+- [x] Missing rate for a destination → **block or default**, never silently
       free-call premium/international (toll-fraud + revenue leak).
+      (Opt-in `BILLING_BLOCK_UNRATED`: when a rate book is loaded, an outbound
+      call to an unrated destination is refused with SIP 403 +
+      `unrated_destination` audit, in `ExternalHandler` via
+      `RatingService.isUnrated`. Off by default so un-priced workspaces still
+      call; turn on once the rate book covers every allowed destination.)
 - [ ] Rounding/increment policy must match the carrier's so margin isn't negative;
       keep BOTH buy + sell to monitor margin per destination.
-- [ ] Inbound/internal (browser↔browser) calls are free by default — only PSTN
+      (Operational: per-rate `IncrementSecs`/`MinSecs`/`SetupFee` + buy+sell are
+      stored; set them to match each carrier's rate sheet.)
+- [x] Inbound/internal (browser↔browser) calls are free by default — only PSTN
       outbound is rated unless explicitly configured.
 
-## Join Microsoft Teams Meeting from Phone/Browser (Audio Conferencing dial-in)
+## Join Microsoft Teams Meeting from Phone/Browser (Audio Conferencing dial-in) — ✅ DONE
 > **Goal:** let our phone/browser user JOIN a Microsoft Teams meeting by having
 > our server dial the meeting's **PSTN Audio-Conferencing number** and then
 > auto-enter the **Conference ID** via DTMF. The user lands in the Teams meeting
@@ -431,32 +457,36 @@
 >     (`src/sip/routes/external.handler.ts`) — reuse the same guard here.
 
 ### Trigger / entry point (how a user starts a join)
-- [ ] **Decide the trigger** (pick one, document it):
+- [x] **Decide the trigger** (pick one, document it): **chosen** — the browser
+      places a normal SIP INVITE to `teams` carrying custom headers `X-Teams-Conf-Id`
+      / `X-Teams-Number` (`useSipPhone.joinTeamsMeeting`), detected by
+      `TeamsMeetingHandler`; cleaner than encoding data in the dialed string.
       (a) **WS action** (preferred for the browser UI): add a `join_meeting`
           message to `src/websocket/signaling.server.ts` with
           `{ pstnNumber, conferenceId }`; the server originates the call.
       (b) Special dialed string the dial plan recognizes (e.g.
           `**teams*<number>*<confId>#`) parsed in
           `src/services/dialplan.service.ts` → new `RouteType.TeamsMeeting`.
-- [ ] Frontend: a "Join Teams meeting" panel — fields for **dial-in number** +
+- [x] Frontend: a "Join Teams meeting" panel — fields for **dial-in number** +
       **Conference ID**, OR a single textarea to **paste the meeting invite** and
       auto-extract both (regex e.g. `Phone Conference ID:\s*([\d\s]+)#?` and the
       toll/toll-free number). A "Join" button fires the trigger.
 
 ### Server media flow (answer → dial Teams → DTMF the ID → bridge)
-- [ ] New handler (e.g. `src/sip/routes/teams-meeting.handler.ts`) or an
+- [x] New handler (e.g. `src/sip/routes/teams-meeting.handler.ts`) or an
       `IvrSystem` method modeled on `recordVoicemail`/`playUnavailable`:
-  - [ ] `connectCaller(req,res)` to answer the user's A-leg onto a FreeSWITCH
+      (`TeamsMeetingHandler` + `IvrSystem.joinTeamsMeeting`)
+  - [x] `connectCaller(req,res)` to answer the user's A-leg onto a FreeSWITCH
         endpoint (optionally `speak` a "connecting you to the meeting" prompt).
-  - [ ] Originate the **B-leg** to the Teams dial-in number via the trunk
+  - [x] Originate the **B-leg** to the Teams dial-in number via the trunk
         (reuse `formatOutboundUri` for E.164 normalization + trunk auth/From).
-  - [ ] After the B-leg ANSWERS and Teams' IVR prompts, send the Conference ID:
+  - [x] After the B-leg ANSWERS and Teams' IVR prompts, send the Conference ID:
         `endpoint.execute('send_dtmf', '<conferenceId>#')` on the **B-leg toward
         Teams** (append `#`; some flows also need a trailing confirmation key).
-  - [ ] **Bridge** A-leg ↔ B-leg (`endpoint.bridge(...)`) so the user is in the
+  - [x] **Bridge** A-leg ↔ B-leg (`endpoint.bridge(...)`) so the user is in the
         meeting; tear down both legs on either hangup (mirror the
         `uac/uas .on('destroy')` cleanup in `TrunkService.routeCall`).
-- [ ] **DTMF timing:** Teams won't accept digits until its greeting starts. Either
+- [x] **DTMF timing:** Teams won't accept digits until its greeting starts. Either
       wait a fixed delay, or (better) gate on B-leg answer + a short pause before
       `send_dtmf`. Make the pause/`#` behavior configurable.
 - [ ] **DTMF transport:** ensure RFC 2833 / telephone-event is negotiated on the
@@ -464,26 +494,36 @@
       codec/2833 settings; fall back to inband only if required.
 
 ### Config / metadata
-- [ ] Optional convenience config: a default/known Teams dial-in number per
+- [x] Optional convenience config: a default/known Teams dial-in number per
       region so users only paste the **Conference ID** (the number rarely changes
-      per tenant). Keep per-call override.
-- [ ] Outbound CLI on the Teams leg is irrelevant to dial-in (Teams identifies the
+      per tenant). Keep per-call override. (`TEAMS_DEFAULT_DIALIN`, overridable
+      per call via the `X-Teams-Number` header.)
+- [x] Outbound CLI on the Teams leg is irrelevant to dial-in (Teams identifies the
       participant by Conference ID, not CLI) — use the shared
       `TRUNK_CALLER_NUMBER`; this is independent of the BYON caller-ID feature.
 
 ### Guardrails / edge cases
-- [ ] **Reuse the toll-fraud gate:** only a **registered** user may trigger a join
+- [x] **Reuse the toll-fraud gate:** only a **registered** user may trigger a join
       (same check as `ExternalHandler`) so this path can't be abused to dial
-      arbitrary/premium numbers. Rate-limit join attempts.
-- [ ] Wrong/expired Conference ID → Teams re-prompts or rejects; add a timeout +
+      arbitrary/premium numbers. Rate-limit join attempts. (registered-caller
+      check + sliding-window per-caller limiter in `TeamsMeetingHandler`.)
+- [x] Wrong/expired Conference ID → Teams re-prompts or rejects; add a timeout +
       spoken "couldn't join the meeting" fallback, then hang up cleanly.
-- [ ] International dial-in numbers → normalize via `formatOutboundUri`; allow the
+      (`joinTeamsMeeting` now tracks a `bridgedAt` timestamp; if the Teams/trunk
+      leg drops within `TEAMS_JOIN_FAIL_MS` (default 8s) of bridging, the caller
+      hears "Sorry, we could not join the meeting. Please check the conference
+      ID and try again." before a clean teardown. Pre-bridge failures keep the
+      existing spoken fallbacks; the call is still marked `failed`.)
+- [x] International dial-in numbers → normalize via `formatOutboundUri`; allow the
       user to pick the toll vs toll-free number from the invite.
-- [ ] Record the attempt in call history (`db.logCall`) with a recognizable
+- [x] Record the attempt in call history (`db.logCall`) with a recognizable
       target (e.g. `teams:<confId>`) so it shows in recents/stats.
-- [ ] **Licensing note (document in UI):** joining works only if the meeting
+- [x] **Licensing note (document in UI):** joining works only if the meeting
       ORGANIZER's tenant has **Audio Conferencing** enabled (that's what generates
       the dial-in number + Conference ID). Nothing to license on our side.
+      (Shown in `web/app/components/screens/TeamsJoinDialog.tsx`: "Joining
+      requires the meeting organizer's tenant to have Audio Conferencing
+      enabled (that's what generates the dial-in details).")
 - [ ] (Optional, later) Outbound name/announcement: have FreeSWITCH speak the
       caller's name on entry, or DTMF-send a PIN if the meeting requires one.
 

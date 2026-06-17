@@ -27,6 +27,22 @@ export class ExternalHandler implements RouteHandler {
       return true;
     }
 
+    // ─── Unrated-destination gate (anti-toll-fraud) ──────────────────
+    // Optional: when BILLING_BLOCK_UNRATED is on and a rate book is loaded,
+    // refuse a call to a destination with NO configured rate. Without this an
+    // un-priced premium/international prefix would route free — a revenue leak
+    // and toll-fraud vector. Skipped entirely when no rate book is loaded, so a
+    // workspace that hasn't set up rates still places calls. Reads only memory.
+    if (config.billing.blockUnrated && services.db.isUnratedDestination(route.normalizedNumber, caller)) {
+      console.warn(`🚫 Unrated destination blocked: ${caller} → ${route.normalizedNumber} (no configured rate)`);
+      services.audit?.log('call_blocked', caller, {
+        reason: 'unrated_destination', to: route.normalizedNumber, callId: ctx.callId,
+      }, ctx.req.source_address);
+      services.db.updateCall(ctx.callId, { status: 'failed', direction: 'outbound' });
+      ctx.res.send(403, 'Forbidden');
+      return true;
+    }
+
     // ─── Prepaid balance gate ──────────────────────────────────────────
     // With prepaid billing on, refuse a call the caller can't even afford to
     // start: the wallet must cover the cheapest possible charge (setup fee +

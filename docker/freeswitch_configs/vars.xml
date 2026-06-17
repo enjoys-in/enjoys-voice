@@ -65,6 +65,18 @@
   <X-PRE-PROCESS cmd="set" data="use_profile=external"/>
   <X-PRE-PROCESS cmd="set" data="rtp_sdes_suites=AEAD_AES_256_GCM_8|AEAD_AES_128_GCM_8|AES_CM_256_HMAC_SHA1_80|AES_CM_192_HMAC_SHA1_80|AES_CM_128_HMAC_SHA1_80|AES_CM_256_HMAC_SHA1_32|AES_CM_192_HMAC_SHA1_32|AES_CM_128_HMAC_SHA1_32|AES_CM_128_NULL_AUTH"/>
   <!--
+      mrf_secure_media: SRTP policy applied to the trunk-facing leg of MRF-
+      anchored calls (e.g. the Microsoft Teams dial-in bridge in
+      dialplan/mrf.xml). Values: true | false | mandatory | optional | forbidden.
+
+      Default is "true" so existing behaviour is preserved. The browser/WebRTC
+      leg is ALWAYS pinned to DTLS-SRTP via rtp_secure_media_inbound=true in the
+      dialplan and is NOT affected by this knob, so it is safe to relax this to
+      "optional" (offer SRTP, allow plain RTP fallback) or "forbidden" when a
+      PSTN/Teams carrier rejects SRTP on the trunk leg.
+  -->
+  <X-PRE-PROCESS cmd="set" data="mrf_secure_media=true"/>
+  <!--
       NOTICE: When using SRTP it's critical that you do not offer or accept
       variable bit rate codecs, doing so would leak information and possibly
       compromise your SRTP stream. (FS-6404)

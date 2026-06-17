@@ -30,6 +30,8 @@ export interface CallRater {
   applyToEndedCall(call: CallLog, updates: Partial<CallLog>, planId?: number | null): Partial<CallLog>;
   /** Cheapest possible charge for a destination under a plan; null if unrateable. */
   estimateMinCharge(dialed: string, planId?: number | null): { cost: number; currency: string } | null;
+  /** True when a rate book is loaded but no rate matches the destination. */
+  isUnrated(dialed: string, planId?: number | null): boolean;
 }
 
 export class DatabaseService extends EventEmitter {
@@ -280,6 +282,18 @@ export class DatabaseService extends EventEmitter {
     if (!this.rater) return null;
     const user = ext ? this.users.get(ext) : undefined;
     return this.rater.estimateMinCharge(dialed, user?.ratePlanId ?? null);
+  }
+
+  /**
+   * Whether dialing `dialed` is UNRATED under `ext`'s plan (a rate book exists
+   * but no prefix matches). Drives the optional block-unrated toll-fraud gate.
+   * Returns false when there's no rater or no rate book loaded, so a workspace
+   * without rates configured is never gated. Reads entirely from memory.
+   */
+  isUnratedDestination(dialed: string, ext?: string): boolean {
+    if (!this.rater) return false;
+    const user = ext ? this.users.get(ext) : undefined;
+    return this.rater.isUnrated(dialed, user?.ratePlanId ?? null);
   }
 
   addUser(user: SipUser): void {

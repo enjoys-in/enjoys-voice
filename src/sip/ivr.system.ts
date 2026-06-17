@@ -313,12 +313,34 @@ export class IVRSystem {
         console.warn(`⚠️ Teams: send_dtmf failed: ${err?.message}`);
       }
 
-      // Bridge the user to Teams; tear both down when either hangs up.
-      uac.on('destroy', teardown);
-      dialog.on('destroy', teardown);
-      bLeg.on('destroy', teardown);
-      aLeg.on('destroy', teardown);
+      // Bridge the user to Teams. If the Teams/trunk leg drops within a few
+      // seconds of bridging, the Conference ID was most likely wrong or expired
+      // (Teams rejects it and hangs up) — tell the caller instead of dropping
+      // them silently. A normal hang-up later just tears down without a prompt.
+      let bridgedAt = 0;
+      let failureHandled = false;
+      const onTrunkEnd = () => {
+        // Re-entrant guard: tearing down one leg destroys the others, which
+        // re-fires this handler; only the first invocation may play a prompt.
+        if (failureHandled || torndown) { teardown(); return; }
+        failureHandled = true;
+        const earlyFail = bridgedAt > 0 && Date.now() - bridgedAt < config.teams.joinFailMs;
+        if (earlyFail && aLeg) {
+          // Fire-and-forget: play to the still-connected caller, then tear down.
+          this.playSafe(aLeg, 'say:Sorry, we could not join the meeting. Please check the conference ID and try again. Goodbye.')
+            .catch(() => { /* noop */ })
+            .finally(teardown);
+          return;
+        }
+        teardown();
+      };
 
+      uac.on('destroy', onTrunkEnd);
+      dialog.on('destroy', onTrunkEnd);
+      bLeg.on('destroy', onTrunkEnd);
+      aLeg.on('destroy', teardown); // caller hung up → straight teardown, no prompt
+
+      bridgedAt = Date.now();
       await aLeg.bridge(bLeg);
       console.log(`✅ Teams: bridged caller into meeting ${conferenceId} via ${dialInNumber}`);
       return true;

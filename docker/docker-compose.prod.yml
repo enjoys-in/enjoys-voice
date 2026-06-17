@@ -102,6 +102,12 @@ services:
       VALKEY_DB: "0"
       JWT_SECRET: change-this-to-a-secure-random-string
       UPLOAD_DIR: ./uploads/sounds
+      # ffmpeg normalizes IVR sound uploads to 16 kHz mono PCM WAV. The binary
+      # ships in the go-api image (server/Dockerfile). IVR_SOUND_DIR is bind-
+      # mounted below into ./freeswitch_sounds so the drachtio-freeswitch
+      # container can play the prompts the Go API writes.
+      FFMPEG_PATH: ffmpeg
+      IVR_SOUND_DIR: ./uploads/ivr
       # The auth cookies (token + refresh_token) are served over HTTPS at
       # voice.enjoys.in, so mark them Secure. SameSite defaults to "lax" and the
       # domain is host-only (empty) — correct for the single same-origin domain.
@@ -113,6 +119,11 @@ services:
       DOMAIN: voice.enjoys.in
       PUBLIC_SIP_WS_URL: "wss://voice.enjoys.in/sip"
       PUBLIC_WS_URL: "wss://voice.enjoys.in/signal"
+    volumes:
+      # IVR prompts the Go API normalizes with ffmpeg land here; the same host
+      # dir is mounted into drachtio-freeswitch at
+      # /usr/share/freeswitch/sounds/ivr so FreeSWITCH can play them.
+      - ./freeswitch_sounds/ivr:/app/uploads/ivr
     depends_on:
       postgres:
         condition: service_healthy
