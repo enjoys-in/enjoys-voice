@@ -91,6 +91,30 @@ export class RatingService {
   }
 
   /**
+   * The smallest amount a call to `dialed` could possibly cost: the setup fee
+   * plus one minimum billable increment of talk time. Used by the prepaid gate
+   * to refuse a call the caller can't even afford to start. Returns 0 (don't
+   * gate) when there's no plan or no matching prefix — an unrateable call is
+   * never balance-blocked, mirroring `rate()` returning null.
+   */
+  estimateMinCharge(dialed: string, planId?: number | null): { cost: number; currency: string } | null {
+    const plan = this.resolvePlan(planId);
+    if (!plan) return null;
+
+    const digits = toDigits(dialed);
+    if (!digits) return null;
+
+    const match = longestPrefixMatch(plan.rates, digits);
+    if (!match) return null;
+
+    // Cheapest possible answered call: one increment (or the minimum), same
+    // rounding the real rating uses, so the estimate never under-charges.
+    const minBilled = billableSeconds(1, match.incrementSecs, match.minSecs);
+    const cost = round5(match.setupFee + (match.sellPerMin * minBilled) / 60);
+    return { cost, currency: plan.currency };
+  }
+
+  /**
    * Convenience for the SIP layer: given the call's terminal updates, rate the
    * outbound destination and merge the billing fields into those updates. Only
    * rates outbound legs to an external number; inbound / internal calls return

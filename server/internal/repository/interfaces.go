@@ -49,6 +49,34 @@ type RateRepository interface {
 	UpsertRates(ctx context.Context, planID uint, rates []models.Rate) (created int, updated int, err error)
 }
 
+// BalanceRepository owns the prepaid wallet and its ledger. Every balance
+// mutation goes through Credit, which writes a signed ledger entry and adjusts
+// the running balance in one transaction so the two can never diverge.
+type BalanceRepository interface {
+	// Get returns the wallet for an extension, or a zeroed wallet (not an error)
+	// when none exists yet — an account that has never been topped up reads as 0.
+	Get(ctx context.Context, ext string) (*models.UserBalance, error)
+	// Credit applies a signed amount (positive = top-up, negative = charge) to a
+	// wallet and records a matching ledger entry, atomically. When callID is
+	// non-empty it is treated as an idempotency key: if a ledger row for that
+	// (callID, reason) already exists the call is a no-op and the current wallet
+	// is returned unchanged.
+	Credit(ctx context.Context, ext string, amount float64, currency, reason, callID string) (*models.UserBalance, error)
+	// ListTxns returns the most recent ledger entries for an extension, newest first.
+	ListTxns(ctx context.Context, ext string, limit int) ([]models.BalanceTxn, error)
+}
+
+// TrunkRepository persists upstream SIP trunk definitions (PSTN gateways / ITSPs).
+type TrunkRepository interface {
+	List(ctx context.Context) ([]models.Trunk, error)
+	Get(ctx context.Context, id uint) (*models.Trunk, error)
+	Create(ctx context.Context, trunk *models.Trunk) error
+	Update(ctx context.Context, trunk *models.Trunk) error
+	Delete(ctx context.Context, id uint) error
+	// SetStatus records the outcome of the most recent connectivity probe.
+	SetStatus(ctx context.Context, id uint, status string, testedAt time.Time) error
+}
+
 type CallRepository interface {
 	Create(ctx context.Context, call *models.CallRecord) error
 	GetAll(ctx context.Context) ([]models.CallRecord, error)

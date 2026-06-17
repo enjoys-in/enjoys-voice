@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -14,13 +15,14 @@ import (
 
 type AuthHandler struct {
 	authSvc service.AuthService
+	otpSvc  service.OTPService
 	tokens  *token.Manager
 	sip     config.SipConfig
 	cookie  config.CookieConfig
 }
 
-func NewAuthHandler(as service.AuthService, tm *token.Manager, sip config.SipConfig, cookie config.CookieConfig) *AuthHandler {
-	return &AuthHandler{authSvc: as, tokens: tm, sip: sip, cookie: cookie}
+func NewAuthHandler(as service.AuthService, os service.OTPService, tm *token.Manager, sip config.SipConfig, cookie config.CookieConfig) *AuthHandler {
+	return &AuthHandler{authSvc: as, otpSvc: os, tokens: tm, sip: sip, cookie: cookie}
 }
 
 type loginRequest struct {
@@ -32,6 +34,29 @@ type signupRequest struct {
 	Name     string `json:"name" binding:"required"`
 	Mobile   string `json:"mobile" binding:"required"`
 	Password string `json:"password" binding:"required,min=4"`
+}
+
+// otpRequest asks for a one-time code to be sent to a mobile. Purpose selects
+// the flow: "signup" (number must be new) or "login" (number must have an
+// account); it defaults to "signup".
+type otpRequest struct {
+	Mobile  string `json:"mobile" binding:"required"`
+	Purpose string `json:"purpose"`
+}
+
+// signupVerifyRequest completes OTP-verified signup: the same fields as a
+// password signup plus the code from the SMS.
+type signupVerifyRequest struct {
+	Name     string `json:"name" binding:"required"`
+	Mobile   string `json:"mobile" binding:"required"`
+	Password string `json:"password" binding:"required,min=4"`
+	Code     string `json:"code" binding:"required"`
+}
+
+// loginOTPRequest is a passwordless login: mobile + the code from the SMS.
+type loginOTPRequest struct {
+	Mobile string `json:"mobile" binding:"required"`
+	Code   string `json:"code" binding:"required"`
 }
 
 type refreshRequest struct {
@@ -90,7 +115,96 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 	response.Created(c, "Account created", h.authPayload(user, pair))
 }
 
-// Refresh exchanges a valid refresh token for a new access + refresh pair. The
+// RequestOTP sends a one-time verification code over SMS. For signup the number
+// must be new (else 409); for login the response is always generic so it can't
+// be used to probe which numbers have accounts.
+func (h *AuthHandler) RequestOTP(c *gin.Context) {
+	var req otpRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Mobile is required")
+		return
+	}
+
+	var err error
+	if req.Purpose == "login" {
+		err = h.otpSvc.RequestLoginOTP(c.Request.Context(), req.Mobile)
+	} else {
+		err = h.otpSvc.RequestSignupOTP(c.Request.Context(), req.Mobile)
+	}
+	if err != nil {
+		h.mapOTPError(c, err)
+		return
+	}
+
+	response.Success(c, "If the number is eligible, a verification code has been sent", nil)
+}
+
+// SignupVerify completes OTP-verified signup, creating the account and issuing
+// tokens on success (mirrors Signup once the code checks out).
+func (h *AuthHandler) SignupVerify(c *gin.Context) {
+	var req signupVerifyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Missing fields: name, mobile, password, code required")
+		return
+	}
+
+	user, err := h.otpSvc.VerifySignupOTP(c.Request.Context(), req.Name, req.Mobile, req.Password, req.Code)
+	if err != nil {
+		h.mapOTPError(c, err)
+		return
+	}
+
+	pair, err := h.tokens.Generate(user.ID, user.Extension)
+	if err != nil {
+		response.Internal(c, "Failed to issue token")
+		return
+	}
+
+	h.setAuthCookies(c, pair)
+	response.Created(c, "Account created", h.authPayload(user, pair))
+}
+
+// LoginOTP completes passwordless mobile+OTP login, issuing tokens on a valid
+// code (mirrors Login but with no password).
+func (h *AuthHandler) LoginOTP(c *gin.Context) {
+	var req loginOTPRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Mobile and code are required")
+		return
+	}
+
+	user, err := h.otpSvc.VerifyLoginOTP(c.Request.Context(), req.Mobile, req.Code)
+	if err != nil {
+		h.mapOTPError(c, err)
+		return
+	}
+
+	pair, err := h.tokens.Generate(user.ID, user.Extension)
+	if err != nil {
+		response.Internal(c, "Failed to issue token")
+		return
+	}
+
+	h.setAuthCookies(c, pair)
+	response.Success(c, "Login successful", h.authPayload(user, pair))
+}
+
+// mapOTPError translates OTP service sentinels to HTTP statuses.
+func (h *AuthHandler) mapOTPError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, service.ErrOTPUnavailable):
+		response.Error(c, http.StatusServiceUnavailable, "OTP delivery is not available")
+	case errors.Is(err, service.ErrOTPCooldown):
+		response.Error(c, http.StatusTooManyRequests, "Please wait before requesting another code")
+	case errors.Is(err, service.ErrMobileRegistered):
+		response.Conflict(c, "This number is already registered. Please log in instead")
+	case errors.Is(err, service.ErrOTPInvalid):
+		response.BadRequest(c, "Invalid or expired code")
+	default:
+		response.Internal(c, "Could not complete the request")
+	}
+}
+
 // token is taken from the JSON body when present, otherwise from the httpOnly
 // refresh_token cookie — so a cookie-only browser client can refresh without
 // ever handling the token in JS.

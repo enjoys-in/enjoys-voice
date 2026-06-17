@@ -12,6 +12,7 @@ import {
   WriteQueue,
   ensureCallSchema,
   upsertCall,
+  debitForCall,
 } from '@/services';
 import { SipServer } from '@/sip';
 import { SignalingServer } from '@/websocket';
@@ -111,6 +112,13 @@ class Application {
     this.writeQueue.on(WriteJob.CallUpsert, (call) => upsertCall(call));
     this.db.on(DbEvent.CallUpserted, (call) => {
       void this.writeQueue.enqueue(WriteJob.CallUpsert, call).catch(() => {});
+    });
+    // Prepaid wallet debits: priced at end-of-call, applied to Postgres by the
+    // queue worker (atomic + idempotent on the call id). Only emitted when
+    // prepaid billing is on, so this is inert otherwise.
+    this.writeQueue.on(WriteJob.BalanceDebit, (job) => debitForCall(job));
+    this.db.on(DbEvent.BalanceDebit, (job) => {
+      void this.writeQueue.enqueue(WriteJob.BalanceDebit, job).catch(() => {});
     });
   }
 

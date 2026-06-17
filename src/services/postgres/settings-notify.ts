@@ -4,12 +4,13 @@ import { PgNotifyListener } from './pg-listener';
 const CHANNEL = 'settings_changed';
 
 /**
- * The per-user routing settings the Go API owns live in three separate tables —
- * `blocked_numbers`, `forwarding_rules` and `user_settings` (PSTN). A change to
- * any of them must refresh that one user's in-memory routing detail so the live
- * SIP path keeps deciding from memory (no per-call DB read). The users-table
+ * The per-user routing settings the Go API owns live in separate tables —
+ * `blocked_numbers`, `forwarding_rules`, `user_settings` (PSTN) and the prepaid
+ * wallet `user_balances`. A change to any of them must refresh that one user's
+ * in-memory detail so the live SIP path keeps deciding from memory (no per-call
+ * DB read) — including the wallet balance the prepaid gate reads. The users-table
  * trigger does NOT fire for these, so this installs a shared trigger across all
- * three tables that NOTIFYs the affected extension (plus the source table, handy
+ * of them that NOTIFYs the affected extension (plus the source table, handy
  * for debugging).
  *
  * Each table is guarded with `to_regclass` so a table that doesn't exist yet (a
@@ -43,7 +44,7 @@ DO $$
 DECLARE
   tbl text;
 BEGIN
-  FOREACH tbl IN ARRAY ARRAY['blocked_numbers', 'forwarding_rules', 'user_settings'] LOOP
+  FOREACH tbl IN ARRAY ARRAY['blocked_numbers', 'forwarding_rules', 'user_settings', 'user_balances'] LOOP
     IF to_regclass('public.' || tbl) IS NOT NULL THEN
       EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', tbl || '_settings_trigger', tbl);
       EXECUTE format(

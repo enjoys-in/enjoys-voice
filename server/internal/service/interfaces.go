@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"time"
 
 	"github.com/enjoys-in/enjoys-voice/api/internal/models"
 	"github.com/enjoys-in/enjoys-voice/api/internal/repository"
@@ -99,6 +101,69 @@ type RateService interface {
 	ImportRates(ctx context.Context, planID uint, csvData string) (*RateImportResult, error)
 }
 
+// BalanceService owns the prepaid wallet: reading a balance, listing the ledger
+// and applying admin top-ups. The per-call debit is written by the Node engine
+// at end-of-call (it owns the call path); the Go side only credits and reads.
+type BalanceService interface {
+	// Enabled reports whether prepaid billing is switched on (BILLING_PREPAID_ENABLED).
+	Enabled() bool
+	Get(ctx context.Context, ext string) (*models.UserBalance, error)
+	// TopUp credits a wallet by a positive amount and records a ledger entry.
+	TopUp(ctx context.Context, ext string, amount float64, reason string) (*models.UserBalance, error)
+	ListTxns(ctx context.Context, ext string, limit int) ([]models.BalanceTxn, error)
+}
+
+// ErrBalanceDisabled is returned by mutating balance operations when prepaid
+// billing is turned off (503).
+var ErrBalanceDisabled = errors.New("prepaid billing is not enabled")
+
+// ErrBalanceAmount is returned when a top-up amount is not a positive number (400).
+var ErrBalanceAmount = errors.New("amount must be greater than zero")
+
+// TrunkInput is a partial create/update of a SIP trunk — only non-nil fields
+// are applied, so an edit that omits a field leaves the stored value intact. A
+// nil or empty Password specifically preserves the existing credential.
+type TrunkInput struct {
+	Name         *string `json:"name"`
+	Host         *string `json:"host"`
+	Port         *int    `json:"port"`
+	Transport    *string `json:"transport"`
+	Username     *string `json:"username"`
+	Password     *string `json:"password"`
+	CallerNumber *string `json:"caller_number"`
+	Prefix       *string `json:"prefix"`
+	Codecs       *string `json:"codecs"`
+	Enabled      *bool   `json:"enabled"`
+}
+
+// TrunkTestResult is the outcome of a connectivity probe (a single SIP OPTIONS
+// ping). OK means a SIP status line came back; LatencyMs is the round trip.
+type TrunkTestResult struct {
+	OK        bool   `json:"ok"`
+	LatencyMs int64  `json:"latency_ms"`
+	Response  string `json:"response,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// TrunkService owns CRUD over upstream SIP trunks plus an OPTIONS-ping reachability
+// test. It is the persistence/management layer; actual SIP signalling to these
+// trunks is performed by the call engine.
+type TrunkService interface {
+	List(ctx context.Context) ([]models.TrunkResponse, error)
+	Get(ctx context.Context, id uint) (*models.TrunkResponse, error)
+	Create(ctx context.Context, input *TrunkInput) (*models.TrunkResponse, error)
+	Update(ctx context.Context, id uint, input *TrunkInput) (*models.TrunkResponse, error)
+	Delete(ctx context.Context, id uint) error
+	// Test sends a SIP OPTIONS ping to the trunk and records the result.
+	Test(ctx context.Context, id uint) (*TrunkTestResult, error)
+}
+
+// ErrTrunkNotFound is returned when a trunk id doesn't exist (404).
+var ErrTrunkNotFound = errors.New("trunk not found")
+
+// ErrTrunkInvalid is returned when required trunk fields are missing (400).
+var ErrTrunkInvalid = errors.New("name and host are required")
+
 type CallService interface {
 	GetAll(ctx context.Context) ([]models.CallRecord, error)
 	GetByExtension(ctx context.Context, ext string) ([]models.CallRecord, error)
@@ -168,3 +233,80 @@ type SettingsInput struct {
 	// distinction because omitted and null both decode to nil.
 	RatePlanID json.RawMessage `json:"rate_plan_id"`
 }
+
+// CallerIDService manages provider-native (BYON) outbound caller-ID
+// verification. A user proves ownership of their own number via Twilio's
+// Outgoing Caller IDs flow; only a verified number may be presented on
+// browser→PSTN calls. These operations are intentionally separate from the
+// generic settings update so a client cannot self-assert a verified number.
+type CallerIDService interface {
+	// StartVerification kicks off Twilio verification for number (E.164 built
+	// from countryCode + number). Twilio calls the number; the returned
+	// ValidationCode must be entered by the user to complete it.
+	StartVerification(ctx context.Context, ext, number, countryCode string) (*CallerIDVerifyStart, error)
+	// ConfirmVerification re-checks Twilio and flips the stored number to
+	// verified once Twilio reports it as a validated caller ID.
+	ConfirmVerification(ctx context.Context, ext string) (*CallerIDStatus, error)
+	// Get returns the current caller-ID status for the extension.
+	Get(ctx context.Context, ext string) (*CallerIDStatus, error)
+	// Delete removes the verified caller ID (locally and on Twilio).
+	Delete(ctx context.Context, ext string) error
+}
+
+// CallerIDVerifyStart is returned when verification begins. The user must enter
+// ValidationCode on the call Twilio places to their number.
+type CallerIDVerifyStart struct {
+	Status         string `json:"status"`
+	Number         string `json:"number"`
+	ValidationCode string `json:"validationCode"`
+	CallSid        string `json:"callSid"`
+}
+
+// CallerIDStatus is the public view of a user's outbound caller ID.
+type CallerIDStatus struct {
+	Number     string     `json:"number"`
+	Verified   bool       `json:"verified"`
+	VerifiedAt *time.Time `json:"verifiedAt"`
+}
+
+// ErrCallerIDUnavailable is returned when Twilio credentials are not configured
+// so the caller-ID feature is disabled (handler maps it to 503).
+var ErrCallerIDUnavailable = errors.New("caller id verification is not available")
+
+// ErrCallerIDCooldown is returned when a verification was requested too soon
+// after a previous attempt (handler maps it to 429).
+var ErrCallerIDCooldown = errors.New("please wait before requesting another verification")
+
+// OTPService handles SMS one-time-password flows: verifying a phone number on
+// signup and passwordless mobile+OTP login. Codes are short-lived and stored in
+// the cache (Valkey) with a TTL; delivery goes through the configured SMS
+// gateway (Twilio Messages API). All mobile inputs are normalized the same way
+// signup stores them, so keys and lookups line up.
+type OTPService interface {
+	// RequestSignupOTP sends a verification code to a NOT-yet-registered mobile.
+	// Returns ErrMobileRegistered if the number already has an account.
+	RequestSignupOTP(ctx context.Context, mobile string) error
+	// VerifySignupOTP validates the signup code then creates the account
+	// (delegating to AuthService.Signup) and returns the new user.
+	VerifySignupOTP(ctx context.Context, name, mobile, password, code string) (*models.User, error)
+	// RequestLoginOTP sends a login code to an EXISTING user's mobile. To avoid
+	// account enumeration it reports success even when no such user exists (it
+	// simply sends nothing); it still returns ErrOTPUnavailable when SMS is down.
+	RequestLoginOTP(ctx context.Context, mobile string) error
+	// VerifyLoginOTP validates the login code and returns the matching user.
+	VerifyLoginOTP(ctx context.Context, mobile, code string) (*models.User, error)
+}
+
+// ErrOTPUnavailable is returned when no SMS gateway is configured so OTP cannot
+// be delivered (handler maps it to 503).
+var ErrOTPUnavailable = errors.New("otp delivery is not available")
+
+// ErrOTPCooldown is returned when a code was requested again too soon (429).
+var ErrOTPCooldown = errors.New("please wait before requesting another code")
+
+// ErrOTPInvalid is returned when a submitted code is wrong or expired (400).
+var ErrOTPInvalid = errors.New("invalid or expired code")
+
+// ErrMobileRegistered is returned by signup-OTP when the number already has an
+// account (handler maps it to 409).
+var ErrMobileRegistered = errors.New("phone number already registered")

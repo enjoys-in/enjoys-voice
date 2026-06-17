@@ -6,7 +6,7 @@ import { DatabaseService, TrunkService, AuditService, DialPlanService } from '@/
 import type { RegistrationStore } from '@/services/registration';
 import { IVRSystem } from './ivr.system';
 import {
-  TrunkInboundHandler, EmergencyHandler, IvrHandler,
+  TrunkInboundHandler, TeamsMeetingHandler, EmergencyHandler, IvrHandler,
   InternalHandler, ExternalHandler,
   type RouteHandler, type CallContext, type RouteServices,
 } from './routes';
@@ -25,6 +25,7 @@ export class SipServer {
   // ─── Route Handlers (ordered by priority) ────────────
   private routeHandlers: RouteHandler[] = [
     new TrunkInboundHandler(),
+    new TeamsMeetingHandler(),
     new EmergencyHandler(),
     new IvrHandler(),
     new InternalHandler(),

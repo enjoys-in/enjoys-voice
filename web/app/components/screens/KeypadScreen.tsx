@@ -5,9 +5,11 @@ import { Phone, Delete } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSettingsStore } from "../../stores";
 import { formatDialDisplay } from "../../lib/phone";
+import { TeamsJoinDialog } from "./TeamsJoinDialog";
 
 interface KeypadScreenProps {
   onCall: (target: string, name?: string) => void;
+  onJoinTeams?: (conferenceId: string, dialInNumber?: string) => void;
   active?: boolean;
 }
 
@@ -64,7 +66,7 @@ function playDtmfTone(key: string) {
   setTimeout(() => ctx.close(), 200);
 }
 
-export function KeypadScreen({ onCall, active = true }: KeypadScreenProps) {
+export function KeypadScreen({ onCall, onJoinTeams, active = true }: KeypadScreenProps) {
   const [number, setNumber] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const { settings } = useSettingsStore();
@@ -140,7 +142,7 @@ export function KeypadScreen({ onCall, active = true }: KeypadScreenProps) {
 
       {/* Action row */}
       <div className="flex items-center justify-center gap-6 w-full">
-        <div className="w-14" /> {/* spacer */}
+        {onJoinTeams ? <TeamsJoinDialog onJoin={onJoinTeams} /> : <div className="w-14" />}
         <Button
           size="lg"
           className="h-14 w-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white"

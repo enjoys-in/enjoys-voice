@@ -69,7 +69,7 @@ export function AppShell({ initialExtension }: AppShellProps) {
   const { settings } = useSettingsStore();
   const { fetchVoicemails, unreadCount } = useVoicemailStore();
 
-  const { register, makeCall, hangUp, answer, sendDtmf, isRecording, startRecording, stopRecording } = useSipPhone();
+  const { register, makeCall, joinTeamsMeeting, hangUp, answer, sendDtmf, isRecording, startRecording, stopRecording } = useSipPhone();
   const { connect, disconnect, onMessage, send: wsSend, lookup: wsLookup } = useWebSocket();
   const bridge = useBrowserBridge();
 
@@ -364,7 +364,7 @@ export function AppShell({ initialExtension }: AppShellProps) {
               {/* No skeleton: the keypad has no data fetch, so the only delay is
                   the lazy chunk load — a flash of skeleton there isn't useful. */}
               <Suspense fallback={null}>
-                <KeypadScreen onCall={onCall} active={activeTab === "keypad"} />
+                <KeypadScreen onCall={onCall} onJoinTeams={joinTeamsMeeting} active={activeTab === "keypad"} />
               </Suspense>
             </div>
           )}

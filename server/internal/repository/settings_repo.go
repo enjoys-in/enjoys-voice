@@ -31,7 +31,9 @@ func (r *settingsRepo) Upsert(ctx context.Context, settings *models.UserSettings
 		DoUpdates: clause.AssignmentColumns([]string{
 			"sounds_enabled", "dtmf_enabled", "caller_tune", "ringtone",
 			"pstn_enabled", "pstn_mobile", "pstn_country_code",
-			"recording_enabled", "voicemail_enabled", "dnd", "rate_plan_id", "updated_at",
+			"recording_enabled", "voicemail_enabled", "dnd", "rate_plan_id",
+			"outbound_caller_id", "caller_id_verified", "caller_id_verified_at",
+			"caller_id_validation_sid", "updated_at",
 		}),
 	}).Create(settings).Error
 }

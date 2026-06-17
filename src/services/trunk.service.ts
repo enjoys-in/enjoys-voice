@@ -80,7 +80,37 @@ export class TrunkService {
     return `sip:${this.trunk.prefix}${clean}@${this.trunk.host}:${this.trunk.port}`;
   }
 
-  async routeCall(srf: InstanceType<typeof Srf>, req: any, res: any, calledNumber: string): Promise<boolean> {
+  /**
+   * Strip a caller ID down to a safe SIP user part (digits with an optional
+   * leading +). Returns '' for empty/garbage input so the caller can fall back
+   * to the shared trunk number. Guards against header/URI injection.
+   */
+  private sanitizeCallerId(callerId?: string): string {
+    if (!callerId) return '';
+    const clean = callerId.replace(/[^+\d]/g, '');
+    return /^\+?\d{6,15}$/.test(clean) ? clean : '';
+  }
+
+  /**
+   * Originate an outbound B-leg to a PSTN number through the trunk and return
+   * the UAC dialog. `localSdp` is the offer to send (the caller's SDP for a
+   * straight B2BUA, or a FreeSWITCH endpoint's SDP for a media-anchored bridge,
+   * e.g. the Teams dial-in flow). `callerId`, when a valid number, sets the From
+   * user (BYON); otherwise the shared trunk caller number is used. Returns null
+   * when the trunk is disabled. Throws on SIP failure (caller handles cleanup).
+   */
+  async createOutboundLeg(srf: InstanceType<typeof Srf>, number: string, localSdp: string, callerId?: string): Promise<any | null> {
+    if (!this.trunk.enabled) return null;
+    const uri = this.formatOutboundUri(number);
+    const fromUser = this.sanitizeCallerId(callerId) || this.trunk.callerNumber;
+    return srf.createUAC(uri, {
+      localSdp,
+      auth: { username: this.trunk.username, password: this.trunk.password },
+      headers: { 'From': `<sip:${fromUser}@${this.trunk.host}>` },
+    });
+  }
+
+  async routeCall(srf: InstanceType<typeof Srf>, req: any, res: any, calledNumber: string, callerId?: string): Promise<boolean> {
     if (!this.trunk.enabled) {
       res.send(503);
       return false;
@@ -88,13 +118,14 @@ export class TrunkService {
 
     try {
       console.log(`📞 Trunk [${this.trunk.name}]: Routing ${calledNumber}`);
-      const uri = this.formatOutboundUri(calledNumber);
 
-      const uac = await srf.createUAC(uri, {
-        localSdp: req.body,
-        auth: { username: this.trunk.username, password: this.trunk.password },
-        headers: { 'From': `<sip:${this.trunk.callerNumber}@${this.trunk.host}>` },
-      });
+      // Present the user's own verified caller ID (BYON) when supplied, else the
+      // shared trunk number (handled inside createOutboundLeg).
+      const uac = await this.createOutboundLeg(srf, calledNumber, req.body, callerId);
+      if (!uac) {
+        res.send(503);
+        return false;
+      }
 
       const uas = await srf.createUAS(req, res, { localSdp: uac.remote?.sdp || '' });
       uac.on('destroy', () => uas.destroy());

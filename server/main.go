@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/enjoys-in/enjoys-voice/api/internal/audio"
 	"github.com/enjoys-in/enjoys-voice/api/internal/cache"
 	"github.com/enjoys-in/enjoys-voice/api/internal/config"
 	"github.com/enjoys-in/enjoys-voice/api/internal/database"
@@ -13,6 +14,7 @@ import (
 	"github.com/enjoys-in/enjoys-voice/api/internal/router"
 	"github.com/enjoys-in/enjoys-voice/api/internal/service"
 	"github.com/enjoys-in/enjoys-voice/api/internal/token"
+	"github.com/enjoys-in/enjoys-voice/api/internal/twilio"
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -45,6 +47,9 @@ func main() {
 		&models.SystemSettings{},
 		&models.RatePlan{},
 		&models.Rate{},
+		&models.UserBalance{},
+		&models.BalanceTxn{},
+		&models.Trunk{},
 	); err != nil {
 		log.Fatalf("Failed to migrate: %v", err)
 	}
@@ -73,6 +78,8 @@ func main() {
 	vmRepo := repository.NewVoicemailRepository(db)
 	systemSettingsRepo := repository.NewSystemSettingsRepository(db)
 	rateRepo := repository.NewRateRepository(db)
+	balanceRepo := repository.NewBalanceRepository(db)
+	trunkRepo := repository.NewTrunkRepository(db)
 
 	// ─── Services ────────────────────────────────────────
 	authSvc := service.NewAuthService(userRepo, settingsRepo, valkey)
@@ -87,29 +94,52 @@ func main() {
 	vmSvc := service.NewVoicemailService(vmRepo)
 	systemSettingsSvc := service.NewSystemSettingsService(systemSettingsRepo)
 	rateSvc := service.NewRateService(rateRepo)
+	balanceSvc := service.NewBalanceService(balanceRepo, cfg.Billing.Currency, cfg.Billing.PrepaidEnabled)
+	trunkSvc := service.NewTrunkService(trunkRepo)
+
+	// Twilio client powers provider-native (BYON) caller-ID verification and OTP
+	// SMS delivery. With no credentials configured it stays disabled and the
+	// dependent endpoints return 503.
+	twilioClient := twilio.NewClient(cfg.Twilio.AccountSID, cfg.Twilio.AuthToken, cfg.Twilio.SMSFrom)
+	callerIDSvc := service.NewCallerIDService(settingsRepo, userRepo, twilioClient, valkey)
+	// OTP service: SMS one-time passwords for mobile-verified signup and
+	// passwordless login. Reuses authSvc so signup-via-OTP shares account creation.
+	otpSvc := service.NewOTPService(authSvc, userRepo, twilioClient, valkey, cfg.OTPDevEcho)
 
 	// ─── Tokens ──────────────────────────────────────────
 	tokenMgr := token.NewManager(cfg.JWTSecret, cfg.JWTIssuer, cfg.AccessTTL, cfg.RefreshTTL)
 
+	// ─── Audio ───────────────────────────────────────────
+	// ffmpeg-backed transcoder for normalizing IVR sound uploads to the
+	// FreeSWITCH-canonical WAV. Disabled gracefully when no ffmpeg is present.
+	transcoder := audio.NewTranscoder(cfg.FFmpegPath)
+
 	// ─── Handlers ────────────────────────────────────────
 	handlers := &router.Handlers{
-		Auth:           handler.NewAuthHandler(authSvc, tokenMgr, cfg.Sip, cfg.Cookie),
+		Auth:           handler.NewAuthHandler(authSvc, otpSvc, tokenMgr, cfg.Sip, cfg.Cookie),
 		User:           handler.NewUserHandler(userSvc),
 		Settings:       handler.NewSettingsHandler(settingsSvc),
 		Call:           handler.NewCallHandler(callSvc),
 		Block:          handler.NewBlockHandler(blockSvc),
 		Forwarding:     handler.NewForwardingHandler(fwdSvc),
-		Sound:          handler.NewSoundHandler(soundSvc, cfg.UploadDir),
+		Sound:          handler.NewSoundHandler(soundSvc, cfg.UploadDir, cfg.IvrDir, transcoder),
 		Ivr:            handler.NewIvrHandler(ivrSvc),
 		Audit:          handler.NewAuditHandler(auditSvc),
 		Voicemail:      handler.NewVoicemailHandler(vmSvc, cfg.VoicemailDir),
 		SystemSettings: handler.NewSystemSettingsHandler(systemSettingsSvc),
 		Rate:           handler.NewRateHandler(rateSvc),
+		CallerID:       handler.NewCallerIDHandler(callerIDSvc),
+		Balance:        handler.NewBalanceHandler(balanceSvc, cfg.AdminExtensions),
+		Trunk:          handler.NewTrunkHandler(trunkSvc, cfg.AdminExtensions),
 	}
 
 	// ─── Ensure upload dir ───────────────────────────────
 	if err := os.MkdirAll(cfg.UploadDir, 0755); err != nil {
 		log.Fatalf("Failed to create upload dir: %v", err)
+	}
+	// IVR prompts are normalized here onto a FreeSWITCH-readable path.
+	if err := os.MkdirAll(cfg.IvrDir, 0755); err != nil {
+		log.Fatalf("Failed to create IVR sound dir: %v", err)
 	}
 
 	// ─── Router ──────────────────────────────────────────

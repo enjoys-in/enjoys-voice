@@ -26,6 +26,8 @@ import { useSettingsSync } from "../../hooks/useSettingsSync";
 import { useSystemPolicies } from "../../hooks/useBranding";
 import { getCachedSoundUrl, invalidateSoundCache } from "../../lib/sound-cache";
 import { goApi, type GoSound } from "../../lib/go-api";
+import { CallerIdPanel } from "./CallerIdPanel";
+import { BalancePanel } from "./BalancePanel";
 
 const CALLER_TUNES = [
   { id: "caller_tune.wav", name: "Default Tune" },
@@ -658,6 +660,12 @@ export function SettingsScreen() {
                   )}
                 </CardContent>
               </Card>
+
+              {/* PSTN Outbound: verified caller ID (BYON) */}
+              <CallerIdPanel />
+
+              {/* Prepaid wallet (hidden unless prepaid billing is enabled) */}
+              <BalancePanel />
 
               {/* PSTN Inbound: Phone → Browser */}
               <Card className="border-border/50 bg-card/50">

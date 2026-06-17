@@ -10,6 +10,7 @@ export { UserSyncListener } from './postgres';
 export { SettingsSyncListener } from './postgres';
 export { RateSyncListener } from './postgres';
 export { ensureCallSchema, upsertCall } from './postgres';
+export { debitForCall } from './postgres';
 export { WriteQueue } from './queue';
 export { RatingService } from './rating.service';
 export type { RatingResult } from './rating.service';

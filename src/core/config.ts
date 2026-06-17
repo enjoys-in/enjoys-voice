@@ -108,6 +108,27 @@ export interface AppConfig {
     // to the trunk by EmergencyHandler, bypassing internal/IVR matching.
     emergencyNumbers: string[];
   };
+  teams: {
+    // Microsoft Teams "Audio Conferencing" dial-in join. A registered user is
+    // bridged onto a Teams meeting by dialing its PSTN dial-in number via the
+    // trunk and auto-entering the Conference ID over DTMF.
+    //
+    // dtmfDelayMs: how long to wait after the Teams leg answers before sending
+    //   the Conference ID, so Teams' greeting/IVR is ready to receive digits.
+    // defaultDialIn: optional fallback dial-in number (E.164) when the client
+    //   sends only a Conference ID; per-call number always overrides it.
+    dtmfDelayMs: number;
+    defaultDialIn: string;
+  };
+  billing: {
+    // Prepaid wallet. When enabled, ExternalHandler refuses an outbound call
+    // whose estimated minimum charge exceeds the caller's wallet balance, and
+    // the end-of-call hook debits the wallet by the rated cost. When disabled,
+    // there is no gate and no debit (rating still stamps cost for reporting).
+    // MUST agree with the Go API's BILLING_PREPAID_ENABLED / BILLING_CURRENCY.
+    prepaidEnabled: boolean;
+    currency: string;
+  };
 }
 
 // ─── Recordings base dirs ────────────────────────────────────────────────
@@ -137,7 +158,9 @@ export const config: AppConfig = {
     httpPort: parseInt(process.env.HTTP_PORT || '3001'),
     wsPort: parseInt(process.env.WS_PORT || '3002'),
     publicIp: process.env.PUBLIC_IP || '127.0.0.1',
-    domain: process.env.DOMAIN || 'localhost',
+    // SIP realm/URI domain. SIP_DOMAIN overrides DOMAIN for the SIP layer only
+    // (sip:<ext>@<domain> in From/To); falls back to DOMAIN then localhost.
+    domain: process.env.SIP_DOMAIN || process.env.DOMAIN || 'localhost',
     // Optional full-URL overrides for production (e.g. wss:// behind a TLS proxy).
     // When empty, legacy ws://<publicIp>:<port> URLs are used (local default).
     publicWsUrl: process.env.PUBLIC_WS_URL || '',
@@ -238,5 +261,13 @@ export const config: AppConfig = {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+  },
+  teams: {
+    dtmfDelayMs: parseInt(process.env.TEAMS_DTMF_DELAY_MS || '4000'),
+    defaultDialIn: (process.env.TEAMS_DEFAULT_DIALIN || '').trim(),
+  },
+  billing: {
+    prepaidEnabled: process.env.BILLING_PREPAID_ENABLED === 'true',
+    currency: (process.env.BILLING_CURRENCY || 'USD').trim(),
   },
 };

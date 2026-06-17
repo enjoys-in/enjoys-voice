@@ -24,6 +24,14 @@ func NewAuthService(ur repository.UserRepository, sr repository.SettingsReposito
 	return &authService{userRepo: ur, settingsRepo: sr, cache: c}
 }
 
+// normalizeMobile strips spaces and dashes from a phone number so the same
+// input always maps to one stored value (and one OTP cache key). Signup stores
+// numbers in this form, so login lookups and OTP keys must use it too.
+func normalizeMobile(mobile string) string {
+	n := strings.ReplaceAll(mobile, " ", "")
+	return strings.ReplaceAll(n, "-", "")
+}
+
 func (s *authService) Login(ctx context.Context, username, password string) (*models.User, error) {
 	user, err := s.userRepo.GetByUsername(ctx, username)
 	if err != nil {
@@ -31,8 +39,7 @@ func (s *authService) Login(ctx context.Context, username, password string) (*mo
 		user, err = s.userRepo.GetByExtension(ctx, username)
 		if err != nil {
 			// Try by phone number (mobile), normalized like signup
-			normalized := strings.ReplaceAll(username, " ", "")
-			normalized = strings.ReplaceAll(normalized, "-", "")
+			normalized := normalizeMobile(username)
 			user, err = s.userRepo.GetByMobile(ctx, normalized)
 			if err != nil {
 				return nil, errors.New("invalid credentials")
@@ -72,8 +79,7 @@ func (s *authService) UpdateName(ctx context.Context, ext, name string) (*models
 }
 
 func (s *authService) Signup(ctx context.Context, name, mobile, password string) (*models.User, error) {
-	normalized := strings.ReplaceAll(mobile, " ", "")
-	normalized = strings.ReplaceAll(normalized, "-", "")
+	normalized := normalizeMobile(mobile)
 
 	// Check existing
 	if existing, _ := s.userRepo.GetByMobile(ctx, normalized); existing != nil {

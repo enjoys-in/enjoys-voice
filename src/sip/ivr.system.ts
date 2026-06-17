@@ -243,6 +243,97 @@ export class IVRSystem {
   }
 
   /**
+   * Join the calling user into a Microsoft Teams meeting via Audio-Conferencing
+   * dial-in. We answer the user's A-leg onto FreeSWITCH, originate a B-leg to
+   * the meeting's PSTN dial-in number through the trunk (media anchored on FS so
+   * we can inject DTMF), auto-enter the Conference ID once Teams' greeting is
+   * ready, then bridge the two legs. The user appears in the meeting as an
+   * ordinary phone participant — no Teams/Azure licence or SDK on our side.
+   *
+   * The trunk leg is a 3pcc/park-and-bridge: FreeSWITCH provides the offer SDP,
+   * drachtio carries SIP + trunk auth to the PSTN, then we re-point FS media at
+   * the answer. The bridged legs live until either side hangs up; teardown is
+   * driven by the destroy listeners (no finally-cleanup, mirroring routeCall).
+   *
+   * @returns true once bridged (or a final SIP response was sent), false on a
+   *   pre-answer failure where the caller should fall through.
+   */
+  async joinTeamsMeeting(
+    req: any,
+    res: any,
+    srf: InstanceType<typeof Srf>,
+    trunk: { createOutboundLeg: (srf: any, number: string, localSdp: string, callerId?: string) => Promise<any | null> },
+    dialInNumber: string,
+    conferenceId: string,
+  ): Promise<boolean> {
+    if (!(await this.ensureConnected())) {
+      if (!res.finalResponseSent) res.send(480, 'Temporarily Unavailable');
+      return false;
+    }
+
+    let aLeg: Mrf.Endpoint | undefined;
+    let bLeg: Mrf.Endpoint | undefined;
+    let dialog: Srf.Dialog | undefined;
+    let uac: any;
+    let torndown = false;
+
+    // Tear down everything exactly once, regardless of which leg ends first.
+    const teardown = () => {
+      if (torndown) return;
+      torndown = true;
+      try { uac?.destroy?.(); } catch { /* noop */ }
+      try { bLeg?.destroy?.(); } catch { /* noop */ }
+      try { aLeg?.destroy?.(); } catch { /* noop */ }
+      try { dialog?.destroy?.(); } catch { /* noop */ }
+    };
+
+    try {
+      // A-leg: answer the user onto FreeSWITCH (handles WebRTC DTLS-SRTP).
+      ({ endpoint: aLeg, dialog } = await this.ms!.connectCaller(req, res));
+      await this.prepareVoice(aLeg);
+      await this.playSafe(aLeg, 'say:Connecting you to the meeting. Please hold.');
+
+      // B-leg: a 3pcc FreeSWITCH endpoint provides the offer; drachtio dials the
+      // Teams PSTN number through the trunk; then we re-point FS at the answer.
+      bLeg = await this.ms!.createEndpoint();
+      uac = await trunk.createOutboundLeg(srf, dialInNumber, bLeg.local.sdp || '');
+      if (!uac) {
+        await this.playSafe(aLeg, 'say:The meeting service is unavailable. Goodbye.');
+        teardown();
+        return true;
+      }
+      await bLeg.modify(uac.remote?.sdp || '');
+
+      // Teams won't accept digits until its greeting starts — wait, then DTMF
+      // the Conference ID (trailing # submits it).
+      await new Promise((r) => setTimeout(r, config.teams.dtmfDelayMs));
+      try {
+        await bLeg.execute('send_dtmf', `${conferenceId}#`);
+      } catch (err: any) {
+        console.warn(`⚠️ Teams: send_dtmf failed: ${err?.message}`);
+      }
+
+      // Bridge the user to Teams; tear both down when either hangs up.
+      uac.on('destroy', teardown);
+      dialog.on('destroy', teardown);
+      bLeg.on('destroy', teardown);
+      aLeg.on('destroy', teardown);
+
+      await aLeg.bridge(bLeg);
+      console.log(`✅ Teams: bridged caller into meeting ${conferenceId} via ${dialInNumber}`);
+      return true;
+    } catch (err: any) {
+      console.error('❌ Teams join error:', err?.message || err);
+      try {
+        if (aLeg && !torndown) await this.playSafe(aLeg, 'say:Sorry, we could not join the meeting. Goodbye.');
+      } catch { /* noop */ }
+      teardown();
+      if (res && !res.finalResponseSent) res.send(480, 'Temporarily Unavailable');
+      return true;
+    }
+  }
+
+  /**
    * Play a file/prompt, logging it and tolerating a missing file.
    *
    * `endpoint.play()` throws "File Not Found" when FreeSWITCH can't locate the

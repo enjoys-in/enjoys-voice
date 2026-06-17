@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -20,8 +21,51 @@ type Config struct {
 	UploadDir     string
 	VoicemailDir  string
 	MigrationsDir string
-	Sip           SipConfig
-	Cookie        CookieConfig
+	// FFmpegPath is the ffmpeg binary used to normalize IVR sound uploads to the
+	// FreeSWITCH-canonical format. Defaults to "ffmpeg" (resolved on PATH); a
+	// sidecar/installed ffmpeg satisfies it. Empty disables IVR transcoding.
+	FFmpegPath string
+	// IvrDir is where normalized IVR prompts (.wav) are written. It must be on a
+	// volume the FreeSWITCH container can read (IVR prompts are played server-side
+	// by FS), so it is configured separately from UploadDir (browser-fetched tunes).
+	IvrDir string
+	Sip    SipConfig
+	Cookie CookieConfig
+	Twilio TwilioConfig
+	// Billing holds the prepaid-wallet settings shared with the Node engine
+	// (which owns the call-path debit). Both read the same env so they agree on
+	// whether prepaid is on and which currency the workspace uses.
+	Billing BillingConfig
+	// AdminExtensions is the allow-list of extensions permitted to perform admin
+	// billing operations (top-ups, reading another user's wallet). There is no
+	// role column in this schema, so admin identity is configured here. Empty =
+	// no admins, which denies every admin-only endpoint (safe default).
+	AdminExtensions []string
+	// OTPDevEcho, when true, logs generated OTP codes to the server console
+	// instead of requiring a live SMS gateway. It NEVER returns the code in an
+	// HTTP response. Intended for local development only; leave false in prod.
+	OTPDevEcho bool
+}
+
+// BillingConfig controls the prepaid wallet. When PrepaidEnabled is false the
+// wallet UI is hidden, top-ups are rejected and the Node engine applies no
+// pre-call gate or debit — billing is purely informational (rating still runs).
+type BillingConfig struct {
+	PrepaidEnabled bool
+	Currency       string
+}
+
+// TwilioConfig holds Twilio REST credentials used for provider-native outbound
+// caller-ID verification (the Outgoing Caller IDs / Validation Requests API)
+// and for sending OTP SMS (the Messages API). An empty AccountSID disables the
+// BYON caller-ID feature; an empty SMSFrom disables OTP delivery over Twilio.
+type TwilioConfig struct {
+	AccountSID string
+	AuthToken  string
+	// SMSFrom is the sender used for OTP texts: either a Twilio phone number in
+	// E.164 (+1...) or a Messaging Service SID (starts with "MG"). Empty disables
+	// SMS sending (OTP endpoints then return 503 unless OTP_DEV_ECHO is set).
+	SMSFrom string
 }
 
 // CookieConfig controls the auth cookies set on login/signup/refresh. The
@@ -81,6 +125,10 @@ func Load() *Config {
 		UploadDir:     getEnv("UPLOAD_DIR", "./uploads/sounds"),
 		VoicemailDir:  getEnv("VOICEMAIL_DIR", "./recordings/voicemail"),
 		MigrationsDir: getEnv("MIGRATIONS_DIR", "migrations"),
+		FFmpegPath:    getEnv("FFMPEG_PATH", "ffmpeg"),
+		// Default under uploads so a single bind mount can expose both; override
+		// IVR_SOUND_DIR to a path shared with the FreeSWITCH container in prod.
+		IvrDir: getEnv("IVR_SOUND_DIR", "./uploads/ivr"),
 		Cookie: CookieConfig{
 			Secure:        getEnvBool("COOKIE_SECURE", false),
 			Domain:        getEnv("COOKIE_DOMAIN", ""),
@@ -89,7 +137,10 @@ func Load() *Config {
 			RefreshMaxAge: int(getEnvDuration("REFRESH_TOKEN_TTL", 30*24*time.Hour).Seconds()),
 		},
 		Sip: SipConfig{
-			Domain:         getEnv("DOMAIN", "localhost"),
+			// SIP realm/URI domain (the @host in sip:<ext>@<domain>). A dedicated
+			// SIP_DOMAIN lets the SIP realm differ from the app DOMAIN; falls back
+			// to DOMAIN, then localhost, so existing single-DOMAIN deploys are unchanged.
+			Domain:         getEnv("SIP_DOMAIN", getEnv("DOMAIN", "localhost")),
 			PublicIP:       getEnv("PUBLIC_IP", "127.0.0.1"),
 			WsPort:         getEnv("WS_PORT", "3002"),
 			SipWsPort:      getEnv("SIP_WS_PORT", "5065"),
@@ -97,6 +148,17 @@ func Load() *Config {
 			PublicSipWsURL: getEnv("PUBLIC_SIP_WS_URL", ""),
 			TrunkEnabled:   os.Getenv("TRUNK_HOST") != "",
 		},
+		Twilio: TwilioConfig{
+			AccountSID: getEnv("TWILIO_ACCOUNT_SID", ""),
+			AuthToken:  getEnv("TWILIO_AUTH_TOKEN", ""),
+			SMSFrom:    getEnv("TWILIO_SMS_FROM", ""),
+		},
+		Billing: BillingConfig{
+			PrepaidEnabled: getEnvBool("BILLING_PREPAID_ENABLED", false),
+			Currency:       getEnv("BILLING_CURRENCY", "USD"),
+		},
+		AdminExtensions: getEnvList("ADMIN_EXTENSIONS"),
+		OTPDevEcho:      getEnvBool("OTP_DEV_ECHO", false),
 	}
 }
 
@@ -132,4 +194,20 @@ func getEnvBool(key string, fallback bool) bool {
 		}
 	}
 	return fallback
+}
+
+// getEnvList splits a comma-separated env var into a trimmed, non-empty slice.
+func getEnvList(key string) []string {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if v := strings.TrimSpace(p); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }

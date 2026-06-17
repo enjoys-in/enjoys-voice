@@ -21,6 +21,9 @@ type Handlers struct {
 	Audit          *handler.AuditHandler
 	Voicemail      *handler.VoicemailHandler
 	Rate           *handler.RateHandler
+	CallerID       *handler.CallerIDHandler
+	Balance        *handler.BalanceHandler
+	Trunk          *handler.TrunkHandler
 }
 
 func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
@@ -53,6 +56,11 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 		api.POST("/auth/login", h.Auth.Login)
 		api.POST("/auth/signup", h.Auth.Signup)
 		api.POST("/auth/refresh", h.Auth.Refresh)
+		// Passwordless / verified flows: request a code, then verify it to sign up
+		// (mobile-verified) or log in (mobile + OTP, no password).
+		api.POST("/auth/otp/request", h.Auth.RequestOTP)
+		api.POST("/auth/signup/verify", h.Auth.SignupVerify)
+		api.POST("/auth/login/otp", h.Auth.LoginOTP)
 		// Logout clears the httpOnly auth cookies. Public on purpose: an expired
 		// session must still be able to tear its cookies down.
 		api.POST("/auth/logout", h.Auth.Logout)
@@ -101,6 +109,14 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 			protected.GET("/settings/:ext", h.Settings.Get)
 			protected.PUT("/settings/:ext", h.Settings.Update)
 
+			// Outbound caller ID (BYON). Extension is taken from the JWT inside
+			// the handler, so these are unparameterised — a user only ever manages
+			// their own caller ID.
+			protected.GET("/caller-id", h.CallerID.Get)
+			protected.POST("/caller-id/verify/start", h.CallerID.Start)
+			protected.POST("/caller-id/verify/confirm", h.CallerID.Confirm)
+			protected.DELETE("/caller-id", h.CallerID.Delete)
+
 			// System-wide customization (branding + default policies)
 			protected.PUT("/system-settings", h.SystemSettings.Update)
 
@@ -117,6 +133,24 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 			protected.POST("/rate-plans/:id/rates/import", h.Rate.ImportRates)
 			protected.PUT("/rate-plans/:id/rates/:rateId", h.Rate.UpdateRate)
 			protected.DELETE("/rate-plans/:id/rates/:rateId", h.Rate.DeleteRate)
+
+			// Prepaid wallet. Self-reads (no :ext) derive the extension from the
+			// JWT; the :ext variants and top-up are admin-only (ADMIN_EXTENSIONS).
+			protected.GET("/balance", h.Balance.GetSelf)
+			protected.GET("/balance/txns", h.Balance.TxnsSelf)
+			protected.GET("/balance/:ext", h.Balance.GetByExt)
+			protected.GET("/balance/:ext/txns", h.Balance.TxnsByExt)
+			protected.POST("/balance/:ext/topup", h.Balance.TopUp)
+
+			// Upstream SIP trunks (PSTN gateways). Admin-only — trunks carry
+			// provider credentials and decide how external calls egress. The
+			// :id/test route fires a SIP OPTIONS ping for a reachability check.
+			protected.GET("/trunks", h.Trunk.List)
+			protected.POST("/trunks", h.Trunk.Create)
+			protected.GET("/trunks/:id", h.Trunk.Get)
+			protected.PUT("/trunks/:id", h.Trunk.Update)
+			protected.DELETE("/trunks/:id", h.Trunk.Delete)
+			protected.POST("/trunks/:id/test", h.Trunk.Test)
 
 			// Calls
 			protected.GET("/calls", h.Call.GetAll)

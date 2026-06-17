@@ -189,10 +189,96 @@ export interface GoSettings {
   dnd: boolean;
   /** Assigned billing rate plan id, or null to use the workspace default plan. */
   rate_plan_id: number | null;
+  /** Verified outbound caller ID (BYON), or "" when unset. Read-only here — it
+   * is managed via the dedicated caller-id verify endpoints, not settings PUT. */
+  outbound_caller_id: string;
+  caller_id_verified: boolean;
+  caller_id_verified_at: string | null;
 }
 
-/** Partial settings update — only the provided keys are changed server-side. */
-export type GoSettingsInput = Partial<Omit<GoSettings, "extension">>;
+/** Partial settings update — only the provided keys are changed server-side.
+ * Caller-ID fields are read-only (owned by the verify flow) so they're excluded. */
+export type GoSettingsInput = Partial<
+  Omit<GoSettings, "extension" | "outbound_caller_id" | "caller_id_verified" | "caller_id_verified_at">
+>;
+
+/** Current outbound caller-ID status for the signed-in user. */
+export interface CallerIdStatus {
+  number: string;
+  verified: boolean;
+  verifiedAt: string | null;
+}
+
+/** Result of starting verification — Twilio calls the number and the user must
+ * enter `validationCode` to complete it. */
+export interface CallerIdVerifyStart {
+  status: string;
+  number: string;
+  validationCode: string;
+  callSid: string;
+}
+
+/** Prepaid wallet snapshot. `enabled` reflects the server's
+ * BILLING_PREPAID_ENABLED — the wallet UI is hidden when it is false. */
+export interface GoBalance {
+  extension: string;
+  balance: number;
+  currency: string;
+  enabled: boolean;
+  updated_at: string;
+}
+
+/** One prepaid ledger entry. `amount` is signed (negative = call charge). */
+export interface GoBalanceTxn {
+  id: number;
+  amount: number;
+  currency: string;
+  reason: string;
+  call_id: string;
+  created_at: string;
+}
+
+/** An upstream SIP trunk (PSTN gateway / ITSP). The secret is never returned —
+ * `has_password` reports only whether one is stored. */
+export interface GoTrunk {
+  id: number;
+  name: string;
+  host: string;
+  port: number;
+  transport: "udp" | "tcp" | "tls";
+  username: string;
+  has_password: boolean;
+  caller_number: string;
+  prefix: string;
+  codecs: string;
+  enabled: boolean;
+  last_status: string;
+  last_tested_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Create/update payload for a trunk. Omit `password` to keep the stored one. */
+export interface GoTrunkInput {
+  name?: string;
+  host?: string;
+  port?: number;
+  transport?: "udp" | "tcp" | "tls";
+  username?: string;
+  password?: string;
+  caller_number?: string;
+  prefix?: string;
+  codecs?: string;
+  enabled?: boolean;
+}
+
+/** Result of a SIP OPTIONS reachability probe against a trunk. */
+export interface GoTrunkTestResult {
+  ok: boolean;
+  latency_ms: number;
+  response?: string;
+  error?: string;
+}
 
 /** A user-uploaded sound record (mirrors models.Sound). Served at `/sounds/<filename>`. */
 export interface GoSound {
@@ -366,6 +452,40 @@ export const goApi = {
       );
     },
     /**
+     * Requests an SMS one-time code. purpose "signup" requires the number to be
+     * new; "login" requires it to have an account (but always reports success to
+     * avoid revealing which numbers are registered).
+     */
+    requestOtp(mobile: string, purpose: "signup" | "login"): Promise<void> {
+      return goRequest<void>(
+        "/auth/otp/request",
+        { method: "POST", body: JSON.stringify({ mobile, purpose }) },
+        false
+      );
+    },
+    /**
+     * Completes mobile-verified signup with the SMS code. Issues tokens + SIP
+     * config on success, exactly like {@link signup}.
+     */
+    signupVerify(name: string, mobile: string, password: string, code: string): Promise<AuthResult> {
+      return goRequest<AuthResult>(
+        "/auth/signup/verify",
+        { method: "POST", body: JSON.stringify({ name, mobile, password, code }) },
+        false
+      );
+    },
+    /**
+     * Passwordless login: mobile + the SMS code. Issues tokens + SIP config on
+     * success, exactly like {@link login}.
+     */
+    loginOtp(mobile: string, code: string): Promise<AuthResult> {
+      return goRequest<AuthResult>(
+        "/auth/login/otp",
+        { method: "POST", body: JSON.stringify({ mobile, code }) },
+        false
+      );
+    },
+    /**
      * Current-session profile. The UI calls this on boot to confirm a persisted
      * login is still valid and to refresh the cached user. A 401 here triggers
      * goRequest's one-shot refresh; if that also fails the session is cleared.
@@ -427,6 +547,93 @@ export const goApi = {
       method: "PUT",
       body: JSON.stringify(payload),
     });
+  },
+
+  // Outbound caller ID (BYON). The server derives the extension from the JWT, so
+  // these take no path param — a user only ever manages their own caller ID.
+  callerId: {
+    get(): Promise<CallerIdStatus> {
+      return goRequest<CallerIdStatus>(`/caller-id`);
+    },
+    /** Start verification. Twilio calls `number`; show the returned
+     * `validationCode` for the user to key in on that call. */
+    startVerify(number: string, countryCode = ""): Promise<CallerIdVerifyStart> {
+      return goRequest<CallerIdVerifyStart>(`/caller-id/verify/start`, {
+        method: "POST",
+        body: JSON.stringify({ number, countryCode }),
+      });
+    },
+    /** Re-check Twilio and flip to verified once the call has been completed. */
+    confirmVerify(): Promise<CallerIdStatus> {
+      return goRequest<CallerIdStatus>(`/caller-id/verify/confirm`, {
+        method: "POST",
+      });
+    },
+    remove(): Promise<null> {
+      return goRequest<null>(`/caller-id`, { method: "DELETE" });
+    },
+  },
+
+  // Prepaid wallet. Self-reads (no ext) derive the extension from the JWT; the
+  // admin variants require an extension in ADMIN_EXTENSIONS server-side.
+  balance: {
+    /** The caller's own wallet (and whether prepaid billing is enabled). */
+    get(): Promise<GoBalance> {
+      return goRequest<GoBalance>(`/balance`);
+    },
+    /** The caller's own recent ledger entries, newest first. */
+    txns(limit = 50): Promise<GoBalanceTxn[]> {
+      return goRequest<GoBalanceTxn[]>(`/balance/txns?limit=${limit}`);
+    },
+    /** Admin: read any user's wallet. */
+    getByExt(ext: string): Promise<GoBalance> {
+      return goRequest<GoBalance>(`/balance/${encodeURIComponent(ext)}`);
+    },
+    /** Admin: read any user's ledger. */
+    txnsByExt(ext: string, limit = 50): Promise<GoBalanceTxn[]> {
+      return goRequest<GoBalanceTxn[]>(`/balance/${encodeURIComponent(ext)}/txns?limit=${limit}`);
+    },
+    /** Admin: credit a user's wallet by a positive amount. */
+    topup(ext: string, amount: number, reason = "topup"): Promise<GoBalance> {
+      return goRequest<GoBalance>(`/balance/${encodeURIComponent(ext)}/topup`, {
+        method: "POST",
+        body: JSON.stringify({ amount, reason }),
+      });
+    },
+  },
+
+  // Upstream SIP trunks (PSTN gateways). Admin-only on the server (ADMIN_EXTENSIONS).
+  trunks: {
+    /** List every configured trunk. */
+    list(): Promise<GoTrunk[]> {
+      return goRequest<GoTrunk[]>(`/trunks`);
+    },
+    /** Fetch a single trunk by id. */
+    get(id: number): Promise<GoTrunk> {
+      return goRequest<GoTrunk>(`/trunks/${id}`);
+    },
+    /** Create a trunk. */
+    create(input: GoTrunkInput): Promise<GoTrunk> {
+      return goRequest<GoTrunk>(`/trunks`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    /** Update a trunk (omit `password` to keep the stored secret). */
+    update(id: number, input: GoTrunkInput): Promise<GoTrunk> {
+      return goRequest<GoTrunk>(`/trunks/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    /** Delete a trunk. */
+    remove(id: number): Promise<void> {
+      return goRequest<void>(`/trunks/${id}`, { method: "DELETE" });
+    },
+    /** Fire a SIP OPTIONS ping at the trunk and return the reachability result. */
+    test(id: number): Promise<GoTrunkTestResult> {
+      return goRequest<GoTrunkTestResult>(`/trunks/${id}/test`, { method: "POST" });
+    },
   },
 
   // Custom sounds (caller_tune / ringtone / ivr). The server derives the owning

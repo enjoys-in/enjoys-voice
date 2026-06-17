@@ -205,7 +205,7 @@ export function useSipPhone() {
     setRegistered(false);
   }, []);
 
-  const makeCall = useCallback(async (target: string, targetName?: string) => {
+  const makeCall = useCallback(async (target: string, targetName?: string, extraHeaders?: string[]) => {
     const ua = uaRef.current;
     if (!ua) return;
 
@@ -273,7 +273,7 @@ export function useSipPhone() {
     });
 
     try {
-      await inviter.invite();
+      await inviter.invite(extraHeaders && extraHeaders.length ? { requestOptions: { extraHeaders } } : undefined);
     } catch (err) {
       console.error("Call failed:", err);
       stopTone();
@@ -283,6 +283,27 @@ export function useSipPhone() {
       sessionRef.current = null;
     }
   }, [setupRemoteMedia, startCall, updateCall, endCall, setTone, playTone, stopTone]);
+
+  /**
+   * Join a Microsoft Teams meeting by Audio-Conferencing dial-in. Places a call
+   * carrying the meeting's dial-in number + Conference ID in custom SIP headers;
+   * the server bridges us onto the meeting (dials the number, DTMF-enters the
+   * ID). We appear as an ordinary phone participant.
+   */
+  const joinTeamsMeeting = useCallback(
+    async (conferenceId: string, dialInNumber?: string) => {
+      const confId = conferenceId.replace(/\D/g, "");
+      if (!confId) return;
+      const headers = [`X-Teams-Conf-Id: ${confId}`];
+      if (dialInNumber && dialInNumber.trim()) {
+        headers.push(`X-Teams-Number: ${dialInNumber.trim()}`);
+      }
+      // The dialed user-part is irrelevant (the server intercepts by header);
+      // "teams" just reads clearly in logs and call history.
+      await makeCall("teams", "Teams Meeting", headers);
+    },
+    [makeCall]
+  );
 
   const answer = useCallback(async () => {
     const session = sessionRef.current;
@@ -419,6 +440,7 @@ export function useSipPhone() {
     register,
     disconnect,
     makeCall,
+    joinTeamsMeeting,
     answer,
     hangUp,
     sendDtmf,

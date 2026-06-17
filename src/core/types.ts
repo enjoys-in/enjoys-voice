@@ -23,6 +23,9 @@ export enum SipStatus {
  */
 export enum DbEvent {
   CallUpserted = 'call:upserted',
+  /** A per-call charge to debit from a prepaid wallet (emitted at end-of-call
+   * when prepaid billing is on and the call produced a non-zero cost). */
+  BalanceDebit = 'balance:debit',
 }
 
 /**
@@ -31,6 +34,18 @@ export enum DbEvent {
  */
 export enum WriteJob {
   CallUpsert = 'call.upsert',
+  BalanceDebit = 'balance.debit',
+}
+
+/**
+ * Payload for a prepaid wallet debit. The CallID makes the debit idempotent —
+ * the writer applies it at most once per call even if the job is retried.
+ */
+export interface BalanceDebitJob {
+  extension: string;
+  callId: string;
+  amount: number;
+  currency: string;
 }
 
 export interface CallLog {
@@ -87,6 +102,17 @@ export interface SipUser {
   dnd?: boolean;
   /** Billing rate plan assigned to this user; undefined → workspace default plan. */
   ratePlanId?: number;
+  /** Verified outbound caller ID (BYON) to present on browser→PSTN calls. Node
+   * only ever receives this once the Go verify flow has confirmed ownership
+   * (the SQL gates it on caller_id_verified), so its mere presence means trusted.
+   * Undefined → fall back to the shared trunk caller number. */
+  outboundCallerId?: string;
+  /** Prepaid wallet balance in `balanceCurrency`. Hydrated from Postgres and
+   * kept fresh via the settings_changed NOTIFY; only loaded when prepaid billing
+   * is enabled. Undefined → treat as 0 / no wallet. */
+  balance?: number;
+  /** ISO-4217 currency the wallet balance is denominated in. */
+  balanceCurrency?: string;
 }
 
 export interface SipRegistration {

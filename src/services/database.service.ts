@@ -1,4 +1,4 @@
-import { CallLog, SipUser, SipRegistration, Voicemail, DbEvent } from '@/core';
+import { CallLog, SipUser, SipRegistration, Voicemail, DbEvent, config, type BalanceDebitJob } from '@/core';
 import { EventEmitter } from 'events';
 import {
   loadAllUsers,
@@ -6,9 +6,11 @@ import {
   loadAllBlocked,
   loadAllForwarding,
   loadAllPstn,
+  loadAllBalances,
   loadBlockedByExtension,
   loadForwardingByExtension,
   loadPstnByExtension,
+  loadBalanceByExtension,
   loadRecentCalls,
   insertVoicemail,
   selectVoicemailsWithUnread,
@@ -26,6 +28,8 @@ import {
  */
 export interface CallRater {
   applyToEndedCall(call: CallLog, updates: Partial<CallLog>, planId?: number | null): Partial<CallLog>;
+  /** Cheapest possible charge for a destination under a plan; null if unrateable. */
+  estimateMinCharge(dialed: string, planId?: number | null): { cost: number; currency: string } | null;
 }
 
 export class DatabaseService extends EventEmitter {
@@ -106,6 +110,9 @@ export class DatabaseService extends EventEmitter {
       user.pstnForwardTarget = undefined;
       user.dnd = false;
       user.ratePlanId = undefined;
+      user.outboundCallerId = undefined;
+      user.balance = undefined;
+      user.balanceCurrency = undefined;
     }
 
     for (const b of blocked) {
@@ -116,7 +123,15 @@ export class DatabaseService extends EventEmitter {
       this.applyForwardingRow(this.users.get(f.extension), f);
     }
     for (const p of pstn) {
-      this.applyPstn(this.users.get(p.extension), p.pstn_enabled, p.pstn_mobile, p.dnd, p.rate_plan_id);
+      this.applyPstn(this.users.get(p.extension), p.pstn_enabled, p.pstn_mobile, p.dnd, p.rate_plan_id, p.outbound_caller_id);
+    }
+    // Prepaid wallets are only hydrated when billing is on, so a workspace with
+    // prepaid off never pays for the extra query.
+    if (config.billing.prepaidEnabled) {
+      const balances = await loadAllBalances();
+      for (const bal of balances) {
+        this.applyBalance(this.users.get(bal.extension), bal.balance, bal.currency);
+      }
     }
   }
 
@@ -140,7 +155,14 @@ export class DatabaseService extends EventEmitter {
     user.forwardOnNoAnswer = undefined;
     user.forwardOnUnavailable = undefined;
     for (const f of forwarding) this.applyForwardingRow(user, f);
-    this.applyPstn(user, pstn?.pstn_enabled ?? false, pstn?.pstn_mobile ?? null, pstn?.dnd ?? false, pstn?.rate_plan_id ?? null);
+    this.applyPstn(user, pstn?.pstn_enabled ?? false, pstn?.pstn_mobile ?? null, pstn?.dnd ?? false, pstn?.rate_plan_id ?? null, pstn?.outbound_caller_id ?? null);
+    if (config.billing.prepaidEnabled) {
+      const bal = await loadBalanceByExtension(extension);
+      this.applyBalance(user, bal?.balance ?? null, bal?.currency ?? null);
+    } else {
+      user.balance = undefined;
+      user.balanceCurrency = undefined;
+    }
   }
 
   /** Map a forwarding_rules row onto the matching SipUser field. */
@@ -161,12 +183,21 @@ export class DatabaseService extends EventEmitter {
     mobile: string | null,
     dnd = false,
     ratePlanId: number | null = null,
+    outboundCallerId: string | null = null,
   ): void {
     if (!user) return;
     user.pstnForwardToBrowser = enabled;
     user.pstnForwardTarget = mobile || undefined;
     user.dnd = dnd;
     user.ratePlanId = ratePlanId ?? undefined;
+    user.outboundCallerId = outboundCallerId ?? undefined;
+  }
+
+  /** Map a user_balances row onto the SipUser wallet fields (0 stays 0). */
+  private applyBalance(user: SipUser | undefined, balance: number | null, currency: string | null): void {
+    if (!user) return;
+    user.balance = balance ?? undefined;
+    user.balanceCurrency = currency || undefined;
   }
 
   /**
@@ -237,6 +268,18 @@ export class DatabaseService extends EventEmitter {
 
   getUser(extensionOrUsername: string): SipUser | undefined {
     return this.users.get(extensionOrUsername);
+  }
+
+  /**
+   * Cheapest possible charge for dialing `dialed` under the plan assigned to
+   * `ext`, used by the prepaid pre-call gate. Returns null when the call is
+   * unrateable (no rater, no plan, or no matching prefix) — such calls are never
+   * balance-blocked. Reads entirely from memory (no DB on the call path).
+   */
+  estimateMinCharge(dialed: string, ext?: string): { cost: number; currency: string } | null {
+    if (!this.rater) return null;
+    const user = ext ? this.users.get(ext) : undefined;
+    return this.rater.estimateMinCharge(dialed, user?.ratePlanId ?? null);
   }
 
   addUser(user: SipUser): void {
@@ -326,6 +369,23 @@ export class DatabaseService extends EventEmitter {
         // an outbound call — resolve their extension to read ratePlanId.
         const caller = call.fromExt ? this.users.get(call.fromExt) : this.getUserByPhone(call.from);
         next = this.rater.applyToEndedCall(call, updates, caller?.ratePlanId ?? null);
+        // Prepaid: queue a wallet debit for the rated cost, keyed on the call id
+        // so it applies at most once even across queue retries or a repeated
+        // `ended`. Only the resolved local caller is charged; unrated/zero-cost
+        // calls emit nothing. The debit is written to Postgres by the queue.
+        if (
+          config.billing.prepaidEnabled &&
+          caller &&
+          typeof next.cost === 'number' &&
+          next.cost > 0
+        ) {
+          this.emit(DbEvent.BalanceDebit, {
+            extension: caller.extension,
+            callId: call.id,
+            amount: next.cost,
+            currency: next.currency ?? config.billing.currency,
+          } satisfies BalanceDebitJob);
+        }
       }
       Object.assign(call, next);
       this.emit(DbEvent.CallUpserted, call);

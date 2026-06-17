@@ -2,21 +2,40 @@ package handler
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/enjoys-in/enjoys-voice/api/internal/audio"
 	"github.com/enjoys-in/enjoys-voice/api/internal/response"
 	"github.com/enjoys-in/enjoys-voice/api/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
 type SoundHandler struct {
-	soundSvc  service.SoundService
-	uploadDir string
+	soundSvc   service.SoundService
+	uploadDir  string
+	ivrDir     string
+	transcoder *audio.Transcoder
 }
 
-func NewSoundHandler(ss service.SoundService, uploadDir string) *SoundHandler {
-	return &SoundHandler{soundSvc: ss, uploadDir: uploadDir}
+func NewSoundHandler(ss service.SoundService, uploadDir, ivrDir string, transcoder *audio.Transcoder) *SoundHandler {
+	return &SoundHandler{soundSvc: ss, uploadDir: uploadDir, ivrDir: ivrDir, transcoder: transcoder}
+}
+
+// safeExtToken strips any path separators / unexpected characters from the
+// extension before it is used to build a filename. The extension comes from the
+// verified JWT (numeric in this system), but this is defense-in-depth so a
+// generated path can never traverse directories.
+func safeExtToken(ext string) string {
+	return strings.Map(func(r rune) rune {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' || r == '-' {
+			return r
+		}
+		return '_'
+	}, ext)
 }
 
 func (h *SoundHandler) Upload(c *gin.Context) {
@@ -41,10 +60,11 @@ func (h *SoundHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	// Validate file type
-	ct := file.Header.Get("Content-Type")
-	if ct != "audio/mpeg" && ct != "audio/wav" && ct != "audio/ogg" && ct != "audio/webm" && ct != "audio/mp4" {
-		response.BadRequest(c, "Invalid file type. Accepted: mp3, wav, ogg, webm, mp4")
+	// IVR prompts are played server-side by FreeSWITCH and MUST be transcoded to
+	// the canonical format. Reject early with a clear status if no ffmpeg is
+	// available rather than persisting an unplayable upload.
+	if soundType == "ivr" && (h.transcoder == nil || !h.transcoder.Enabled()) {
+		response.Error(c, 503, "IVR audio transcoding is unavailable on this server")
 		return
 	}
 
@@ -54,18 +74,55 @@ func (h *SoundHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	// Generate unique filename
-	fileExt := filepath.Ext(file.Filename)
-	filename := fmt.Sprintf("%s_%s_%d%s", ext, soundType, time.Now().UnixMilli(), fileExt)
-	savePath := filepath.Join(h.uploadDir, filename)
-
-	if err := c.SaveUploadedFile(file, savePath); err != nil {
+	// Save the raw upload first; its real type is verified from the bytes below
+	// (the client Content-Type header is advisory only and trivially spoofable).
+	safeExt := safeExtToken(ext)
+	rawExt := filepath.Ext(file.Filename)
+	rawName := fmt.Sprintf("%s_%s_%d%s", safeExt, soundType, time.Now().UnixMilli(), rawExt)
+	rawPath := filepath.Join(h.uploadDir, rawName)
+	if err := c.SaveUploadedFile(file, rawPath); err != nil {
 		response.Internal(c, "Failed to save file")
 		return
 	}
 
-	sound, err := h.soundSvc.Upload(c.Request.Context(), ext, soundType, filename, file.Filename, savePath)
+	// Authoritative content check by magic bytes (RIFF/WAVE, OggS, EBML/WebM,
+	// ISO-BMFF/mp4, ID3/MPEG). Anything unrecognized is discarded.
+	if _, err := audio.SniffAudio(rawPath); err != nil {
+		_ = os.Remove(rawPath)
+		response.BadRequest(c, "Invalid file. Accepted audio: mp3, wav, ogg, webm, mp4")
+		return
+	}
+
+	// Final stored path + filename. For non-IVR sounds the validated upload is
+	// stored as-is (the browser fetches and resamples those itself). For IVR the
+	// upload is normalized to a 16 kHz mono PCM WAV on a FreeSWITCH-readable path
+	// and only the .wav is kept.
+	storePath := rawPath
+	storeName := rawName
+
+	if soundType == "ivr" {
+		if err := os.MkdirAll(h.ivrDir, 0o755); err != nil {
+			_ = os.Remove(rawPath)
+			response.Internal(c, "Failed to prepare IVR directory")
+			return
+		}
+		storeName = fmt.Sprintf("%s_ivr_%d.wav", safeExt, time.Now().UnixMilli())
+		storePath = filepath.Join(h.ivrDir, storeName)
+
+		if err := h.transcoder.ToFreeswitchWav(c.Request.Context(), rawPath, storePath); err != nil {
+			log.Printf("ivr transcode failed for %s: %v", ext, err)
+			_ = os.Remove(rawPath)
+			_ = os.Remove(storePath)
+			response.Error(c, 502, "Failed to process IVR audio")
+			return
+		}
+		// Only the normalized .wav is retained; drop the original upload.
+		_ = os.Remove(rawPath)
+	}
+
+	sound, err := h.soundSvc.Upload(c.Request.Context(), ext, soundType, storeName, file.Filename, storePath)
 	if err != nil {
+		_ = os.Remove(storePath)
 		response.Internal(c, "Failed to store sound record")
 		return
 	}

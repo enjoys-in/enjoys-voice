@@ -31,6 +31,9 @@ export interface PstnRow {
   dnd: boolean;
   /** Assigned billing rate plan id, or null to use the workspace default. */
   rate_plan_id: number | null;
+  /** Verified outbound caller ID, or null when unset/unverified. The SQL gates
+   * this on caller_id_verified so Node never sees an unverified number. */
+  outbound_caller_id: string | null;
 }
 
 export async function loadAllBlocked(): Promise<BlockedRow[]> {
@@ -65,15 +68,69 @@ export async function loadForwardingByExtension(extension: string): Promise<Forw
 
 export async function loadAllPstn(): Promise<PstnRow[]> {
   const { rows } = await getPool().query<PstnRow>(
-    'SELECT extension, pstn_enabled, pstn_mobile, COALESCE(dnd, false) AS dnd, rate_plan_id FROM user_settings',
+    `SELECT extension, pstn_enabled, pstn_mobile, COALESCE(dnd, false) AS dnd, rate_plan_id,
+            CASE WHEN COALESCE(caller_id_verified, false) THEN outbound_caller_id ELSE NULL END AS outbound_caller_id
+     FROM user_settings`,
   );
   return rows;
 }
 
 export async function loadPstnByExtension(extension: string): Promise<PstnRow | null> {
   const { rows } = await getPool().query<PstnRow>(
-    'SELECT extension, pstn_enabled, pstn_mobile, COALESCE(dnd, false) AS dnd, rate_plan_id FROM user_settings WHERE extension = $1 LIMIT 1',
+    `SELECT extension, pstn_enabled, pstn_mobile, COALESCE(dnd, false) AS dnd, rate_plan_id,
+            CASE WHEN COALESCE(caller_id_verified, false) THEN outbound_caller_id ELSE NULL END AS outbound_caller_id
+     FROM user_settings WHERE extension = $1 LIMIT 1`,
     [extension],
   );
   return rows[0] ?? null;
 }
+
+/** Prepaid wallet row (Go-owned `user_balances` table). `balance` is a
+ * numeric(12,4) so pg returns it as a string — parse to a number on read. */
+export interface BalanceRow {
+  extension: string;
+  balance: number;
+  currency: string;
+}
+
+interface BalanceRowRaw {
+  extension: string;
+  balance: string | number;
+  currency: string;
+}
+
+function mapBalance(row: BalanceRowRaw): BalanceRow {
+  return {
+    extension: row.extension,
+    balance: typeof row.balance === 'number' ? row.balance : parseFloat(row.balance) || 0,
+    currency: row.currency,
+  };
+}
+
+export async function loadAllBalances(): Promise<BalanceRow[]> {
+  try {
+    const { rows } = await getPool().query<BalanceRowRaw>(
+      'SELECT extension, balance, currency FROM user_balances',
+    );
+    return rows.map(mapBalance);
+  } catch (err: any) {
+    // The table is created by the Go API's migration; if Node starts first it
+    // may not exist yet. Degrade to "no wallets" rather than failing hydration.
+    console.warn(`⚠️  balance: loadAllBalances failed (${err?.message}); treating as none`);
+    return [];
+  }
+}
+
+export async function loadBalanceByExtension(extension: string): Promise<BalanceRow | null> {
+  try {
+    const { rows } = await getPool().query<BalanceRowRaw>(
+      'SELECT extension, balance, currency FROM user_balances WHERE extension = $1 LIMIT 1',
+      [extension],
+    );
+    return rows[0] ? mapBalance(rows[0]) : null;
+  } catch (err: any) {
+    console.warn(`⚠️  balance: loadBalanceByExtension(${extension}) failed (${err?.message}); treating as none`);
+    return null;
+  }
+}
+

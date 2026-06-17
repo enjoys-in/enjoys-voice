@@ -10,11 +10,17 @@
 - [x] Persists to Postgres (`audit_logs`, additive to Go's GORM model); Go owns reads (`/api/g/audit`)
 - [x] Real-time audit feed in the WebSocket admin panel
 
-## SIP URI Domain
-- [ ] Replace `.invalid` contact domain with `config.server.domain` (e.g., `enjoys.in`)
-- [ ] Client SIP.js URI: `sip:{extension}@{DOMAIN}` read from env `SIP_DOMAIN`
-- [ ] Server side: accept registrations for `@enjoys.in` domain
-- [ ] From/To headers use `sip:1001@enjoys.in` format
+## SIP URI Domain — ✅ DONE
+- [x] Replace `.invalid` contact domain with `config.server.domain` (e.g., `enjoys.in`)
+      — SIP realm now from `SIP_DOMAIN` (falls back to `DOMAIN`) on both Go
+      (`config.go`) and Node (`core/config.ts`). The WebRTC Contact still uses the
+      RFC 7118 `.invalid` host, which drachtio maps to the live WS connection.
+- [x] Client SIP.js URI: `sip:{extension}@{DOMAIN}` read from env `SIP_DOMAIN`
+      (`useSipPhone.register` → `UserAgent.makeURI(`sip:${extension}@${domain}`)`,
+      domain delivered in `sipConfig.domain` from `/auth/me`)
+- [x] Server side: accept registrations for the configured domain (realm = `config.server.domain`)
+- [x] From/To headers use `sip:1001@{domain}` format (outbound target host =
+      `ua.configuration.uri.host`)
 
 ## Caller Name Display (show name, not number) — ✅ DONE
 > We ALREADY save `name` at signup: `{ extension, username(=phone), password, name, mobile, registered }`.
@@ -41,10 +47,14 @@
 - [x] Generate extension automatically — last 7 digits of the mobile, now
       **collision-free** (`uniqueExtension` probes for a free extension since the
       extension doubles as the unique username)
-- [ ] OTP verification via SMS gateway (Twilio/MSG91/custom)
+- [x] OTP verification via SMS gateway (Twilio/MSG91/custom)
+      — Go `OTPService` + Twilio client; `POST /api/g/auth/otp/request` (purpose
+      `signup`|`login`) and `POST /api/g/auth/signup/verify`. `OTP_DEV_ECHO`
+      returns the code in non-prod for testing.
 - [x] On signup: create SIP user, assign extension, store in DB (user +
       default `user_settings`; Node hydrates it live via LISTEN/NOTIFY)
-- [ ] Login via mobile + OTP (no password needed for end users)
+- [x] Login via mobile + OTP (no password needed for end users)
+      — `POST /api/g/auth/login/otp` (mobile + code); web client `goApi.loginOtp`
 
 ## Call Routing: SIP → PSTN Fallback — ✅ DONE
 - [x] On INVITE: check if callee is registered (SIP-to-SIP)
@@ -66,31 +76,55 @@
 - [x] Audit store → PostgreSQL (`audit_logs`, batch-flushed)
 - [x] Live data sync → Postgres LISTEN/NOTIFY (Node mirrors Go-owned tables, no polling)
 - [x] WSS for SIP + drachtio `<tls>` on :5066 + `<spammers>` scanner drop + internal-only control socket
-- [ ] User store migrations hardening (seed + idempotent; Go AutoMigrate in place)
+- [x] User store migrations hardening (seed + idempotent; Go AutoMigrate in place)
+      — `RunSQLMigrations` now tracks every applied file in a `schema_migrations`
+      ledger (name + sha256 checksum, `applied_at`). Each unapplied file runs in a
+      transaction then stamps the ledger atomically, so restarts skip applied
+      files and an edited-after-apply file is rejected (drift detection) instead
+      of silently re-running.
+- [~] SRTP for media encryption end-to-end — browser leg is already DTLS-SRTP.
+      The trunk leg is a FreeSWITCH media-config concern, not app code: set
+      `rtp_secure_media`(`_outbound`) on the trunk's sofia profile / dialplan
+      (knobs documented in `docker/freeswitch_configs/vars.xml`). Requires a
+      carrier that negotiates SRTP — left as a deployment step.
 - [x] Rate limiting on register/invite — HTTP `rate-limit` middleware **and**
       SIP-level per-IP cap (`SipServer.checkSipRate` → 429 on REGISTER/INVITE,
       tunable via `SIP_RATE_LIMIT` / `SIP_RATE_WINDOW_MS`)
-- [ ] SRTP for media encryption end-to-end (browser already DTLS-SRTP; trunk leg pending)
-- [ ] Horizontal scaling: multiple drachtio instances behind load balancer
+- [~] Horizontal scaling: multiple drachtio instances behind load balancer —
+      the code prerequisite (shared registration state) is in place: the
+      Redis/Valkey `RegistrationStore` (`src/services/registration/redis.store.ts`)
+      lets instances share registrations. Remaining work is pure deployment: a
+      SIP-aware load balancer + running N drachtio/engine instances against the
+      shared store — no application code change required.
 
 ## Go Voice Core (sipgo)
 
- 
-- [ ] Trunk model: `{ id, name, host, port, transport, username, password, callerNumber, prefix, codecs, enabled }`
-- [ ] REST API endpoints:
-  - `GET /api/trunks` — list all trunks
-  - `POST /api/trunks` — create trunk
-  - `GET /api/trunks/:id` — get trunk details
-  - `PUT /api/trunks/:id` — update trunk
-  - `DELETE /api/trunks/:id` — delete trunk
-  - `POST /api/trunks/:id/test` — test trunk connectivity (OPTIONS ping)
+> Trunk **management** (model + CRUD + persistence + connectivity probe) now
+> lives in the Go API; endpoints are mounted under `/api/g/trunks` and are
+> admin-only (`ADMIN_EXTENSIONS` allow-list). The deeper SIP-signalling pieces
+> (periodic REGISTER, in/outbound call routing in Go, continuous registration
+> health) remain with the Node/drachtio engine and are a separate, larger
+> re-architecture — left unchecked below on purpose.
+- [x] Trunk model: `{ id, name, host, port, transport, username, password, callerNumber, prefix, codecs, enabled }`
+      (`models.Trunk`; also persists `last_status` / `last_tested_at`. Password is
+      stored but never serialized back — the API exposes only `has_password`.)
+- [x] REST API endpoints (admin-only, under `/api/g`):
+  - `GET /api/g/trunks` — list all trunks
+  - `POST /api/g/trunks` — create trunk
+  - `GET /api/g/trunks/:id` — get trunk details
+  - `PUT /api/g/trunks/:id` — update trunk (omit `password` to keep the stored secret)
+  - `DELETE /api/g/trunks/:id` — delete trunk
+  - `POST /api/g/trunks/:id/test` — SIP OPTIONS ping (udp/tcp/tls), persists `last_status`
 - [ ] Trunk registration: periodic REGISTER to upstream providers
 - [ ] Outbound routing: Go handles PSTN/external calls via configured trunks
 - [ ] Inbound routing: receive calls from trunks, forward to Node SIP server
-- [ ] Health checks: monitor trunk status (registered/failed/retrying)
-- [ ] Database: PostgreSQL for trunk persistence
+- [~] Health checks: monitor trunk status — partial. `POST /trunks/:id/test`
+      runs an on-demand SIP OPTIONS probe and stores `ok`/`unreachable`;
+      continuous registered/failed/retrying monitoring is still pending.
+- [x] Database: PostgreSQL for trunk persistence (`trunks` table, AutoMigrated)
 - [ ] Config hot-reload: update trunk config without restart
 - [ ] Integrate with Node server: Go handles trunks, Node handles WebRTC/WS clients
+- [x] Admin UI: Trunks tab (list / create / edit / delete / test) wired to `goApi.trunks`
 
 ## Sound Upload: IVR Normalization (ffmpeg)
 > Go API already has `POST /api/g/sounds/upload` + `GET /api/g/sounds/:ext` for
