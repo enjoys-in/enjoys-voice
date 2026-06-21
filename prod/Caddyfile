@@ -7,14 +7,19 @@
 
 voice.enjoys.in {
 	encode zstd gzip
+	@websocket {
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
 
-	# ── SIP over WebSocket (drachtio) → wss://DOMAIN/sip ──────────	 
+	# ── SIP over WebSocket (drachtio) → wss://DOMAIN/sip ──────────
+	# SIP.js connects here (PUBLIC_SIP_WS_URL). Caddy upgrades + proxies.
 	@sip path /sip /sip/*
+
 	handle @sip {
 		reverse_proxy https://127.0.0.1:5065 {
 			transport http {
-				tls_server_name voice.enjoys.in
-				versions 1.1
+				tls_insecure_skip_verify
 			}
 		}
 	}
@@ -22,22 +27,23 @@ voice.enjoys.in {
 	# ── App signaling WebSocket → wss://DOMAIN/signal ─────────────
 	@signal path /signal /signal/*
 	handle @signal {
-		reverse_proxy 127.0.0.1:3002
+		reverse_proxy @websocket localhost:3002
+		reverse_proxy localhost:3002
 	}
 
 	# ── Go CRUD API → https://DOMAIN/api/g/* (auth, IVR, lookup, …) ──
+	# Requires an `api-go` service (Go, :3003) in the compose stack.
 	handle /api/g/* {
-		reverse_proxy 127.0.0.1:3003
+		reverse_proxy localhost:3003
 	}
 
 	# ── Node engine API → https://DOMAIN/api/n/* (live telephony) ──
 	handle /api/n/* {
-		reverse_proxy 127.0.0.1:3001
+		reverse_proxy localhost:3001
 	}
 
 	# ── Frontend (Next.js) — everything else ─────────────────────
-	# web container runs `next start -p 4500` (web/package.json start script).
 	handle {
-		reverse_proxy 127.0.0.1:4500
+		reverse_proxy localhost:4500
 	}
 }
