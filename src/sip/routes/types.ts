@@ -1,4 +1,5 @@
 import type { DatabaseService, TrunkService, AuditService, DialResult } from '@/services';
+import type { ConferenceService } from '@/services';
 import type { IVRSystem } from '../ivr.system';
 
 export interface CallContext {
@@ -15,6 +16,7 @@ export interface RouteServices {
   trunk: TrunkService;
   audit: AuditService;
   ivr: IVRSystem | null;
+  conference: ConferenceService;
   notifyFn?: (extension: string, event: string, data?: any) => void;
   routeToExtension: (req: any, res: any, contact: string, callId: string) => Promise<void>;
   forwardCall: (req: any, res: any, target: string, callId: string, callingNumber: string) => Promise<void>;

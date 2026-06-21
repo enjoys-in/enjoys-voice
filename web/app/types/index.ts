@@ -41,8 +41,35 @@ export interface ActiveCall {
   direction: CallDirection;
   status: CallStatus;
   startTime: number;
-  /** Transport backing this call. Defaults to SIP; "bridge" = PSTN→browser media bridge. */
-  source?: "sip" | "bridge";
+  /** Transport backing this call. Defaults to SIP; "bridge" = PSTN→browser media bridge; "conference" = multi-party room. */
+  source?: "sip" | "bridge" | "conference";
+  /** When source === "conference", the room id this call is joined to. */
+  conferenceRoomId?: string;
+}
+
+/** A single member of a multi-party conference room (mirrors the server roster). */
+export interface ConferenceParticipant {
+  extension: string;
+  name: string;
+  state: "invited" | "ringing" | "joined" | "left";
+  muted: boolean;
+  isHost: boolean;
+}
+
+/** Live conference room snapshot pushed over the signaling socket. */
+export interface ConferenceRoom {
+  roomId: string;
+  name: string;
+  hostExtension: string;
+  participants: ConferenceParticipant[];
+}
+
+/** An incoming invitation to join a conference room. */
+export interface ConferenceInvite {
+  roomId: string;
+  name: string;
+  from: string;
+  fromName: string;
 }
 
 export interface ForwardingRules {

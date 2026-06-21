@@ -356,6 +356,69 @@ export class IVRSystem {
   }
 
   /**
+   * Answer a caller and join their leg into a FreeSWITCH conference room.
+   *
+   * The browser dials `conf-<roomId>`; we anchor the leg on the media server
+   * (handles WebRTC DTLS-SRTP) and `join()` it to the named room so every member
+   * is mixed together. The room is created on first join by FreeSWITCH itself.
+   *
+   * `hooks.onJoined` fires once the leg is mixed in; `hooks.onLeft` fires exactly
+   * once when the caller hangs up (or the join fails), so the caller can keep the
+   * shared roster in step. The INVITE must have been left open for us to answer
+   * (no `passFailure` relay), since connectCaller sends the 200 OK here.
+   */
+  async joinConference(
+    req: any,
+    res: any,
+    roomName: string,
+    hooks?: { onJoined?: () => void; onLeft?: () => void },
+  ): Promise<boolean> {
+    if (!(await this.ensureConnected())) {
+      if (!res.finalResponseSent) res.send(480, 'Temporarily Unavailable');
+      return false;
+    }
+
+    let endpoint: Mrf.Endpoint | undefined;
+    let dialog: Srf.Dialog | undefined;
+    let torndown = false;
+    let leftNotified = false;
+
+    const teardown = () => {
+      if (torndown) return;
+      torndown = true;
+      try { endpoint?.destroy?.(); } catch { /* noop */ }
+      try { dialog?.destroy?.(); } catch { /* noop */ }
+    };
+    const notifyLeft = () => {
+      if (leftNotified) return;
+      leftNotified = true;
+      try { hooks?.onLeft?.(); } catch { /* noop */ }
+    };
+
+    try {
+      ({ endpoint, dialog } = await this.ms!.connectCaller(req, res));
+      await this.prepareVoice(endpoint);
+      await this.playSafe(endpoint, 'say:You are joining the conference.');
+
+      // Either the caller hanging up (dialog destroy) or the channel ending
+      // (endpoint destroy) means this member left — prune them from the roster.
+      dialog.on('destroy', () => { notifyLeft(); teardown(); });
+      endpoint.on('destroy', () => { notifyLeft(); });
+
+      await endpoint.join(roomName, { profile: config.conference.profile });
+      try { hooks?.onJoined?.(); } catch { /* noop */ }
+      console.log(`✅ Conf: ${req.callingNumber || 'caller'} joined ${roomName} (channel=${endpoint.uuid})`);
+      return true;
+    } catch (err: any) {
+      console.error('❌ Conference join error:', err?.message || err);
+      notifyLeft();
+      teardown();
+      if (res && !res.finalResponseSent) res.send(480, 'Temporarily Unavailable');
+      return false;
+    }
+  }
+
+  /**
    * Play a file/prompt, logging it and tolerating a missing file.
    *
    * `endpoint.play()` throws "File Not Found" when FreeSWITCH can't locate the

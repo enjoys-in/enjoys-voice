@@ -5,7 +5,7 @@ import path from 'path';
 import { config, verifyAccessToken, parseCookies } from '@/core';
 import type { JwtClaims } from '@/core';
 import { DatabaseService } from '@/services';
-import type { MetricsSnapshot, AuditEntry } from '@/services';
+import type { MetricsSnapshot, AuditEntry, ConferenceService } from '@/services';
 
 interface WsClient {
   ws: WebSocket;
@@ -26,8 +26,16 @@ export class SignalingServer {
   // metrics set, kept separate so only opted-in admin dashboards receive pushes.
   private auditSubscribers = new Set<WsClient>();
   private auditProvider?: () => AuditEntry[];
+  // Shared conference registry (same instance the SIP path writes joins to).
+  // Used to create rooms, send invites and broadcast live rosters.
+  private conference?: ConferenceService;
 
   constructor(private db: DatabaseService) {}
+
+  /** Supply the shared ConferenceService so the socket can orchestrate rooms. */
+  setConferenceService(cs: ConferenceService): void {
+    this.conference = cs;
+  }
 
   /** Supply the current-metrics getter (wired to CallMetricsService). */
   setMetricsProvider(fn: () => MetricsSnapshot): void {
@@ -144,6 +152,9 @@ export class SignalingServer {
         break;
       case 'unsubscribe_audit':
         this.auditSubscribers.delete(client);
+        break;
+      case 'conference':
+        this.handleConference(client, msg);
         break;
       default:
         this.send(client.ws, { type: 'error', message: `Unknown type: ${msg.type}` });
@@ -389,6 +400,145 @@ export class SignalingServer {
         client.ws.send(JSON.stringify({ type: 'audit_entry', entry }));
       } else {
         this.auditSubscribers.delete(client);
+      }
+    }
+  }
+
+  /**
+   * Orchestrate multi-party conferences over the signaling socket. The actual
+   * audio mixing is done by FreeSWITCH once each browser dials `conf-<roomId>`;
+   * this only manages room creation, invitations and the shared roster.
+   *
+   * Identity is taken from the authenticated connection (`client.extension`),
+   * never the message body, so a client can't act as another user. Actions:
+   *  - start   {invite: string[], name?}  → create a room hosted by the caller,
+   *            invite the listed extensions, and tell the host to dial in.
+   *  - invite  {roomId, target}           → add one more invitee to a room the
+   *            caller is in.
+   *  - decline {roomId}                    → caller declines an invitation.
+   *  - leave   {roomId}                    → caller leaves (also covered by the
+   *            SIP BYE, but lets a pre-join invitee bow out).
+   *  - roster  {roomId}                    → re-send the current roster.
+   */
+  private handleConference(client: WsClient, msg: any): void {
+    if (!client.authenticated) {
+      this.send(client.ws, { type: 'error', message: 'Not authenticated' });
+      return;
+    }
+    if (!this.conference) {
+      this.send(client.ws, { type: 'conference_event', event: 'error', message: 'Conferencing unavailable' });
+      return;
+    }
+
+    switch (msg.action) {
+      case 'start': {
+        const invitees: string[] = Array.isArray(msg.invite)
+          ? msg.invite.map((x: any) => String(x).trim()).filter(Boolean)
+          : [];
+        const hostName = this.db.getUser(client.extension)?.name || client.extension;
+        const room = this.conference.createRoom(client.extension, hostName, msg.name);
+
+        // Tell the host to dial into the room (their browser places the SIP call).
+        this.send(client.ws, {
+          type: 'conference_event', event: 'created',
+          roomId: room.id, room: this.conference.snapshot(room.id),
+        });
+
+        // Invite everyone else who is a real, distinct user.
+        for (const ext of invitees) {
+          if (ext === client.extension) continue;
+          if (!this.db.getUser(ext)) continue;
+          const inviteeName = this.db.getUser(ext)?.name || ext;
+          this.conference.addInvite(room.id, ext, inviteeName);
+          this.sendConferenceInvite(room.id, room.name, client.extension, hostName, ext);
+        }
+        break;
+      }
+
+      case 'invite': {
+        const roomId = String(msg.roomId ?? '').trim();
+        const target = String(msg.target ?? '').trim();
+        const room = roomId ? this.conference.getRoom(roomId) : undefined;
+        if (!room || !target) {
+          this.send(client.ws, { type: 'conference_event', event: 'error', message: 'Unknown room or target' });
+          return;
+        }
+        // Only a current member may pull others in.
+        if (!room.participants.has(client.extension)) {
+          this.send(client.ws, { type: 'conference_event', event: 'error', message: 'Not a member' });
+          return;
+        }
+        if (target === client.extension || !this.db.getUser(target)) return;
+        const fromName = this.db.getUser(client.extension)?.name || client.extension;
+        const targetName = this.db.getUser(target)?.name || target;
+        this.conference.addInvite(roomId, target, targetName);
+        this.sendConferenceInvite(roomId, room.name, client.extension, fromName, target);
+        break;
+      }
+
+      case 'decline': {
+        const roomId = String(msg.roomId ?? '').trim();
+        if (roomId) this.conference.markLeft(roomId, client.extension);
+        break;
+      }
+
+      case 'leave': {
+        const roomId = String(msg.roomId ?? '').trim();
+        if (roomId) this.conference.markLeft(roomId, client.extension);
+        break;
+      }
+
+      case 'roster': {
+        const roomId = String(msg.roomId ?? '').trim();
+        const snapshot = roomId ? this.conference.snapshot(roomId) : undefined;
+        this.send(client.ws, snapshot
+          ? { type: 'conference_event', event: 'roster', roomId, room: snapshot }
+          : { type: 'conference_event', event: 'closed', roomId });
+        break;
+      }
+
+      default:
+        this.send(client.ws, { type: 'conference_event', event: 'error', message: `Unknown action: ${msg.action}` });
+    }
+  }
+
+  /** Send a single conference invitation to an online invitee (if connected). */
+  private sendConferenceInvite(
+    roomId: string, name: string, fromExt: string, fromName: string, targetExt: string,
+  ): void {
+    const target = this.clients.get(targetExt);
+    if (!target?.authenticated || target.ws.readyState !== WebSocket.OPEN) return;
+    this.send(target.ws, {
+      type: 'conference_event', event: 'invited',
+      roomId, name, from: fromExt, fromName,
+    });
+  }
+
+  /**
+   * Push the current roster to every participant of a room (called on any
+   * change via the ConferenceService 'updated' event). Offline/never-joined
+   * invitees are simply skipped.
+   */
+  broadcastConferenceRoster(roomId: string): void {
+    if (!this.conference) return;
+    const room = this.conference.getRoom(roomId);
+    const snapshot = this.conference.snapshot(roomId);
+    if (!room || !snapshot) return;
+    for (const ext of room.participants.keys()) {
+      const client = this.clients.get(ext);
+      if (client?.authenticated && client.ws.readyState === WebSocket.OPEN) {
+        this.send(client.ws, { type: 'conference_event', event: 'roster', roomId, room: snapshot });
+      }
+    }
+  }
+
+  /** Tell a room's participants it has ended so their UIs can tear down. */
+  broadcastConferenceClosed(roomId: string, participants?: string[]): void {
+    const targets = participants ?? Array.from(this.clients.keys());
+    for (const ext of targets) {
+      const client = this.clients.get(ext);
+      if (client?.authenticated && client.ws.readyState === WebSocket.OPEN) {
+        this.send(client.ws, { type: 'conference_event', event: 'closed', roomId });
       }
     }
   }

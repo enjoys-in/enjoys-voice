@@ -117,6 +117,16 @@ export interface AppConfig {
     // to the trunk by EmergencyHandler, bypassing internal/IVR matching.
     emergencyNumbers: string[];
   };
+  conference: {
+    // Multi-party conference rooms (FreeSWITCH mod_conference). A browser joins a
+    // room by calling `conf-<roomId>`; the SIP server anchors the leg on the media
+    // server and joins it to the named conference so all members are mixed.
+    enabled: boolean;
+    // FreeSWITCH conference profile (conference.conf.xml). `default` is 8kHz mono.
+    profile: string;
+    // Hard cap on members per room (-1 = unlimited).
+    maxMembers: number;
+  };
   teams: {
     // Microsoft Teams "Audio Conferencing" dial-in join. A registered user is
     // bridged onto a Teams meeting by dialing its PSTN dial-in number via the
@@ -288,6 +298,11 @@ export const config: AppConfig = {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+  },
+  conference: {
+    enabled: process.env.CONFERENCE_ENABLED !== 'false',
+    profile: (process.env.CONFERENCE_PROFILE || 'default').trim(),
+    maxMembers: parseInt(process.env.CONFERENCE_MAX_MEMBERS || '16'),
   },
   teams: {
     dtmfDelayMs: parseInt(process.env.TEAMS_DTMF_DELAY_MS || '4000'),

@@ -3,12 +3,12 @@ import crypto from 'crypto';
 import { config } from '@/core';
 import { SipStatus } from '@/core/types';
 import { DatabaseService, TrunkService, AuditService, DialPlanService, RouteType } from '@/services';
-import type { DialResult } from '@/services';
+import type { DialResult, ConferenceService } from '@/services';
 import type { RegistrationStore } from '@/services/registration';
 import { IVRSystem } from './ivr.system';
 import { SipAbuseGuard } from './abuse-guard';
 import {
-  TrunkInboundHandler, TeamsMeetingHandler, EmergencyHandler, IvrHandler,
+  TrunkInboundHandler, TeamsMeetingHandler, ConferenceHandler, EmergencyHandler, IvrHandler,
   InternalHandler, ExternalHandler,
   type RouteHandler, type CallContext, type RouteServices,
 } from './routes';
@@ -30,6 +30,7 @@ export class SipServer {
   private routeHandlers: RouteHandler[] = [
     new TrunkInboundHandler(),
     new TeamsMeetingHandler(),
+    new ConferenceHandler(),
     new EmergencyHandler(),
     new IvrHandler(),
     new InternalHandler(),
@@ -41,6 +42,7 @@ export class SipServer {
     private trunk: TrunkService,
     private registrationStore: RegistrationStore,
     private audit: AuditService,
+    private conference: ConferenceService,
   ) {
     this.srf = new Srf();
     // Pre-bind to avoid allocating new functions on every INVITE
@@ -266,6 +268,7 @@ export class SipServer {
           trunk: this.trunk,
           audit: this.audit,
           ivr: this.ivr,
+          conference: this.conference,
           notifyFn: this.notifyFn,
           routeToExtension: this.boundRouteToExtension,
           forwardCall: this.boundForwardCall,
@@ -307,6 +310,8 @@ export class SipServer {
       case RouteType.Internal:
         return !!this.db.getUser(route.target);
       case RouteType.External:
+        return this.db.isRegistered(caller);
+      case RouteType.Conference:
         return this.db.isRegistered(caller);
       case RouteType.IVR:
       case RouteType.Emergency:

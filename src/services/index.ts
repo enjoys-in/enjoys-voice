@@ -4,6 +4,14 @@ export { AuditService } from './audit.service';
 export { CallMetricsService } from './metrics.service';
 export type { MetricsSnapshot } from './metrics.service';
 export { DialPlanService, RouteType } from './dialplan.service';
+export { ConferenceService } from './conference.service';
+export type {
+  ConferenceRoom,
+  ConferenceParticipant,
+  ConferenceParticipantState,
+  ConferenceRosterEntry,
+  ConferenceSnapshot,
+} from './conference.service';
 export { createRegistrationStore, MemoryRegistrationStore, RedisRegistrationStore } from './registration';
 export type { RegistrationStore } from './registration';
 export { UserSyncListener } from './postgres';
