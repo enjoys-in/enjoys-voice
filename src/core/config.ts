@@ -29,6 +29,15 @@ export interface AppConfig {
     // flood/scan defense, applied in SipServer.checkSipRate). Tunable per deploy.
     rateLimit: number;
     rateWindowMs: number;
+    // Abuse guard (SipAbuseGuard): ban a source IP after `banThreshold` offenses
+    // (flood, unknown-user REGISTER, unroutable/spoofed INVITE) within
+    // `banWindowMs`, for `banDurationMs`. `firewallCmd` optionally pushes the ban
+    // to the OS firewall ({ip} placeholder). `trustedIps` are never banned.
+    banThreshold: number;
+    banWindowMs: number;
+    banDurationMs: number;
+    firewallCmd: string;
+    trustedIps: string[];
   };
   trunk: {
     name: string;
@@ -194,6 +203,14 @@ export const config: AppConfig = {
   sip: {
     rateLimit: parseInt(process.env.SIP_RATE_LIMIT || '30'),
     rateWindowMs: parseInt(process.env.SIP_RATE_WINDOW_MS || '60000'),
+    banThreshold: parseInt(process.env.SIP_BAN_THRESHOLD || '10'),
+    banWindowMs: parseInt(process.env.SIP_BAN_WINDOW_MS || '600000'),
+    banDurationMs: parseInt(process.env.SIP_BAN_DURATION_MS || '3600000'),
+    firewallCmd: process.env.SIP_FIREWALL_CMD || '',
+    trustedIps: (process.env.SIP_TRUSTED_IPS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
   },
   trunk: {
     name: process.env.TRUNK_NAME || 'custom',
