@@ -2,7 +2,7 @@
 
 import { useState, useEffect, type ReactNode } from "react";
 import Link from "next/link";
-import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming, Palette, Save, RotateCcw, Check, Receipt, ScrollText, Radio, Headphones } from "lucide-react";
+import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming, Palette, Save, RotateCcw, Check, Receipt, ScrollText, Radio, Headphones, KeyRound } from "lucide-react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -38,10 +38,11 @@ import { RatesTab } from "./components/RatesTab";
 import { AuditTab } from "./components/AuditTab";
 import { TrunksTab } from "./components/TrunksTab";
 import { QueuesTab } from "./components/QueuesTab";
+import { ApiKeysTab } from "./components/ApiKeysTab";
 import { useLiveMetrics } from "../hooks/useLiveMetrics";
 import { CallRecordStatus, type CallRecord } from "../types";
 
-type Tab = "overview" | "users" | "calls" | "customization" | "rates" | "trunks" | "queues" | "audit" | "config";
+type Tab = "overview" | "users" | "calls" | "customization" | "rates" | "trunks" | "queues" | "apikeys" | "audit" | "config";
 
 // Selectable stats windows (days) for the dashboard aggregate metrics/charts.
 const RANGE_OPTIONS = [7, 14, 30] as const;
@@ -105,6 +106,7 @@ export default function AdminPage() {
     { id: "rates", label: "Rates", icon: Receipt },
     { id: "trunks", label: "Trunks", icon: Radio },
     { id: "queues", label: "Queues", icon: Headphones },
+    { id: "apikeys", label: "API Keys", icon: KeyRound },
     { id: "audit", label: "Activity", icon: ScrollText },
     { id: "config", label: "Config", icon: Settings },
   ];
@@ -172,6 +174,7 @@ export default function AdminPage() {
             {tab === "rates" && <RatesTab />}
             {tab === "trunks" && <TrunksTab />}
             {tab === "queues" && <QueuesTab />}
+            {tab === "apikeys" && <ApiKeysTab />}
             {tab === "audit" && <AuditTab />}
             {tab === "config" && <ConfigTab />}
           </div>
