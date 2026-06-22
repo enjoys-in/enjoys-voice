@@ -284,7 +284,7 @@ bun run start &
 
 | Issue | Cause | Fix |
 |-------|-------|-----|
-| IVR Connection timeout | `listenAddress` not reachable from FS container | On Windows: set `FREESWITCH_LISTEN_ADDRESS=host.docker.internal`. On Linux: use host IP. Do NOT use Docker bridge gateway IP (172.x.x.1) on Windows |
+| IVR Connection timeout | `listenAddress` (advertisedAddress / `X-esl-outbound`) not reachable from the FS container | App on the HOST (dev): `FREESWITCH_LISTEN_ADDRESS=host.docker.internal` (Windows/macOS) or the host IP (Linux). App in a CONTAINER (prod compose): set it to the app's service/container name on the shared docker network (e.g. `callnet-api`) so FS connects back over the network — `host.docker.internal` would hit the host where `:8085` is NOT published. Never use the Docker bridge gateway IP (172.x.x.1) on Windows |
 | IVR Connection timeout | `listenPort` is 0 or wrong | Ensure `FREESWITCH_LISTEN_PORT=8085` (must match the port your app listens on for MRF callbacks) |
 | IVR Connection timeout | Volume mount overrides FS config | Do NOT mount to `/usr/local/freeswitch/conf/` or `/etc/freeswitch`. Only mount sounds |
 | **IVR `488 Not Acceptable Here`** (WebRTC client) | FreeSWITCH `drachtio_mrf` profile rejected the browser's ICE candidates — default `wan.auto` ACL filters out RFC1918/LAN candidates → log shows `no suitable candidates found` → 488 | Add `apply-candidate-acl` (localnet.auto, wan_v4.auto, rfc1918.auto, any_v4.auto) to the `drachtio_mrf` profile, then recreate the container |
