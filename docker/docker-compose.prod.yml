@@ -41,6 +41,14 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./freeswitch_configs:/etc/freeswitch
+      # PROD-ONLY override: overlay the single MRF profile on top of the shared
+      # config dir so ext-rtp-ip/ext-sip-ip advertise the VPS PUBLIC IP (the
+      # shared file uses $${local_ip_v4} = the container's internal docker IP,
+      # which browsers can't reach -> one-way / no audio). A file bind-mount on a
+      # longer path wins over the ./freeswitch_configs dir mount above. This file
+      # lives only in prod/ and is referenced ONLY here (never in the dev compose).
+      # >>> Update the public IP inside prod/freeswitch/drachtio_mrf.xml on change.
+      - ../prod/freeswitch/drachtio_mrf.xml:/etc/freeswitch/sip_profiles/drachtio_mrf.xml:ro
       - ./freeswitch_sounds:/usr/share/freeswitch/sounds
       - ./recordings:/usr/local/freeswitch/recordings
     networks:
