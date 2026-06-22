@@ -77,6 +77,18 @@ type TrunkRepository interface {
 	SetStatus(ctx context.Context, id uint, status string, testedAt time.Time) error
 }
 
+// APIKeyRepository persists developer API keys for the embeddable click-to-call
+// widget. Keys are owner-scoped (listed/managed by owner_extension).
+type APIKeyRepository interface {
+	ListByOwner(ctx context.Context, owner string) ([]models.APIKey, error)
+	Get(ctx context.Context, id uint) (*models.APIKey, error)
+	Create(ctx context.Context, key *models.APIKey) error
+	Update(ctx context.Context, key *models.APIKey) error
+	Delete(ctx context.Context, id uint) error
+	// TouchLastUsed stamps when a key was last used to place a call.
+	TouchLastUsed(ctx context.Context, id uint, at time.Time) error
+}
+
 type CallRepository interface {
 	Create(ctx context.Context, call *models.CallRecord) error
 	GetAll(ctx context.Context) ([]models.CallRecord, error)

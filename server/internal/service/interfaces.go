@@ -164,6 +164,37 @@ var ErrTrunkNotFound = errors.New("trunk not found")
 // ErrTrunkInvalid is returned when required trunk fields are missing (400).
 var ErrTrunkInvalid = errors.New("name and host are required")
 
+// APIKeyInput is a partial create/update of a developer API key — only non-nil
+// fields are applied. AllowedOrigins/AllowedIPs are full replacements when
+// supplied. The destination number is required on create.
+type APIKeyInput struct {
+	Label             *string   `json:"label"`
+	AllowedOrigins    *[]string `json:"allowed_origins"`
+	AllowedIPs        *[]string `json:"allowed_ips"`
+	DestinationNumber *string   `json:"destination_number"`
+	CallerID          *string   `json:"caller_id"`
+	DailyCap          *int      `json:"daily_cap"`
+	Active            *bool     `json:"active"`
+}
+
+// APIKeyService owns CRUD over developer API keys for the click-to-call widget.
+// Every operation is owner-scoped: the owner extension comes from the JWT and a
+// caller can only see/modify their own keys. Create returns the plaintext secret
+// exactly once (in APIKeyResponse.Secret).
+type APIKeyService interface {
+	List(ctx context.Context, owner string) ([]models.APIKeyResponse, error)
+	Create(ctx context.Context, owner string, input *APIKeyInput) (*models.APIKeyResponse, error)
+	Update(ctx context.Context, owner string, id uint, input *APIKeyInput) (*models.APIKeyResponse, error)
+	Delete(ctx context.Context, owner string, id uint) error
+}
+
+// ErrAPIKeyNotFound is returned when a key id doesn't exist or isn't owned by
+// the caller (404).
+var ErrAPIKeyNotFound = errors.New("api key not found")
+
+// ErrAPIKeyInvalid is returned when a required field is missing (400).
+var ErrAPIKeyInvalid = errors.New("destination_number is required")
+
 type CallService interface {
 	GetAll(ctx context.Context) ([]models.CallRecord, error)
 	GetByExtension(ctx context.Context, ext string) ([]models.CallRecord, error)

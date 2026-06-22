@@ -24,6 +24,7 @@ type Handlers struct {
 	CallerID       *handler.CallerIDHandler
 	Balance        *handler.BalanceHandler
 	Trunk          *handler.TrunkHandler
+	APIKey         *handler.APIKeyHandler
 }
 
 func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
@@ -151,6 +152,14 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 			protected.PUT("/trunks/:id", h.Trunk.Update)
 			protected.DELETE("/trunks/:id", h.Trunk.Delete)
 			protected.POST("/trunks/:id/test", h.Trunk.Test)
+
+			// Developer API keys for the embeddable click-to-call widget. Owner-
+			// scoped (the owning extension comes from the JWT inside the handler),
+			// so a user only ever manages their own keys.
+			protected.GET("/api-keys", h.APIKey.List)
+			protected.POST("/api-keys", h.APIKey.Create)
+			protected.PUT("/api-keys/:id", h.APIKey.Update)
+			protected.DELETE("/api-keys/:id", h.APIKey.Delete)
 
 			// Calls
 			protected.GET("/calls", h.Call.GetAll)
