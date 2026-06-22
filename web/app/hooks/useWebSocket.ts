@@ -127,11 +127,10 @@ export function useWebSocket() {
         }
         let settled = false;
         let off: () => void = () => {};
-        let timer: ReturnType<typeof setTimeout> | undefined;
         const finish = (val: { extension: string; name: string; mobile?: string } | null) => {
           if (settled) return;
           settled = true;
-          if (timer) clearTimeout(timer);
+          clearTimeout(timer);
           off();
           resolve(val);
         };
@@ -144,7 +143,7 @@ export function useWebSocket() {
             );
           }
         });
-        timer = setTimeout(() => finish(null), 2500);
+        const timer = setTimeout(() => finish(null), 2500);
         send({ type: "lookup", target });
       }),
     [onMessage, send]
