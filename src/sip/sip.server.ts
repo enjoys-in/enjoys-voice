@@ -1,6 +1,7 @@
 import Srf from 'drachtio-srf';
 import crypto from 'crypto';
-import { config } from '@/core';
+import { config, verifyWidgetToken } from '@/core';
+import type { WidgetTokenClaims } from '@/core';
 import { SipStatus } from '@/core/types';
 import { DatabaseService, TrunkService, AuditService, DialPlanService, RouteType } from '@/services';
 import type { DialResult, ConferenceService, QueueService } from '@/services';
@@ -9,7 +10,7 @@ import { IVRSystem } from './ivr.system';
 import { SipAbuseGuard } from './abuse-guard';
 import {
   TrunkInboundHandler, TeamsMeetingHandler, ConferenceHandler, QueueHandler, EmergencyHandler, IvrHandler,
-  InternalHandler, ExternalHandler,
+  InternalHandler, ExternalHandler, WidgetHandler,
   type RouteHandler, type CallContext, type RouteServices,
 } from './routes';
 
@@ -29,6 +30,7 @@ export class SipServer {
   // ─── Route Handlers (ordered by priority) ────────────
   private routeHandlers: RouteHandler[] = [
     new TrunkInboundHandler(),
+    new WidgetHandler(),
     new TeamsMeetingHandler(),
     new ConferenceHandler(),
     new QueueHandler(),
@@ -238,6 +240,15 @@ export class SipServer {
         const calledNumber = calledMatch ? calledMatch[1] : req.calledNumber;
         const callingNumber = req.callingNumber || 'unknown';
 
+        // ─── Widget capability token ─────────────────────────────────────
+        // The embeddable click-to-call widget can't be a registered SIP user,
+        // so it instead carries a short-lived capability token (minted by
+        // POST /api/n/widget/session) in the X-Widget-Token header. A valid
+        // token authorizes this call: it bypasses the registered-caller
+        // legitimacy screen below, and the WidgetHandler later pins the call to
+        // exactly the destination + caller-ID the token was issued for.
+        const widgetClaims = this.parseWidgetToken(req);
+
         // ─── Anti-spoof / anti-scan screen ───────────────────────────────
         // Decide if this INVITE is even worth processing BEFORE we create a
         // call-history row. Inbound trunk calls, calls to a known extension, and
@@ -247,7 +258,7 @@ export class SipServer {
         // offense toward an IP ban, and NO "missed call" left behind.
         const fromTrunk = this.trunk.isFromTrunk(ip);
         const route = this.dialPlan.resolve(calledNumber);
-        if (!fromTrunk && !this.isInviteLegitimate(route, callingNumber)) {
+        if (!fromTrunk && !widgetClaims && !this.isInviteLegitimate(route, callingNumber)) {
           this.abuse.recordOffense(ip, `unroutable:${route.type}`);
           console.warn(`🚫 Rejected INVITE ${callingNumber} → ${calledNumber} (${route.type}, src ${ip}) — not routable/spoofed`);
           this.audit.log('call_blocked', callingNumber, {
@@ -267,7 +278,7 @@ export class SipServer {
         });
         this.audit.log('call_start', callingNumber, { to: calledNumber, callId }, ip);
 
-        const ctx: CallContext = { req, res, calledNumber, callingNumber, callId };
+        const ctx: CallContext = { req, res, calledNumber, callingNumber, callId, widget: widgetClaims };
         const services: RouteServices = {
           srf: this.srf,
           db: this.db,
@@ -301,6 +312,23 @@ export class SipServer {
         if (!res.finalResponseSent) res.send(SipStatus.ServerError);
       }
     });
+  }
+
+  /**
+   * Read and verify the X-Widget-Token capability token from an INVITE, if
+   * present. Returns the claims on success, or undefined when the header is
+   * absent or the token is invalid/expired — in which case the call falls
+   * through to the normal legitimacy screen and is refused like any other
+   * unregistered caller.
+   */
+  private parseWidgetToken(req: any): WidgetTokenClaims | undefined {
+    const raw =
+      (typeof req.get === 'function' ? req.get('X-Widget-Token') : '') ||
+      req.headers?.['x-widget-token'] ||
+      '';
+    const token = String(raw).trim();
+    if (!token) return undefined;
+    return verifyWidgetToken(token) ?? undefined;
   }
 
   /**

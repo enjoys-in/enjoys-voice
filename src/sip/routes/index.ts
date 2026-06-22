@@ -7,3 +7,4 @@ export { EmergencyHandler } from './emergency.handler';
 export { IvrHandler } from './ivr.handler';
 export { InternalHandler } from './internal.handler';
 export { ExternalHandler } from './external.handler';
+export { WidgetHandler } from './widget.handler';
