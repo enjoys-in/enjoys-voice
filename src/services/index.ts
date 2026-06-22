@@ -24,6 +24,8 @@ export type {
   QueueSnapshot,
   QueueDefinition,
 } from './queue.service';
+export { ApiKeyService } from './apikey.service';
+export type { ResolvedApiKey, ApiKeyValidation, ApiKeyDenyReason } from './apikey.service';
 export { createRegistrationStore, MemoryRegistrationStore, RedisRegistrationStore } from './registration';
 export type { RegistrationStore } from './registration';
 export { UserSyncListener } from './postgres';
