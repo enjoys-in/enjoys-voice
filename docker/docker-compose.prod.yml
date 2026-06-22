@@ -1,10 +1,21 @@
 version: '3.8'
 name: voip-stack
 
+# Cap every container's logs so they can't grow unbounded. Docker's json-file
+# driver rotates by SIZE (not an exact line count): ~50k per file is roughly
+# ~250 log lines, and keeping 2 files retains about the most recent ~500 lines
+# while older entries are automatically overwritten on rotation.
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "50k"
+    max-file: "2"
+
 services:
   drachtio-server:
     image: drachtio/drachtio-server
     container_name: drachtio-server
+    logging: *default-logging
     ports:
       - "127.0.0.1:9022:9022" # Drachtio control socket — loopback only (server-to-server)
       - "5060:5060/udp" # SIP UDP
@@ -27,6 +38,7 @@ services:
   drachtio-freeswitch:
     image: safarov/freeswitch:latest
     container_name: drachtio-freeswitch
+    logging: *default-logging
     ports:
       - "8021:8021" # ESL (Event Socket)
       - "5090:5090/udp" # MRF SIP (drachtio_mrf profile)
@@ -58,6 +70,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: callnet-postgres
+    logging: *default-logging
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -78,6 +91,7 @@ services:
   valkey:
     image: valkey/valkey:8-alpine
     container_name: callnet-valkey
+    logging: *default-logging
     command: ["valkey-server", "--save", "60", "1", "--appendonly", "no"]
     ports:
       - "6372:6379" # host 6372 -> container 6379 (6379 is busy on host)
@@ -97,6 +111,7 @@ services:
       context: ../server
       dockerfile: Dockerfile
     container_name: callnet-go-api
+    logging: *default-logging
     ports:
       - "3003:3003" # host 3003 -> container 3003 (Go CRUD API)
     environment:
@@ -146,6 +161,7 @@ services:
       context: ..
       dockerfile: Dockerfile
     container_name: callnet-api
+    logging: *default-logging
     ports:
       - "3001:3001" # HTTP REST API
       - "3002:3002" # signaling WebSocket
@@ -198,6 +214,7 @@ services:
       context: ../web
       dockerfile: Dockerfile
     container_name: callnet-web
+    logging: *default-logging
     ports:
       - "4500:4500" # Next.js frontend
     environment:
