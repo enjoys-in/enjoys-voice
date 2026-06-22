@@ -25,6 +25,7 @@ export function useSipPhone() {
   const toneAudioRef = useRef<HTMLAudioElement | null>(null);
   const toneIdRef = useRef(0); // monotonic ID to cancel stale playTone calls
   const currentNameRef = useRef<string>(""); // current SIP From display name
+  const registeringRef = useRef<string | null>(null); // identity currently being registered (in-flight guard)
 
   // ─── Recording (client-side; media is peer-to-peer, never hits server) ──
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -109,6 +110,13 @@ export function useSipPhone() {
     // Already registered with the same identity → nothing to do.
     if (uaRef.current && currentNameRef.current === fromName) return;
 
+    // A registration for this identity is already in flight. Two effects fire
+    // on first render (and React Strict Mode double-mounts in dev), so without
+    // this guard concurrent calls each build their own UA/transport — that is
+    // what produced the duplicate SIP channels.
+    if (registeringRef.current === fromName) return;
+    registeringRef.current = fromName;
+
     // Registered under a different name → tear down and re-register.
     if (uaRef.current) {
       try { await registererRef.current?.unregister(); } catch {}
@@ -118,7 +126,7 @@ export function useSipPhone() {
     }
 
     const uri = UserAgent.makeURI(`sip:${extension}@${domain}`);
-    if (!uri) return;
+    if (!uri) { registeringRef.current = null; return; }
 
     currentNameRef.current = fromName;
 
@@ -190,6 +198,8 @@ export function useSipPhone() {
     } catch (err) {
       console.error("SIP connect failed:", err);
       setSipConnected(false);
+    } finally {
+      registeringRef.current = null;
     }
   }, [setupRemoteMedia, startCall, updateCall, endCall, setTone, playTone, stopTone]);
 

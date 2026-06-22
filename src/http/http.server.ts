@@ -34,7 +34,12 @@ export class HttpServer {
     // X-Forwarded-For. Trust it so req.ip reflects the visitor — the widget
     // API key's per-IP allow-list depends on this being correct.
     this.app.set('trust proxy', true);
-    this.app.use(cors());
+    // Reflect the request Origin and allow credentials instead of "*": the
+    // dashboard fetches with credentials:'include' (httpOnly auth cookie), and
+    // browsers reject a wildcard Access-Control-Allow-Origin on credentialed
+    // requests. `origin: true` echoes the caller's Origin back (mirrors the Go
+    // API's AllowOriginFunc) so the cookie flow works cross-port in dev.
+    this.app.use(cors({ origin: true, credentials: true }));
     this.app.use(express.json());
 
     // Twilio media-streaming voice webhook (+ /bridge test page), mounted on this

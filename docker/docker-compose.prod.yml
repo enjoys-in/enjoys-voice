@@ -205,6 +205,10 @@ services:
         condition: service_healthy
       valkey:
         condition: service_healthy
+      drachtio-server:
+        condition: service_started
+      drachtio-freeswitch:
+        condition: service_started
     networks:
       - voipnet
     restart: unless-stopped

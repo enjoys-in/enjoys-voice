@@ -335,8 +335,14 @@ export function AppShell({ initialExtension }: AppShellProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, user?.extension, settings.pstnForwardToBrowser]);
 
-  // Re-register when the user changes their display name in settings
+  // Re-register ONLY when the user changes their display name in settings.
+  // The auth effect above is the sole owner of the initial registration, so we
+  // skip the first run here — otherwise both effects register on mount and open
+  // a duplicate SIP transport.
+  const prevDisplayNameRef = useRef(displayName);
   useEffect(() => {
+    if (prevDisplayNameRef.current === displayName) return;
+    prevDisplayNameRef.current = displayName;
     if (isAuthenticated && user && sipConfig) {
       register(user.extension, user.extension, sipConfig.sipWsUrl, sipConfig.domain, displayName);
     }
