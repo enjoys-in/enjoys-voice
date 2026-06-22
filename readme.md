@@ -1,7 +1,8 @@
 # Enjoys Voice — WebRTC Phone System
 
 Real browser-based phone calls with microphone audio, an IVR flow builder, voicemail,
-call recording, and SIP trunking for PSTN.
+call recording, and SIP trunking for PSTN. Third-party sites can embed an API-key-gated
+**click-to-call widget** (`@enjoys/voice-widget`) for browser WebRTC calls to a fixed destination.
 
 ## Architecture
 
@@ -46,6 +47,8 @@ the shared database; Valkey/Redis is the shared cache.
 | Live status, users, call history (recents) | **Node engine** | HTTP 3001 |
 | Presence / call-event signalling, recording relay | **Node engine** | WS 3002 |
 | IVR runtime, voicemail capture | **Node engine** | — |
+| Developer API keys (issue / revoke, owner-scoped) | **Go API** | 3003 |
+| Click-to-call widget endpoints (`/widget/*`, key+Origin+IP gated) | **Node engine** | HTTP 3001 |
 | Web UI (PWA) | **Next.js** | 3000 |
 
 ## Tech Stack
