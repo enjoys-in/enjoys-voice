@@ -24,7 +24,8 @@ export function useCallHistory() {
     if (!user) return;
     if (!force && Date.now() - lastFetchedAt < STALE_MS) {
       // Use cached data if still fresh
-      if (cachedCalls.length && calls !== cachedCalls) setCalls(cachedCalls);
+      if (cachedCalls.length)
+        setCalls((prev) => (prev === cachedCalls ? prev : cachedCalls));
       return;
     }
     setLoading(true);
@@ -34,7 +35,7 @@ export function useCallHistory() {
       cachedCalls = data;
       lastFetchedAt = Date.now();
       setCalls(data);
-    } catch (err) {
+    } catch {
       try {
         const data = await goApi.getCalls();
         cachedCalls = data;
