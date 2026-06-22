@@ -91,6 +91,17 @@ export interface AppConfig {
     // empty, localhost/127.0.0.1 on any port is allowed for local dev.
     allowedOrigins: string[];
   };
+  widget: {
+    // Embeddable click-to-call widget (developer API). When false, the
+    // /api/n/widget/* endpoints return 503 and no capability tokens are minted.
+    enabled: boolean;
+    // Public wss:// URL the widget's SIP.js client connects to. Falls back to
+    // the SIP-WS public URL, then a wss://<domain> guess.
+    sipWsUrl: string;
+    // ICE servers handed to the widget for WebRTC (PUBLIC_ICE_SERVERS as a JSON
+    // array). Defaults to a public STUN server when unset.
+    iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }>;
+  };
   database: {
     // Postgres connection string for the SHARED database the Go API owns. Node
     // hydrates its in-memory store from here so both processes see one source
@@ -197,6 +208,22 @@ export function buildValkeyUrl(): string {
   const auth = password ? `:${encodeURIComponent(password)}@` : '';
   const path = db ? `/${db}` : '';
   return `redis://${auth}${addr}${path}`;
+}
+
+// Parse PUBLIC_ICE_SERVERS (a JSON array of RTCIceServer-like objects) handed to
+// the click-to-call widget for WebRTC. Falls back to a single public STUN server
+// when unset or malformed, so the widget still has a usable (NAT-friendly) config.
+function parseIceServers(
+  raw?: string,
+): Array<{ urls: string | string[]; username?: string; credential?: string }> {
+  const fallback = [{ urls: 'stun:stun.l.google.com:19302' }];
+  if (!raw || !raw.trim()) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 // Parse the QUEUES env var into call-queue definitions. Each `;`-separated
@@ -322,6 +349,13 @@ export const config: AppConfig = {
       .split(',')
       .map((o) => o.trim())
       .filter(Boolean),
+  },
+  widget: {
+    enabled: process.env.WIDGET_ENABLED !== 'false',
+    sipWsUrl:
+      process.env.PUBLIC_SIP_WS_URL ||
+      (process.env.DOMAIN ? `wss://${process.env.DOMAIN}` : ''),
+    iceServers: parseIceServers(process.env.PUBLIC_ICE_SERVERS),
   },
   database: {
     url:

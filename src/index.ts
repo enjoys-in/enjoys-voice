@@ -15,6 +15,7 @@ import {
   debitForCall,
   ConferenceService,
   QueueService,
+  ApiKeyService,
 } from '@/services';
 import { SipServer } from '@/sip';
 import { SignalingServer } from '@/websocket';
@@ -43,6 +44,7 @@ class Application {
   private writeQueue: WriteQueue;
   private conference: ConferenceService;
   private queue: QueueService;
+  private apiKeys: ApiKeyService;
 
   constructor() {
     this.db = new DatabaseService();
@@ -94,7 +96,11 @@ class Application {
     // recent in-memory entries on subscribe (history-then-live).
     this.ws.setAuditProvider(() => this.audit.getAll(50));
     this.audit.on('entry', (e) => this.ws.broadcastAuditEntry(e));
-    this.http = new HttpServer(this.db, this.trunk, this.sip, this.twilioTrunk, this.metrics);
+    // Developer API keys for the embeddable click-to-call widget. Validates a
+    // publishable key against its Origin/IP allow-list (HTTP) and mints the
+    // short-lived capability token the browser puts in its INVITE.
+    this.apiKeys = new ApiKeyService();
+    this.http = new HttpServer(this.db, this.trunk, this.sip, this.twilioTrunk, this.metrics, this.apiKeys);
     // Twilio media-streaming WS server (separate port, like SignalingServer). Its
     // HTTP voice webhook rides on the existing HttpServer above. Opt-in via
     // MEDIA_STREAM_ENABLED; MEDIA_STREAM_MODE selects log|bridge|ai.
