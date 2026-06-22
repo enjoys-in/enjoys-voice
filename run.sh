@@ -7,13 +7,15 @@
 #                      prod (docker/docker-compose.prod.yml)
 #    2. action       → up / build / down / restart / logs / ps /
 #                      pull / cache-clean / etc.
-#    3. service(s)   → all, or a specific service (read live from the
-#                      chosen compose file)
+#    3. service(s)   → all, or one OR MORE specific services (read
+#                      live from the chosen compose file; compose
+#                      acts on the selected services in parallel)
 #
 #  Usage:
-#    ./run.sh                # fully interactive
-#    ./run.sh dev up         # skip the first prompts (env + action)
-#    ./run.sh prod build api # env + action + service
+#    ./run.sh                    # fully interactive
+#    ./run.sh dev up             # skip the first prompts (env + action)
+#    ./run.sh prod build api     # env + action + one service
+#    ./run.sh prod build api web # env + action + multiple services
 # ════════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -65,6 +67,52 @@ choose() {
     read -r choice
     if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#options[@]} )); then
       printf -v "$__out" '%s' "${options[$((choice - 1))]}"
+      return 0
+    fi
+    warn "Invalid selection. Try again."
+  done
+}
+
+# ── Multi-select numbered-menu picker ────────────────────────────
+#   choose_multi "Prompt" ARRAY_VAR opt1 opt2 ...
+#   Lets the user pick ONE OR MANY options at once — enter the
+#   numbers separated by spaces or commas (e.g. "2 5 8" or "2,5,8"),
+#   or "a"/"all" to select every option. The chosen option strings
+#   are stored (de-duplicated, in menu order) in the named array.
+choose_multi() {
+  local prompt="$1"; local -n __choose_ref="$2"; shift 2
+  local options=("$@") i line tok idx
+  title "$prompt"
+  for i in "${!options[@]}"; do
+    printf '  %s%2d%s) %s\n' "$BOLD" "$((i + 1))" "$RESET" "${options[$i]}"
+  done
+  printf '%s\n' "${DIM}Pick one or many — e.g. '2 5 8' or '2,5,8'  (a = all).${RESET}"
+  while true; do
+    printf '%s' "${DIM}Enter number(s) [1-${#options[@]}]: ${RESET}"
+    read -r line
+    line="${line//,/ }"                       # commas → spaces
+    local -a picks=(); local valid=1
+    if [[ "$line" =~ ^[[:space:]]*[Aa]([Ll][Ll])?[[:space:]]*$ ]]; then
+      picks=("${!options[@]}")                 # every index
+    else
+      for tok in $line; do
+        if [[ "$tok" =~ ^[0-9]+$ ]] && (( tok >= 1 && tok <= ${#options[@]} )); then
+          picks+=("$((tok - 1))")
+        else
+          valid=0; break
+        fi
+      done
+    fi
+    if (( valid )) && (( ${#picks[@]} > 0 )); then
+      __choose_ref=()
+      for idx in "${picks[@]}"; do
+        # de-dupe while preserving menu order
+        local dup=0 seen
+        for seen in "${__choose_ref[@]}"; do
+          [[ "$seen" == "${options[$idx]}" ]] && { dup=1; break; }
+        done
+        (( dup )) || __choose_ref+=("${options[$idx]}")
+      done
       return 0
     fi
     warn "Invalid selection. Try again."
@@ -187,18 +235,36 @@ if [[ ${#SERVICES[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# Build the service argument list (empty = every service).
+# Supports MULTIPLE services at once — docker compose builds/starts
+# the selected services in parallel.
+SVC_ARGS=()
+ALL_SENTINEL="all (every service)"
+
 if [[ -n "$SERVICE_ARG" ]]; then
-  TARGET="$SERVICE_ARG"
+  # CLI: every positional arg from #3 onward is a service ("all" = every service).
+  for svc in "${@:3}"; do
+    if [[ "$svc" == "all" || "$svc" == "$ALL_SENTINEL" ]]; then
+      SVC_ARGS=(); break
+    fi
+    SVC_ARGS+=("$svc")
+  done
 else
-  choose "Which service?" TARGET "all (every service)" "${SERVICES[@]}"
+  choose_multi "Which service?" SVC_ARGS "$ALL_SENTINEL" "${SERVICES[@]}"
 fi
 
-# Build the service argument list ("" = all services).
-SVC_ARGS=()
-if [[ "$TARGET" != "all (every service)" && "$TARGET" != "all" ]]; then
-  SVC_ARGS=("$TARGET")
+# Picking the "all" sentinel (alone or alongside others) means every service.
+for svc in "${SVC_ARGS[@]}"; do
+  if [[ "$svc" == "$ALL_SENTINEL" || "$svc" == "all" ]]; then
+    SVC_ARGS=(); break
+  fi
+done
+
+if (( ${#SVC_ARGS[@]} == 0 )); then
+  SVC_LABEL="all services"
+else
+  SVC_LABEL="${SVC_ARGS[*]}"
 fi
-SVC_LABEL="${TARGET/all (every service)/all services}"
 
 # ════════════════════════════════════════════════════════════════
 #  STEP 4 — Run the chosen action against the chosen service(s)
