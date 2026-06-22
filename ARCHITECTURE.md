@@ -248,6 +248,42 @@ its own memory in step (so a separate Redis settings cache isn't required —
 Valkey is already used for the registration store and the write-behind queue).
 
 
+## Click-to-Call Widget (developer API keys)
+
+A third-party site embeds a one-line `<script>` (or the `@enjoys/voice-widget`
+npm package). A visitor clicks a button and talks — in the browser, over WebRTC —
+to **one fixed destination**, with no login. Access is gated by an **API key
+bound to allowed domains (`Origin`) + an IP allowlist**.
+
+Because SIP REGISTER is **existence-only** (no password check), trust is enforced
+at the two layers we own — an HTTP **capability-token mint** and the **SIP INVITE**:
+
+```mermaid
+sequenceDiagram
+    participant W as Widget (browser)
+    participant N as Node /api/n
+    participant S as SIP server
+    participant T as Trunk / PSTN
+    W->>N: POST /widget/config {publicKey} (+ Origin, client IP)
+    N-->>W: 200 {destination, sipWsUrl, iceServers} · or 4xx → don't render
+    Note over W: renders the call button only if the key is accepted
+    W->>N: POST /widget/session {publicKey}
+    N-->>W: 201 {token (120s capability JWT), …}
+    W->>S: INVITE sip:destination@domain<br/>header X-Widget-Token: token
+    S->>S: verifyWidgetToken → dialed == claims.destination?
+    S->>T: bridge to trunk (callerId from token)
+```
+
+- **Go** (`/api/g/api-keys`, owner-scoped) issues/revokes keys; create returns the
+  `pk_live_…` + `sk_live_…` pair once. Secret stored as **SHA-256** so Node can
+  verify server-to-server (`POST /widget/token`) without a shared bcrypt dep.
+- **Node** validates `publicKey` + `Origin` + real client IP (needs
+  `trust proxy`), mints the short-lived widget JWT, and `WidgetHandler` enforces
+  the locked destination at INVITE time.
+- The dashboard's **API Keys** tab manages keys and shows copy-paste embed
+  snippets; the built IIFE is served from `web/public/widget.js`.
+
+
 ## Key Config (env vars)
 
 | Variable | Default | Purpose |
@@ -263,3 +299,6 @@ Valkey is already used for the registration store and the write-behind queue).
 | `HTTP_PORT` | `3001` | REST API port |
 | `WS_PORT` | `3002` | WebSocket signaling port |
 | `SIP_WS_PORT` | `5065` | SIP WebSocket port (via drachtio) |
+| `WIDGET_ENABLED` | `true` | Enable the click-to-call widget endpoints (`/api/n/widget/*`) |
+| `PUBLIC_SIP_WS_URL` | — | `wss://` URL the widget's SIP.js client connects to |
+| `PUBLIC_ICE_SERVERS` | — | JSON array of ICE servers handed to the widget (defaults to a public STUN) |

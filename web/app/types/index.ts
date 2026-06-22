@@ -41,8 +41,80 @@ export interface ActiveCall {
   direction: CallDirection;
   status: CallStatus;
   startTime: number;
-  /** Transport backing this call. Defaults to SIP; "bridge" = PSTN→browser media bridge. */
-  source?: "sip" | "bridge";
+  /** Transport backing this call. Defaults to SIP; "bridge" = PSTN→browser media bridge; "conference" = multi-party room. */
+  source?: "sip" | "bridge" | "conference";
+  /** When source === "conference", the room id this call is joined to. */
+  conferenceRoomId?: string;
+}
+
+/** A single member of a multi-party conference room (mirrors the server roster). */
+export interface ConferenceParticipant {
+  extension: string;
+  name: string;
+  state: "invited" | "ringing" | "joined" | "left";
+  muted: boolean;
+  isHost: boolean;
+}
+
+/** Live conference room snapshot pushed over the signaling socket. */
+export interface ConferenceRoom {
+  roomId: string;
+  name: string;
+  hostExtension: string;
+  participants: ConferenceParticipant[];
+}
+
+/** An incoming invitation to join a conference room. */
+export interface ConferenceInvite {
+  roomId: string;
+  name: string;
+  from: string;
+  fromName: string;
+}
+
+/** Agent availability within a call queue (mirrors the server ACD states). */
+export type QueueAgentState = "offline" | "available" | "ringing" | "busy" | "paused";
+
+/** State of a caller waiting in (or connected through) a queue. */
+export type QueueCallerState = "waiting" | "ringing" | "connected";
+
+/** Distribution policy used to pick the next agent for a waiting caller. */
+export type QueueStrategy = "longest-idle" | "round-robin" | "sequential";
+
+/** A queue agent as shown on the supervisor dashboard. */
+export interface QueueAgentSnapshot {
+  extension: string;
+  name: string;
+  state: QueueAgentState;
+  paused: boolean;
+  callsHandled: number;
+}
+
+/** A caller waiting in (or connected through) a queue. */
+export interface QueueCallerSnapshot {
+  id: string;
+  from: string;
+  fromName: string;
+  state: QueueCallerState;
+  agent?: string;
+  /** Seconds the caller has been waiting (at snapshot time). */
+  waitingSecs: number;
+}
+
+/** Live snapshot of one call queue pushed over the signaling socket. */
+export interface QueueSnapshot {
+  id: string;
+  name: string;
+  strategy: QueueStrategy;
+  agents: QueueAgentSnapshot[];
+  callers: QueueCallerSnapshot[];
+  stats: {
+    waiting: number;
+    connected: number;
+    agentsAvailable: number;
+    agentsTotal: number;
+    longestWaitSecs: number;
+  };
 }
 
 export interface ForwardingRules {

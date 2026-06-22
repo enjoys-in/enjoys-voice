@@ -1,13 +1,16 @@
 import Srf from 'drachtio-srf';
 import crypto from 'crypto';
-import { config } from '@/core';
+import { config, verifyWidgetToken } from '@/core';
+import type { WidgetTokenClaims } from '@/core';
 import { SipStatus } from '@/core/types';
-import { DatabaseService, TrunkService, AuditService, DialPlanService } from '@/services';
+import { DatabaseService, TrunkService, AuditService, DialPlanService, RouteType } from '@/services';
+import type { DialResult, ConferenceService, QueueService } from '@/services';
 import type { RegistrationStore } from '@/services/registration';
 import { IVRSystem } from './ivr.system';
+import { SipAbuseGuard } from './abuse-guard';
 import {
-  TrunkInboundHandler, TeamsMeetingHandler, EmergencyHandler, IvrHandler,
-  InternalHandler, ExternalHandler,
+  TrunkInboundHandler, TeamsMeetingHandler, ConferenceHandler, QueueHandler, EmergencyHandler, IvrHandler,
+  InternalHandler, ExternalHandler, WidgetHandler,
   type RouteHandler, type CallContext, type RouteServices,
 } from './routes';
 
@@ -21,11 +24,16 @@ export class SipServer {
   private sipRateMap = new Map<string, { count: number; resetAt: number }>();
   private readonly SIP_RATE_LIMIT = config.sip.rateLimit; // per window per IP (env SIP_RATE_LIMIT)
   private readonly SIP_RATE_WINDOW = config.sip.rateWindowMs;
+  /** Abuse guard: bans source IPs that repeatedly flood/scan/spoof. */
+  private readonly abuse: SipAbuseGuard;
 
   // ─── Route Handlers (ordered by priority) ────────────
   private routeHandlers: RouteHandler[] = [
     new TrunkInboundHandler(),
+    new WidgetHandler(),
     new TeamsMeetingHandler(),
+    new ConferenceHandler(),
+    new QueueHandler(),
     new EmergencyHandler(),
     new IvrHandler(),
     new InternalHandler(),
@@ -37,6 +45,8 @@ export class SipServer {
     private trunk: TrunkService,
     private registrationStore: RegistrationStore,
     private audit: AuditService,
+    private conference: ConferenceService,
+    private queue: QueueService,
   ) {
     this.srf = new Srf();
     // Pre-bind to avoid allocating new functions on every INVITE
@@ -44,6 +54,16 @@ export class SipServer {
     this.boundForwardCall = this.forwardCall.bind(this);
     this.boundRouteUnreachable = this.routeUnreachable.bind(this);
     this.boundRouteDoNotDisturb = this.routeDoNotDisturb.bind(this);
+
+    // Abuse guard. Trunk edges and explicitly-trusted IPs are never banned, so
+    // a busy provider or office NAT can't lock itself out.
+    this.abuse = new SipAbuseGuard({
+      threshold: config.sip.banThreshold,
+      windowMs: config.sip.banWindowMs,
+      banMs: config.sip.banDurationMs,
+      firewallCmd: config.sip.firewallCmd,
+      isTrusted: (ip) => this.trunk.isFromTrunk(ip) || config.sip.trustedIps.includes(ip),
+    });
   }
 
   private readonly boundRouteToExtension: RouteServices['routeToExtension'];
@@ -125,7 +145,14 @@ export class SipServer {
   private handleRegister(): void {
     this.srf.register(async (req: any, res: any) => {
       try {
-        if (!this.checkSipRate(req.source_address)) {
+        const ip = req.source_address;
+        // Banned source → refuse instantly, before any rate accounting or lookup.
+        if (this.abuse.isBanned(ip)) {
+          res.send(SipStatus.Forbidden);
+          return;
+        }
+        if (!this.checkSipRate(ip)) {
+          this.abuse.recordOffense(ip, 'register_flood');
           res.send(SipStatus.RateLimited);
           return;
         }
@@ -147,6 +174,8 @@ export class SipServer {
         const user = this.db.getUser(username);
         if (!user) {
           console.log(`❌ SIP REGISTER: Unknown user "${username}" (available: ${this.db.getUsers().map(u => u.extension).join(',')})`);
+          // Credential scanning — count it toward an IP ban.
+          this.abuse.recordOffense(ip, 'unknown_register');
           res.send(SipStatus.Forbidden);
           return;
         }
@@ -157,6 +186,8 @@ export class SipServer {
           this.audit.log('unregister', user.extension, { contact }, req.source_address);
           res.send(SipStatus.OK, { headers: { 'Contact': contact, 'Expires': '0' } });
           console.log(`🔴 SIP: ${user.name} unregistered`);
+          // Reflect the agent going offline in any queues they belong to.
+          this.queue.syncPresence();
         } else {
           const source = {
             address: req.source_address,
@@ -167,6 +198,9 @@ export class SipServer {
           this.db.registerUser(user.extension, contact, expires, undefined, source);
           this.audit.log('register', user.extension, { contact, source }, req.source_address);
           res.send(SipStatus.OK, { headers: { 'Contact': contact, 'Expires': expires.toString() } });
+          // A valid registration clears this IP's offense tally so a real user
+          // behind a shared NAT isn't punished for a scanner on the same address.
+          this.abuse.recordSuccess(ip);
 
           // Refresh this user's blocking/forwarding/PSTN detail from Postgres so
           // routing reflects any dashboard changes. Fire-and-forget: the 200 OK
@@ -175,6 +209,8 @@ export class SipServer {
           void this.db.hydrateUserDetail(user.extension).catch((err: any) =>
             console.warn(`⚠️  detail refresh failed for ${user.extension}: ${err?.message}`),
           );
+          // Reflect the agent coming online in any queues they belong to.
+          this.queue.syncPresence();
         }
       } catch (err: any) {
         console.error('❌ SIP REGISTER error:', err.message, err.stack);
@@ -186,8 +222,16 @@ export class SipServer {
   private handleInvite(): void {
     console.log('📋 SIP: INVITE handler registered');
     this.srf.invite(async (req: any, res: any) => {
+      const ip = req.source_address;
       try {
-        if (!this.checkSipRate(req.source_address)) {
+        // Banned source → refuse instantly, before any rate accounting, routing,
+        // DB lookup, or call-history write.
+        if (this.abuse.isBanned(ip)) {
+          res.send(SipStatus.Forbidden);
+          return;
+        }
+        if (!this.checkSipRate(ip)) {
+          this.abuse.recordOffense(ip, 'invite_flood');
           res.send(SipStatus.RateLimited);
           return;
         }
@@ -195,8 +239,36 @@ export class SipServer {
         const calledMatch = req.uri?.match(/sip:([^@]+)/);
         const calledNumber = calledMatch ? calledMatch[1] : req.calledNumber;
         const callingNumber = req.callingNumber || 'unknown';
-        const callId = crypto.randomUUID();
 
+        // ─── Widget capability token ─────────────────────────────────────
+        // The embeddable click-to-call widget can't be a registered SIP user,
+        // so it instead carries a short-lived capability token (minted by
+        // POST /api/n/widget/session) in the X-Widget-Token header. A valid
+        // token authorizes this call: it bypasses the registered-caller
+        // legitimacy screen below, and the WidgetHandler later pins the call to
+        // exactly the destination + caller-ID the token was issued for.
+        const widgetClaims = this.parseWidgetToken(req);
+
+        // ─── Anti-spoof / anti-scan screen ───────────────────────────────
+        // Decide if this INVITE is even worth processing BEFORE we create a
+        // call-history row. Inbound trunk calls, calls to a known extension, and
+        // a registered user dialing out are legitimate; everything else (a
+        // 16-digit garbage destination, a spoofed From for an unregistered
+        // extension trying to use our trunk, etc.) is a probe → fast 403, an
+        // offense toward an IP ban, and NO "missed call" left behind.
+        const fromTrunk = this.trunk.isFromTrunk(ip);
+        const route = this.dialPlan.resolve(calledNumber);
+        if (!fromTrunk && !widgetClaims && !this.isInviteLegitimate(route, callingNumber)) {
+          this.abuse.recordOffense(ip, `unroutable:${route.type}`);
+          console.warn(`🚫 Rejected INVITE ${callingNumber} → ${calledNumber} (${route.type}, src ${ip}) — not routable/spoofed`);
+          this.audit.log('call_blocked', callingNumber, {
+            to: calledNumber, reason: 'unroutable_or_spoofed', route: route.type,
+          }, ip);
+          res.send(SipStatus.Forbidden);
+          return;
+        }
+
+        const callId = crypto.randomUUID();
         console.log(`📞 SIP INVITE: ${callingNumber} → ${calledNumber}`);
 
         this.db.logCall({
@@ -204,15 +276,17 @@ export class SipServer {
           fromName: this.db.getUser(callingNumber)?.name || callingNumber,
           status: 'ringing', direction: 'inbound', startTime: new Date().toISOString(),
         });
-        this.audit.log('call_start', callingNumber, { to: calledNumber, callId }, req.source_address);
+        this.audit.log('call_start', callingNumber, { to: calledNumber, callId }, ip);
 
-        const ctx: CallContext = { req, res, calledNumber, callingNumber, callId };
+        const ctx: CallContext = { req, res, calledNumber, callingNumber, callId, widget: widgetClaims };
         const services: RouteServices = {
           srf: this.srf,
           db: this.db,
           trunk: this.trunk,
           audit: this.audit,
           ivr: this.ivr,
+          conference: this.conference,
+          queue: this.queue,
           notifyFn: this.notifyFn,
           routeToExtension: this.boundRouteToExtension,
           forwardCall: this.boundForwardCall,
@@ -223,8 +297,6 @@ export class SipServer {
         // Try trunk inbound first (before dial plan)
         if (await this.routeHandlers[0].handle(ctx, services)) return;
 
-        // Resolve via dial plan for all other cases
-        const route = this.dialPlan.resolve(calledNumber);
         console.log(`🗺️ Dial plan: ${calledNumber} → ${route.type} (${route.normalizedNumber})`);
 
         // Try each handler in priority order (skip trunk inbound already tried)
@@ -240,6 +312,50 @@ export class SipServer {
         if (!res.finalResponseSent) res.send(SipStatus.ServerError);
       }
     });
+  }
+
+  /**
+   * Read and verify the X-Widget-Token capability token from an INVITE, if
+   * present. Returns the claims on success, or undefined when the header is
+   * absent or the token is invalid/expired — in which case the call falls
+   * through to the normal legitimacy screen and is refused like any other
+   * unregistered caller.
+   */
+  private parseWidgetToken(req: any): WidgetTokenClaims | undefined {
+    const raw =
+      (typeof req.get === 'function' ? req.get('X-Widget-Token') : '') ||
+      req.headers?.['x-widget-token'] ||
+      '';
+    const token = String(raw).trim();
+    if (!token) return undefined;
+    return verifyWidgetToken(token) ?? undefined;
+  }
+
+  /**
+   * Pre-routing legitimacy screen for a non-trunk INVITE. Returns false for
+   * probes/spoofs so they can be refused before any call record is written:
+   *  - Internal  → must target a KNOWN extension (registered or known-offline).
+   *  - External  → caller must be one of OUR registered extensions (same rule
+   *                the toll-fraud gate enforces); a spoofed From for an unknown
+   *                extension trying to reach the PSTN trunk is refused here.
+   *  - IVR/Emergency → always allowed.
+   */
+  private isInviteLegitimate(route: DialResult, caller: string): boolean {
+    switch (route.type) {
+      case RouteType.Internal:
+        return !!this.db.getUser(route.target);
+      case RouteType.External:
+        return this.db.isRegistered(caller);
+      case RouteType.Conference:
+        return this.db.isRegistered(caller);
+      case RouteType.Queue:
+        return this.db.isRegistered(caller);
+      case RouteType.IVR:
+      case RouteType.Emergency:
+        return true;
+      default:
+        return false;
+    }
   }
 
   private handleOther(): void {

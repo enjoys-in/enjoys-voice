@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useContactStore } from "../stores";
 import { getSignalingUrl } from "../lib/runtime-config";
-import type { Contact } from "../types";
+import type { Contact, ConferenceRoom } from "../types";
 
 export type WSMessage =
   | { type: "registered"; user: { extension: string; name: string } }
@@ -17,6 +17,11 @@ export type WSMessage =
   | { type: "call_failed"; reason: string; callId: string }
   | { type: "call_ended"; callId: string }
   | { type: "call_event"; event: string; from?: string; fromName?: string; target?: string; callId?: string; reason?: string; [key: string]: any }
+  | { type: "conference_event"; event: "created"; roomId: string; room: ConferenceRoom }
+  | { type: "conference_event"; event: "invited"; roomId: string; name: string; from: string; fromName: string }
+  | { type: "conference_event"; event: "roster"; roomId: string; room: ConferenceRoom }
+  | { type: "conference_event"; event: "closed"; roomId: string }
+  | { type: "conference_event"; event: "error"; message: string }
   | { type: "hangup"; callId: string; from: string }
   | { type: "dtmf_sent"; callId: string; digit: string }
   | { type: "lookup_result"; target: string; found: boolean; extension?: string; name?: string; mobile?: string };

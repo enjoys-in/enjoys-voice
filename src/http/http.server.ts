@@ -3,7 +3,7 @@ import cors from 'cors';
 import { createHandlers } from '@enjoys/exception';
 import { config } from '@/core';
 import { DatabaseService, TrunkService } from '@/services';
-import type { CallMetricsService } from '@/services';
+import type { CallMetricsService, ApiKeyService } from '@/services';
 import { SipServer } from '@/sip';
 import type { ITrunkProvider } from '@/trunk';
 import { streamingConfig, createStreamingWebhookRouter } from '@/trunk/streaming';
@@ -23,12 +23,17 @@ export class HttpServer {
     private sip: SipServer,
     private trunkProvider?: ITrunkProvider,
     private metrics?: CallMetricsService,
+    private apiKeys?: ApiKeyService,
   ) {
     this.app = express();
     this.configure();
   }
 
   private configure(): void {
+    // Behind Caddy (prod) / the dev proxy, the real client IP arrives in
+    // X-Forwarded-For. Trust it so req.ip reflects the visitor — the widget
+    // API key's per-IP allow-list depends on this being correct.
+    this.app.set('trust proxy', true);
     this.app.use(cors());
     this.app.use(express.json());
 
@@ -55,7 +60,7 @@ export class HttpServer {
     this.app.use(apiRateLimit);
     // Mounted under /api/n (Node) so a single domain can route both backends via
     // Caddy ( /api/n/* -> Node, /api/g/* -> Go ). Dev also separates by port 3001.
-    this.app.use('/api/n', createRoutes(this.db, this.trunk, this.sip, this.trunkProvider, this.metrics));
+    this.app.use('/api/n', createRoutes(this.db, this.trunk, this.sip, this.trunkProvider, this.metrics, this.apiKeys));
 
     // Any request that fell through the routes above is unknown → throw a 404,
     // then format every error through the central handler. Mounted pathless

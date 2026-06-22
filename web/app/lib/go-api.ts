@@ -280,6 +280,42 @@ export interface GoTrunkTestResult {
   error?: string;
 }
 
+/**
+ * A developer API key for the embeddable click-to-call widget. The key is
+ * locked to a single destination number and gated by allowed Origins + source
+ * IPs. The secret (sk_…) is never returned after creation — `has_secret` only
+ * reports whether one is stored; `secret` is populated ONLY in the create
+ * response and shown to the user exactly once.
+ */
+export interface GoApiKey {
+  id: number;
+  label: string;
+  public_key: string;
+  has_secret: boolean;
+  allowed_origins: string[];
+  allowed_ips: string[];
+  destination_number: string;
+  caller_id: string;
+  daily_cap: number;
+  active: boolean;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Plaintext secret (sk_…) — present ONLY in the create response. */
+  secret?: string;
+}
+
+/** Create/update payload for a developer API key. */
+export interface GoApiKeyInput {
+  label?: string;
+  allowed_origins?: string[];
+  allowed_ips?: string[];
+  destination_number?: string;
+  caller_id?: string;
+  daily_cap?: number;
+  active?: boolean;
+}
+
 /** A user-uploaded sound record (mirrors models.Sound). Served at `/sounds/<filename>`. */
 export interface GoSound {
   id: number;
@@ -633,6 +669,33 @@ export const goApi = {
     /** Fire a SIP OPTIONS ping at the trunk and return the reachability result. */
     test(id: number): Promise<GoTrunkTestResult> {
       return goRequest<GoTrunkTestResult>(`/trunks/${id}/test`, { method: "POST" });
+    },
+  },
+
+  // Developer API keys for the embeddable click-to-call widget. Owner-scoped on
+  // the server (the owning extension comes from the JWT, never the body).
+  apiKeys: {
+    /** List the caller's API keys. */
+    list(): Promise<GoApiKey[]> {
+      return goRequest<GoApiKey[]>(`/api-keys`);
+    },
+    /** Create a key. The response includes the plaintext `secret` exactly once. */
+    create(input: GoApiKeyInput): Promise<GoApiKey> {
+      return goRequest<GoApiKey>(`/api-keys`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    /** Update a key (label / allow-lists / destination / caller-id / cap / active). */
+    update(id: number, input: GoApiKeyInput): Promise<GoApiKey> {
+      return goRequest<GoApiKey>(`/api-keys/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    /** Revoke (delete) a key. */
+    remove(id: number): Promise<void> {
+      return goRequest<void>(`/api-keys/${id}`, { method: "DELETE" });
     },
   },
 

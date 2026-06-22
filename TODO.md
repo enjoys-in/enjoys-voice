@@ -527,3 +527,59 @@
 - [ ] (Optional, later) Outbound name/announcement: have FreeSWITCH speak the
       caller's name on entry, or DTMF-send a PIN if the meeting requires one.
 
+## Developer API Keys & Click-to-Call Widget — ✅ DONE
+> **Goal:** let any third-party website embed a browser-WebRTC "call us" button,
+> gated by an **API key bound to allowed domains (Origin) + IP allowlist**, that
+> can only dial **one fixed destination**. The widget/package **refuses to load
+> on an invalid key**. Two key types: `pk_live_…` (publishable, browser) and
+> `sk_live_…` (secret, server-to-server).
+
+### Security model (two enforcement layers we control)
+> Background: SIP REGISTER does **existence-only** auth (no password check), so
+> the widget can't rely on SIP credentials. Trust is enforced where we own it:
+- [x] **HTTP session-mint:** validate publishable key + `Origin` header + real
+      client IP, then issue a short-lived (120s) **capability JWT** (`type:'widget'`,
+      HS256) scoped to `destination` + `callerId`. (`src/services/apikey.service.ts`,
+      `src/core/widget-token.ts`)
+- [x] **SIP INVITE enforcement:** browser sends the capability JWT in an
+      `X-Widget-Token` header; `handleInvite` verifies it and bypasses the
+      `isInviteLegitimate` rejection, then `WidgetHandler` checks the dialed
+      number matches `claims.destination` before bridging to the trunk with
+      `claims.callerId`. (`src/sip/sip.server.ts`, `src/sip/routes/widget.handler.ts`)
+- [x] Secrets stored as **SHA-256 hex** (not bcrypt) so Go (create) and Node
+      (verify) both compute it with no shared dependency.
+
+### Go — API key management (owner-scoped, under `/api/g`)
+- [x] `api_keys` model/repo/service/handler/router + AutoMigrate
+      (`server/internal/models/api_key.go` + repo/service/handler). Owner =
+      `c.GetString("extension")` (not admin-gated).
+- [x] `GET/POST /api-keys`, `PUT/DELETE /api-keys/:id`. Create generates
+      `pk_live_…` + `sk_live_…` and returns the **secret once**.
+
+### Node — widget endpoints (under `/api/n`, key+Origin+IP gated)
+- [x] `POST /widget/config` — validate key/Origin/IP → display+connect config
+      (used **on load** to validate and render; deny ⇒ widget shows an error and
+      never becomes callable).
+- [x] `POST /widget/session` — validate + mint the capability token (per call).
+- [x] `POST /widget/token` — `Authorization: Bearer sk_…` server-to-server mint.
+- [x] `app.set('trust proxy', true)` so `req.ip` is the real client IP behind Caddy.
+- [x] `config.widget` (`WIDGET_ENABLED`, `PUBLIC_SIP_WS_URL`, `PUBLIC_ICE_SERVERS`).
+
+### Web dashboard
+- [x] `ApiKeysTab.tsx` — create (label / allowed origins / allowed IPs /
+      destination / caller ID / daily cap), list, revoke, **one-time secret
+      reveal**, and an **Embed dialog** with copyable `<script>` + npm snippets.
+      Wired into the admin nav (`go-api.ts` `apiKeys` namespace).
+
+### Widget package (`packages/voice-widget/`, `@enjoys/voice-widget`)
+- [x] Vanilla TS + SIP.js. `CallWidget.init({ publicKey, … })`: validates on
+      construct (renders the floating button only if valid; exposes a `.ready`
+      promise), then on call mints a session and places a guest WebRTC call to the
+      locked destination with the `X-Widget-Token` header.
+- [x] Two build targets via tsup: npm **ESM/CJS/types** + a self-initializing
+      **IIFE** `dist/widget.js` for the one-line `<script data-enjoys-key>` embed.
+      `build:cdn` copies `widget.js` into `web/public/` (served at
+      `https://<domain>/widget.js`).
+- [ ] (Optional, later) True PSTN↔PSTN callback bridge for `sk_` originate; publish
+      the package to npm.
+

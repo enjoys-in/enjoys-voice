@@ -2,10 +2,10 @@ import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { DatabaseService, TrunkService } from '@/services';
-import type { CallMetricsService } from '@/services';
+import type { CallMetricsService, ApiKeyService, ApiKeyDenyReason } from '@/services';
 import { SipServer } from '@/sip';
 import type { ITrunkProvider, MediaStreamTrack } from '@/trunk';
-import { config } from '@/core';
+import { config, signWidgetToken, WIDGET_TOKEN_TTL_SECONDS } from '@/core';
 import { requireAuth, requireSelfExtension } from '../middleware/auth';
 import { ok, created, fail } from '../response';
 
@@ -15,6 +15,7 @@ export function createRoutes(
   sip: SipServer,
   trunkProvider?: ITrunkProvider,
   metrics?: CallMetricsService,
+  apiKeys?: ApiKeyService,
 ): Router {
   const router = Router();
 
@@ -225,6 +226,115 @@ export function createRoutes(
   });
 
   router.use('/voicemails/:ext', vm);
+
+  // ─── Click-to-call widget (developer API) ────────────
+  // Public, key-gated endpoints the embeddable widget / npm package call from a
+  // visitor's browser. No dashboard JWT here — auth IS the publishable API key
+  // (pk_live_…), bound to allowed Origins + client IPs and enforced per request.
+  //   POST /widget/config   → validate key+origin+ip; return display/connect
+  //                           config (no token) so the widget can decide whether
+  //                           to render or surface an error.
+  //   POST /widget/session  → same validation, then mint a short-lived capability
+  //                           token (type:'widget') the SIP.js client sends in the
+  //                           X-Widget-Token header of its INVITE.
+  //   POST /widget/token    → server-to-server: authenticate with the SECRET key
+  //                           (Authorization: Bearer sk_live_…) to mint a token
+  //                           without Origin/IP limits (trusted backend caller).
+  const widget = Router();
+
+  // Pull the publishable key (JSON body or X-Api-Key header) plus the caller's
+  // Origin and real client IP. req.ip is trustworthy because http.server.ts sets
+  // `trust proxy` so X-Forwarded-For from Caddy is honored.
+  const widgetMeta = (req: Request): { key: string; origin: string; ip: string } => {
+    const body = (req.body ?? {}) as { publicKey?: unknown; key?: unknown };
+    const fromBody =
+      (typeof body.publicKey === 'string' && body.publicKey) ||
+      (typeof body.key === 'string' && body.key) ||
+      '';
+    const key = (fromBody || req.get('x-api-key') || '').trim();
+    return { key, origin: req.get('origin') || '', ip: req.ip || req.socket.remoteAddress || '' };
+  };
+
+  // Map an ApiKeyService deny reason to an HTTP status + message.
+  const widgetDeny = (reason: ApiKeyDenyReason): { status: number; message: string } => {
+    switch (reason) {
+      case 'not_found': return { status: 404, message: 'Unknown API key' };
+      case 'inactive': return { status: 403, message: 'API key is disabled' };
+      case 'origin_not_allowed': return { status: 403, message: 'Origin not allowed for this API key' };
+      case 'ip_not_allowed': return { status: 403, message: 'Client IP not allowed for this API key' };
+      case 'daily_cap_reached': return { status: 429, message: 'Daily call cap reached' };
+      case 'bad_secret': return { status: 401, message: 'Invalid API secret' };
+      default: return { status: 403, message: 'API key validation failed' };
+    }
+  };
+
+  // Connect config every widget response shares (where/how to reach the SIP-WS).
+  const widgetConnect = () => ({
+    sipWsUrl: config.widget.sipWsUrl,
+    domain: config.server.domain,
+    iceServers: config.widget.iceServers,
+  });
+
+  widget.post('/config', async (req: Request, res: Response) => {
+    if (!apiKeys || !config.widget.enabled) { fail(res, 503, 'Widget not available'); return; }
+    const { key, origin, ip } = widgetMeta(req);
+    if (!key) { fail(res, 400, 'publicKey is required'); return; }
+    const result = await apiKeys.validate(key, origin, ip);
+    if (!result.ok) { const d = widgetDeny(result.reason); fail(res, d.status, d.message); return; }
+    ok(res, {
+      destination: result.key.destination,
+      label: result.key.label,
+      ...widgetConnect(),
+    });
+  });
+
+  widget.post('/session', async (req: Request, res: Response) => {
+    if (!apiKeys || !config.widget.enabled) { fail(res, 503, 'Widget not available'); return; }
+    const { key, origin, ip } = widgetMeta(req);
+    if (!key) { fail(res, 400, 'publicKey is required'); return; }
+    const result = await apiKeys.validate(key, origin, ip);
+    if (!result.ok) { const d = widgetDeny(result.reason); fail(res, d.status, d.message); return; }
+    // Count this as a call attempt against the (optional) daily cap, then mint a
+    // capability token scoped to exactly this key's destination + caller-ID.
+    apiKeys.noteCall(result.key.id, result.key.dailyCap);
+    const token = signWidgetToken({
+      keyId: result.key.id,
+      owner: result.key.owner,
+      destination: result.key.destination,
+      callerId: result.key.callerId,
+    });
+    created(res, {
+      token,
+      expiresIn: WIDGET_TOKEN_TTL_SECONDS,
+      destination: result.key.destination,
+      ...widgetConnect(),
+    });
+  });
+
+  widget.post('/token', async (req: Request, res: Response) => {
+    if (!apiKeys || !config.widget.enabled) { fail(res, 503, 'Widget not available'); return; }
+    const { key } = widgetMeta(req);
+    const auth = req.get('authorization') || '';
+    const secret = /^bearer /i.test(auth) ? auth.slice(7).trim() : '';
+    if (!key || !secret) { fail(res, 400, 'publicKey and a Bearer secret are required'); return; }
+    const result = await apiKeys.verifySecret(key, secret);
+    if (!result.ok) { const d = widgetDeny(result.reason); fail(res, d.status, d.message); return; }
+    apiKeys.noteCall(result.key.id, result.key.dailyCap);
+    const token = signWidgetToken({
+      keyId: result.key.id,
+      owner: result.key.owner,
+      destination: result.key.destination,
+      callerId: result.key.callerId,
+    });
+    created(res, {
+      token,
+      expiresIn: WIDGET_TOKEN_TTL_SECONDS,
+      destination: result.key.destination,
+      ...widgetConnect(),
+    });
+  });
+
+  router.use('/widget', widget);
 
   return router;
 }

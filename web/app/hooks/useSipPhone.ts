@@ -9,6 +9,7 @@ import { getCachedSoundUrl } from "../lib/sound-cache";
 import { getIceServers } from "../lib/ice-config";
 import { toSipNumber } from "../lib/phone";
 import { CallDirection, CallStatus, SoundFile, Tone } from "../types";
+import type { ActiveCall } from "../types";
 
 export function useSipPhone() {
   const [registered, setRegistered] = useState(false);
@@ -205,7 +206,7 @@ export function useSipPhone() {
     setRegistered(false);
   }, []);
 
-  const makeCall = useCallback(async (target: string, targetName?: string, extraHeaders?: string[]) => {
+  const makeCall = useCallback(async (target: string, targetName?: string, extraHeaders?: string[], meta?: Partial<ActiveCall>) => {
     const ua = uaRef.current;
     if (!ua) return;
 
@@ -237,6 +238,7 @@ export function useSipPhone() {
       direction: CallDirection.Outbound,
       status: CallStatus.Dialing,
       startTime: Date.now(),
+      ...meta,
     });
     setTone(Tone.Dialing);
     // Play ringback tone immediately while waiting for remote side
@@ -257,6 +259,11 @@ export function useSipPhone() {
           updateCall({ status: CallStatus.Connected, startTime: Date.now() });
           break;
         case SessionState.Terminated:
+          // If a newer call has already taken over the active session (e.g. a
+          // 1:1 being merged into a conference), this stale session's teardown
+          // must NOT touch the shared call store/tones — that would clobber the
+          // new call. Only the current session manages global call state.
+          if (sessionRef.current !== inviter) break;
           stopTone();
           const currentCall = useCallStore.getState().activeCall;
           if (currentCall && currentCall.status !== CallStatus.Connected) {
@@ -301,6 +308,24 @@ export function useSipPhone() {
       // The dialed user-part is irrelevant (the server intercepts by header);
       // "teams" just reads clearly in logs and call history.
       await makeCall("teams", "Teams Meeting", headers);
+    },
+    [makeCall]
+  );
+
+  /**
+   * Join a multi-party conference room. Dials `conf-<roomId>`, which the server
+   * classifies as a conference and joins onto the FreeSWITCH room so every
+   * member is mixed together. The active call is tagged `source: "conference"`
+   * so the UI renders the live roster instead of a 1:1 call.
+   */
+  const joinConference = useCallback(
+    async (roomId: string, name?: string) => {
+      const id = roomId.trim().toLowerCase();
+      if (!id) return;
+      await makeCall(`conf-${id}`, name || "Conference", undefined, {
+        source: "conference",
+        conferenceRoomId: id,
+      });
     },
     [makeCall]
   );
@@ -441,6 +466,7 @@ export function useSipPhone() {
     disconnect,
     makeCall,
     joinTeamsMeeting,
+    joinConference,
     answer,
     hangUp,
     sendDtmf,

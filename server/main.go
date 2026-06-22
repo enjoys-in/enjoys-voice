@@ -50,6 +50,7 @@ func main() {
 		&models.UserBalance{},
 		&models.BalanceTxn{},
 		&models.Trunk{},
+		&models.APIKey{},
 	); err != nil {
 		log.Fatalf("Failed to migrate: %v", err)
 	}
@@ -80,6 +81,7 @@ func main() {
 	rateRepo := repository.NewRateRepository(db)
 	balanceRepo := repository.NewBalanceRepository(db)
 	trunkRepo := repository.NewTrunkRepository(db)
+	apiKeyRepo := repository.NewAPIKeyRepository(db)
 
 	// ─── Services ────────────────────────────────────────
 	authSvc := service.NewAuthService(userRepo, settingsRepo, valkey)
@@ -96,6 +98,7 @@ func main() {
 	rateSvc := service.NewRateService(rateRepo)
 	balanceSvc := service.NewBalanceService(balanceRepo, cfg.Billing.Currency, cfg.Billing.PrepaidEnabled)
 	trunkSvc := service.NewTrunkService(trunkRepo)
+	apiKeySvc := service.NewAPIKeyService(apiKeyRepo)
 
 	// Twilio client powers provider-native (BYON) caller-ID verification and OTP
 	// SMS delivery. With no credentials configured it stays disabled and the
@@ -131,6 +134,7 @@ func main() {
 		CallerID:       handler.NewCallerIDHandler(callerIDSvc),
 		Balance:        handler.NewBalanceHandler(balanceSvc, cfg.AdminExtensions),
 		Trunk:          handler.NewTrunkHandler(trunkSvc, cfg.AdminExtensions),
+		APIKey:         handler.NewAPIKeyHandler(apiKeySvc),
 	}
 
 	// ─── Ensure upload dir ───────────────────────────────

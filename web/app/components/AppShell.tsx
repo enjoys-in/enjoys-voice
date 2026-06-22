@@ -5,12 +5,14 @@ import { Phone } from "lucide-react";
 import { useAuthStore, useCallStore, useVoicemailStore } from "../stores";
 import { useSettingsStore } from "../stores";
 import { useContactStore } from "../stores";
+import { useConferenceStore } from "../stores";
 import { BottomNav, type TabId } from "./layout/BottomNav";
 import { Sidebar } from "./layout/Sidebar";
 import { AppHeader } from "./layout/AppHeader";
 import { LoginScreen } from "./screens/LoginScreen";
 import { ActiveCallScreen } from "./screens/ActiveCallScreen";
 import { IncomingCallSheet } from "./call/IncomingCallSheet";
+import { IncomingConferenceSheet } from "./call/IncomingConferenceSheet";
 import { SplashScreen } from "./SplashScreen";
 import {
   ListScreenSkeleton,
@@ -69,7 +71,7 @@ export function AppShell({ initialExtension }: AppShellProps) {
   const { settings } = useSettingsStore();
   const { fetchVoicemails, unreadCount } = useVoicemailStore();
 
-  const { register, makeCall, joinTeamsMeeting, hangUp, answer, sendDtmf, isRecording, startRecording, stopRecording } = useSipPhone();
+  const { register, makeCall, joinTeamsMeeting, joinConference, hangUp, answer, sendDtmf, isRecording, startRecording, stopRecording } = useSipPhone();
   const { connect, disconnect, onMessage, send: wsSend, lookup: wsLookup } = useWebSocket();
   const bridge = useBrowserBridge();
 
@@ -105,6 +107,60 @@ export function AppShell({ initialExtension }: AppShellProps) {
     },
     [makeCall, wsLookup]
   );
+
+  // ─── Multi-party conference ───────────────────────────────────────────
+  // Start a conference: ask the server to create a room and invite the given
+  // extensions. The server replies with a `created` event (handled below) that
+  // tells us to dial into the room; invitees get an `invited` event. Used both
+  // to spin up a fresh room and to "merge" a 1:1 call (passing the current peer
+  // plus the newly-picked contact) into a conference.
+  const onStartConference = useCallback(
+    (targets: string[], name?: string) => {
+      const invite = Array.from(new Set(targets.map((t) => t.trim()).filter(Boolean)));
+      wsSend({ type: "conference", action: "start", invite, name });
+    },
+    [wsSend]
+  );
+
+  // Add one more contact to the conference the user is currently in.
+  const onAddToConference = useCallback(
+    (target: string) => {
+      const room = useConferenceStore.getState().room;
+      if (!room) return;
+      wsSend({ type: "conference", action: "invite", roomId: room.roomId, target });
+    },
+    [wsSend]
+  );
+
+  // The unified "add participant" action used by ActiveCallScreen. In a 1:1 call
+  // it merges the current peer + the chosen contact into a new conference; in an
+  // existing conference it invites the chosen contact into the room.
+  const onAddParticipant = useCallback(
+    (target: string) => {
+      const call = useCallStore.getState().activeCall;
+      if (call?.source === "conference") {
+        onAddToConference(target);
+      } else if (call) {
+        onStartConference([call.peerExtension, target]);
+      }
+    },
+    [onAddToConference, onStartConference]
+  );
+
+  // Accept an incoming conference invitation: dial into the room.
+  const onAcceptConferenceInvite = useCallback(() => {
+    const invite = useConferenceStore.getState().invite;
+    if (!invite) return;
+    useConferenceStore.getState().setInvite(null);
+    joinConference(invite.roomId, invite.name);
+  }, [joinConference]);
+
+  // Decline an incoming conference invitation: tell the server, drop the sheet.
+  const onDeclineConferenceInvite = useCallback(() => {
+    const invite = useConferenceStore.getState().invite;
+    if (invite) wsSend({ type: "conference", action: "decline", roomId: invite.roomId });
+    useConferenceStore.getState().setInvite(null);
+  }, [wsSend]);
 
   // Load the user's voicemail messages. TTL-guarded in the store, so the
   // initial preload here and the VoicemailScreen mount share one request.
@@ -209,6 +265,61 @@ export function AppShell({ initialExtension }: AppShellProps) {
     });
     return off;
   }, [onMessage, refreshVoicemails]);
+
+  // ─── Conference signaling ─────────────────────────────────────────────
+  // Drive the multi-party conference UI from server events:
+  //  - created: the server made a room we host → dial into it and seed the roster.
+  //  - invited: someone is pulling us into a room → show the join sheet.
+  //  - roster:  a live roster update → reflect it in the conference store.
+  //  - closed:  the room ended → clear local conference state (and the pending
+  //             invite if it was for that room).
+  useEffect(() => {
+    const off = onMessage((msg) => {
+      if (msg.type !== "conference_event") return;
+      const store = useConferenceStore.getState();
+      switch (msg.event) {
+        case "created": {
+          store.setRoom(msg.room);
+          // If we were on a 1:1 call (merging it into a conference), drop that
+          // leg first, then dial into the room. The guard in makeCall keeps the
+          // dropped leg's teardown from clobbering the new conference call.
+          const existing = useCallStore.getState().activeCall;
+          const roomId = msg.roomId;
+          const roomName = msg.room?.name;
+          if (existing && existing.source !== "conference") {
+            hangUp().finally(() => joinConference(roomId, roomName));
+          } else {
+            joinConference(roomId, roomName);
+          }
+          break;
+        }
+        case "invited":
+          store.setInvite({ roomId: msg.roomId, name: msg.name, from: msg.from, fromName: msg.fromName });
+          break;
+        case "roster":
+          // Only track the room we're actually in/joining.
+          if (!store.room || store.room.roomId === msg.roomId) store.setRoom(msg.room);
+          break;
+        case "closed":
+          if (store.room?.roomId === msg.roomId) store.setRoom(null);
+          if (store.invite?.roomId === msg.roomId) store.setInvite(null);
+          break;
+      }
+    });
+    return off;
+  }, [onMessage, joinConference, hangUp]);
+
+  // When a conference call ends, drop the local room state so the next call
+  // starts clean. (Other members are updated server-side via the SIP BYE.)
+  const wasConferenceRef = useRef(false);
+  useEffect(() => {
+    const inConference = activeCall?.source === "conference";
+    if (inConference) wasConferenceRef.current = true;
+    else if (wasConferenceRef.current && !activeCall) {
+      wasConferenceRef.current = false;
+      useConferenceStore.getState().clear();
+    }
+  }, [activeCall, activeCall?.source]);
 
   // Connect the PSTN→browser bridge for users who route inbound PSTN to their
   // browser. Gated on the user's own setting so we don't open a socket (and a
@@ -324,6 +435,7 @@ export function AppShell({ initialExtension }: AppShellProps) {
         onSendDtmf={onSendDtmfCall}
         onToggleRecording={onToggleRecordingCall}
         isRecording={callIsBridge ? false : isRecording}
+        onAddParticipant={callIsBridge ? undefined : onAddParticipant}
       />
     );
   }
@@ -340,6 +452,9 @@ export function AppShell({ initialExtension }: AppShellProps) {
 
         {/* Incoming call toast/sheet */}
         <IncomingCallSheet onAnswer={onAnswerCall} onDecline={onDeclineCall} />
+
+        {/* Incoming conference invitation */}
+        <IncomingConferenceSheet onAccept={onAcceptConferenceInvite} onDecline={onDeclineConferenceInvite} />
 
         {/* Screen content. Each tab mounts on first visit (Suspense streams in
             the code-split chunk + skeleton), then stays mounted but hidden so

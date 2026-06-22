@@ -29,6 +29,15 @@ export interface AppConfig {
     // flood/scan defense, applied in SipServer.checkSipRate). Tunable per deploy.
     rateLimit: number;
     rateWindowMs: number;
+    // Abuse guard (SipAbuseGuard): ban a source IP after `banThreshold` offenses
+    // (flood, unknown-user REGISTER, unroutable/spoofed INVITE) within
+    // `banWindowMs`, for `banDurationMs`. `firewallCmd` optionally pushes the ban
+    // to the OS firewall ({ip} placeholder). `trustedIps` are never banned.
+    banThreshold: number;
+    banWindowMs: number;
+    banDurationMs: number;
+    firewallCmd: string;
+    trustedIps: string[];
   };
   trunk: {
     name: string;
@@ -82,6 +91,17 @@ export interface AppConfig {
     // empty, localhost/127.0.0.1 on any port is allowed for local dev.
     allowedOrigins: string[];
   };
+  widget: {
+    // Embeddable click-to-call widget (developer API). When false, the
+    // /api/n/widget/* endpoints return 503 and no capability tokens are minted.
+    enabled: boolean;
+    // Public wss:// URL the widget's SIP.js client connects to. Falls back to
+    // the SIP-WS public URL, then a wss://<domain> guess.
+    sipWsUrl: string;
+    // ICE servers handed to the widget for WebRTC (PUBLIC_ICE_SERVERS as a JSON
+    // array). Defaults to a public STUN server when unset.
+    iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }>;
+  };
   database: {
     // Postgres connection string for the SHARED database the Go API owns. Node
     // hydrates its in-memory store from here so both processes see one source
@@ -107,6 +127,33 @@ export interface AppConfig {
     // A call to any of these is classified RouteType.Emergency and sent straight
     // to the trunk by EmergencyHandler, bypassing internal/IVR matching.
     emergencyNumbers: string[];
+  };
+  conference: {
+    // Multi-party conference rooms (FreeSWITCH mod_conference). A browser joins a
+    // room by calling `conf-<roomId>`; the SIP server anchors the leg on the media
+    // server and joins it to the named conference so all members are mixed.
+    enabled: boolean;
+    // FreeSWITCH conference profile (conference.conf.xml). `default` is 8kHz mono.
+    profile: string;
+    // Hard cap on members per room (-1 = unlimited).
+    maxMembers: number;
+  };
+  queue: {
+    // Call queues / ACD (Automatic Call Distribution). A caller dials
+    // `queue-<id>`; the SIP server answers them onto the media server, plays
+    // hold music, and rings the queue's registered agents one at a time until
+    // one answers (then bridges the two legs). All mixing/bridging is done on
+    // FreeSWITCH; this layer drives the distribution and keeps the live roster.
+    enabled: boolean;
+    // Hold music played to waiting callers (a FreeSWITCH stream/file URI).
+    moh: string;
+    // How long to ring a single agent before moving on to the next (seconds).
+    ringTimeoutSecs: number;
+    // Max time a caller waits in the queue before giving up (seconds).
+    maxWaitSecs: number;
+    // Queue definitions, parsed from the QUEUES env var. Each entry maps a queue
+    // id to a display name and its roster of agent extensions.
+    definitions: Array<{ id: string; name: string; agents: string[]; strategy: string }>;
   };
   teams: {
     // Microsoft Teams "Audio Conferencing" dial-in join. A registered user is
@@ -163,6 +210,49 @@ export function buildValkeyUrl(): string {
   return `redis://${auth}${addr}${path}`;
 }
 
+// Parse PUBLIC_ICE_SERVERS (a JSON array of RTCIceServer-like objects) handed to
+// the click-to-call widget for WebRTC. Falls back to a single public STUN server
+// when unset or malformed, so the widget still has a usable (NAT-friendly) config.
+function parseIceServers(
+  raw?: string,
+): Array<{ urls: string | string[]; username?: string; credential?: string }> {
+  const fallback = [{ urls: 'stun:stun.l.google.com:19302' }];
+  if (!raw || !raw.trim()) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+// Parse the QUEUES env var into call-queue definitions. Each `;`-separated
+// entry is `id:Name:ext1,ext2[:strategy]`. Malformed entries (missing id or no
+// agents) are skipped so one typo can't break the whole list.
+function parseQueueDefinitions(raw: string): Array<{ id: string; name: string; agents: string[]; strategy: string }> {
+  const valid = new Set(['longest-idle', 'round-robin', 'sequential']);
+  return raw
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [idPart, namePart, agentsPart, strategyPart] = entry.split(':');
+      const id = (idPart || '').trim().toLowerCase();
+      const agents = (agentsPart || '')
+        .split(',')
+        .map((a) => a.trim())
+        .filter(Boolean);
+      const strategy = (strategyPart || '').trim().toLowerCase();
+      return {
+        id,
+        name: (namePart || '').trim() || id,
+        agents,
+        strategy: valid.has(strategy) ? strategy : 'longest-idle',
+      };
+    })
+    .filter((q) => q.id && q.agents.length > 0);
+}
+
 export const config: AppConfig = {
   server: {
     httpPort: parseInt(process.env.HTTP_PORT || '3001'),
@@ -194,6 +284,14 @@ export const config: AppConfig = {
   sip: {
     rateLimit: parseInt(process.env.SIP_RATE_LIMIT || '30'),
     rateWindowMs: parseInt(process.env.SIP_RATE_WINDOW_MS || '60000'),
+    banThreshold: parseInt(process.env.SIP_BAN_THRESHOLD || '10'),
+    banWindowMs: parseInt(process.env.SIP_BAN_WINDOW_MS || '600000'),
+    banDurationMs: parseInt(process.env.SIP_BAN_DURATION_MS || '3600000'),
+    firewallCmd: process.env.SIP_FIREWALL_CMD || '',
+    trustedIps: (process.env.SIP_TRUSTED_IPS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
   },
   trunk: {
     name: process.env.TRUNK_NAME || 'custom',
@@ -252,6 +350,13 @@ export const config: AppConfig = {
       .map((o) => o.trim())
       .filter(Boolean),
   },
+  widget: {
+    enabled: process.env.WIDGET_ENABLED !== 'false',
+    sipWsUrl:
+      process.env.PUBLIC_SIP_WS_URL ||
+      (process.env.DOMAIN ? `wss://${process.env.DOMAIN}` : ''),
+    iceServers: parseIceServers(process.env.PUBLIC_ICE_SERVERS),
+  },
   database: {
     url:
       process.env.DATABASE_URL ||
@@ -271,6 +376,21 @@ export const config: AppConfig = {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+  },
+  conference: {
+    enabled: process.env.CONFERENCE_ENABLED !== 'false',
+    profile: (process.env.CONFERENCE_PROFILE || 'default').trim(),
+    maxMembers: parseInt(process.env.CONFERENCE_MAX_MEMBERS || '16'),
+  },
+  queue: {
+    enabled: process.env.QUEUE_ENABLED !== 'false',
+    moh: (process.env.QUEUE_MOH || 'local_stream://moh').trim(),
+    ringTimeoutSecs: parseInt(process.env.QUEUE_RING_TIMEOUT_SECS || '20'),
+    maxWaitSecs: parseInt(process.env.QUEUE_MAX_WAIT_SECS || '300'),
+    // QUEUES format: `id:Name:ext1,ext2[:strategy]` entries separated by `;`.
+    //   e.g. QUEUES=sales:Sales:1001,1002:longest-idle;support:Support:1003
+    // strategy ∈ longest-idle | round-robin | sequential (default longest-idle).
+    definitions: parseQueueDefinitions(process.env.QUEUES || ''),
   },
   teams: {
     dtmfDelayMs: parseInt(process.env.TEAMS_DTMF_DELAY_MS || '4000'),

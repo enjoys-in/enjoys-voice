@@ -1,6 +1,8 @@
 export { getPool, closePool } from './pool';
 export { loadAllUsers, loadUserByExtension } from './user.repo';
 export type { DbUser } from './user.repo';
+export { loadApiKeyByPublicKey } from './apikey.repo';
+export type { DbApiKey } from './apikey.repo';
 export {
   loadAllBlocked,
   loadBlockedByExtension,

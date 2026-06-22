@@ -1,4 +1,6 @@
 import type { DatabaseService, TrunkService, AuditService, DialResult } from '@/services';
+import type { ConferenceService, QueueService } from '@/services';
+import type { WidgetTokenClaims } from '@/core';
 import type { IVRSystem } from '../ivr.system';
 
 export interface CallContext {
@@ -7,6 +9,12 @@ export interface CallContext {
   calledNumber: string;
   callingNumber: string;
   callId: string;
+  /**
+   * When set, this INVITE carried a valid capability token from the embeddable
+   * click-to-call widget (X-Widget-Token). The token — not a SIP registration —
+   * authorizes the call, and pins the destination + caller-ID it may use.
+   */
+  widget?: WidgetTokenClaims;
 }
 
 export interface RouteServices {
@@ -15,6 +23,8 @@ export interface RouteServices {
   trunk: TrunkService;
   audit: AuditService;
   ivr: IVRSystem | null;
+  conference: ConferenceService;
+  queue: QueueService;
   notifyFn?: (extension: string, event: string, data?: any) => void;
   routeToExtension: (req: any, res: any, contact: string, callId: string) => Promise<void>;
   forwardCall: (req: any, res: any, target: string, callId: string, callingNumber: string) => Promise<void>;

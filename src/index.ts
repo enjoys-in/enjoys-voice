@@ -13,6 +13,9 @@ import {
   ensureCallSchema,
   upsertCall,
   debitForCall,
+  ConferenceService,
+  QueueService,
+  ApiKeyService,
 } from '@/services';
 import { SipServer } from '@/sip';
 import { SignalingServer } from '@/websocket';
@@ -39,6 +42,9 @@ class Application {
   private rateSync: RateSyncListener;
   private rating: RatingService;
   private writeQueue: WriteQueue;
+  private conference: ConferenceService;
+  private queue: QueueService;
+  private apiKeys: ApiKeyService;
 
   constructor() {
     this.db = new DatabaseService();
@@ -59,8 +65,29 @@ class Application {
     // without per-handler hooks.
     this.metrics = new CallMetricsService(this.db);
     const registrationStore = createRegistrationStore();
-    this.sip = new SipServer(this.db, this.trunk, registrationStore, this.audit);
+    // Shared multi-party conference registry. The SIP path writes join/leave
+    // from the media leg; the signaling server reads the roster and sends
+    // invites. A single instance is shared by both so they stay in lock-step.
+    this.conference = new ConferenceService();
+    // Shared call-queue / ACD registry. The SIP path drives caller/agent state
+    // from the media leg; the signaling server reads snapshots and toggles
+    // agent availability. Agent presence is resolved from the registration
+    // store via DatabaseService, with display names where known.
+    this.queue = new QueueService(config.queue.definitions);
+    this.queue.setPresenceProvider(
+      (ext) => this.db.isRegistered(ext),
+      (ext) => this.db.getUser(ext)?.name,
+    );
+    this.sip = new SipServer(this.db, this.trunk, registrationStore, this.audit, this.conference, this.queue);
     this.ws = new SignalingServer(this.db);
+    this.ws.setConferenceService(this.conference);
+    this.ws.setQueueService(this.queue);
+    // Re-broadcast the live roster to a room's participants whenever it changes,
+    // and tell everyone when a room closes (host left / emptied).
+    this.conference.on('updated', (roomId: string) => this.ws.broadcastConferenceRoster(roomId));
+    this.conference.on('closed', (roomId: string) => this.ws.broadcastConferenceClosed(roomId));
+    // Push a fresh queue snapshot to subscribed dashboards/agents on any change.
+    this.queue.on('updated', (queueId: string) => this.ws.broadcastQueueSnapshot(queueId));
     // Stream live metric snapshots to subscribed dashboard clients, and let the
     // WS serve the current snapshot on subscribe.
     this.ws.setMetricsProvider(() => this.metrics.getSnapshot());
@@ -69,7 +96,11 @@ class Application {
     // recent in-memory entries on subscribe (history-then-live).
     this.ws.setAuditProvider(() => this.audit.getAll(50));
     this.audit.on('entry', (e) => this.ws.broadcastAuditEntry(e));
-    this.http = new HttpServer(this.db, this.trunk, this.sip, this.twilioTrunk, this.metrics);
+    // Developer API keys for the embeddable click-to-call widget. Validates a
+    // publishable key against its Origin/IP allow-list (HTTP) and mints the
+    // short-lived capability token the browser puts in its INVITE.
+    this.apiKeys = new ApiKeyService();
+    this.http = new HttpServer(this.db, this.trunk, this.sip, this.twilioTrunk, this.metrics, this.apiKeys);
     // Twilio media-streaming WS server (separate port, like SignalingServer). Its
     // HTTP voice webhook rides on the existing HttpServer above. Opt-in via
     // MEDIA_STREAM_ENABLED; MEDIA_STREAM_MODE selects log|bridge|ai.

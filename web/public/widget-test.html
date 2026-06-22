@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Enjoys Voice — Widget Test Harness</title>
+    <style>
+      :root {
+        --bg: #0b1020;
+        --panel: #141a2e;
+        --panel-2: #1b2340;
+        --border: #2a3357;
+        --text: #e7ecff;
+        --muted: #93a0c7;
+        --accent: #4f46e5;
+        --ok: #22c55e;
+        --warn: #f59e0b;
+        --err: #ef4444;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(1200px 600px at 70% -10%, #1a2347 0%, var(--bg) 60%);
+        color: var(--text);
+        font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 80px; }
+      h1 { font-size: 22px; margin: 0 0 4px; }
+      .sub { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 20px;
+        margin-bottom: 18px;
+      }
+      .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 14px; }
+      label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
+      input[type="text"], input[type="url"], select {
+        width: 100%;
+        padding: 10px 12px;
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        color: var(--text);
+        font: inherit;
+        outline: none;
+      }
+      input:focus, select:focus { border-color: var(--accent); }
+      .row { display: flex; gap: 12px; flex-wrap: wrap; }
+      .row > div { flex: 1 1 200px; }
+      .check { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--text); font-size: 14px; }
+      .check input { width: 16px; height: 16px; accent-color: var(--accent); }
+      .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+      button {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: var(--panel-2);
+        color: var(--text);
+        padding: 10px 16px;
+        border-radius: 9px;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { border-color: var(--accent); }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      button:disabled { opacity: .45; cursor: not-allowed; }
+      .state {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+        background: var(--panel-2); border: 1px solid var(--border);
+      }
+      .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+      .dot.idle { background: var(--ok); }
+      .dot.invalid, .dot.error { background: var(--err); }
+      .dot.connecting, .dot.ringing { background: var(--warn); }
+      .dot.in-call { background: var(--ok); }
+      #log {
+        font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+        background: #0a0f1f; border: 1px solid var(--border); border-radius: 10px;
+        padding: 12px; height: 220px; overflow: auto; white-space: pre-wrap; color: #c7d2fe;
+      }
+      .log-time { color: #6b7aa8; }
+      .log-evt { color: #93c5fd; }
+      .log-err { color: #fca5a5; }
+      .log-ok { color: #86efac; }
+      .hint { font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+      code { font-family: var(--mono); background: var(--panel-2); padding: 1px 6px; border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Enjoys Voice — Widget Test Harness</h1>
+      <p class="sub">Loads <code>widget.js</code>, validates a publishable key, and drives a click-to-call session.</p>
+
+      <div class="card">
+        <h2>Configuration</h2>
+        <label for="key">Publishable key (pk_live_…)</label>
+        <input id="key" type="text" placeholder="pk_live_xxxxxxxxxxxx" autocomplete="off" spellcheck="false" />
+
+        <div class="row">
+          <div>
+            <label for="apiBase">API base (origin)</label>
+            <input id="apiBase" type="url" placeholder="http://localhost:3001 (blank = this origin)" autocomplete="off" spellcheck="false" />
+          </div>
+          <div>
+            <label for="scriptUrl">widget.js URL</label>
+            <input id="scriptUrl" type="url" value="/widget.js" autocomplete="off" spellcheck="false" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="position">Button position</label>
+            <select id="position">
+              <option value="bottom-right">bottom-right</option>
+              <option value="bottom-left">bottom-left</option>
+            </select>
+          </div>
+          <div>
+            <label for="accent">Accent color</label>
+            <input id="accent" type="text" value="#4f46e5" autocomplete="off" spellcheck="false" />
+          </div>
+          <div>
+            <label for="label">Button label</label>
+            <input id="label" type="text" value="Call us" autocomplete="off" spellcheck="false" />
+          </div>
+        </div>
+
+        <div class="check">
+          <input id="autoButton" type="checkbox" checked />
+          <label for="autoButton" style="margin:0;color:var(--text)">Render the built-in floating button</label>
+        </div>
+
+        <div class="actions">
+          <button id="init" class="primary" type="button">Load &amp; initialize</button>
+          <button id="call" type="button" disabled>Start call</button>
+          <button id="hangup" type="button" disabled>Hang up</button>
+          <button id="destroy" type="button" disabled>Destroy</button>
+        </div>
+        <p class="hint">
+          The widget only works from a domain on the key's allow-list. If the API runs on a
+          different origin/port than this page, set <strong>API base</strong> explicitly so the
+          server validates this page's <code>Origin</code>.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>Status</h2>
+        <span id="stateBadge" class="state"><span id="stateDot" class="dot"></span><span id="stateText">not initialized</span></span>
+        <div id="log" style="margin-top:14px"></div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        var widget = null;
+        var scriptLoaded = false;
+
+        var $ = function (id) { return document.getElementById(id); };
+        var logEl = $("log");
+
+        function log(msg, cls) {
+          var t = new Date().toLocaleTimeString();
+          var line = document.createElement("div");
+          line.innerHTML =
+            '<span class="log-time">' + t + "</span>  " +
+            '<span class="' + (cls || "log-evt") + '">' + escapeHtml(msg) + "</span>";
+          logEl.appendChild(line);
+          logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function escapeHtml(s) {
+          return String(s).replace(/[&<>"']/g, function (c) {
+            return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+          });
+        }
+
+        function setState(state) {
+          $("stateText").textContent = state;
+          $("stateDot").className = "dot " + state;
+          var inCall = state === "connecting" || state === "ringing" || state === "in-call";
+          $("call").disabled = !widget || state === "invalid" || inCall;
+          $("hangup").disabled = !inCall;
+        }
+
+        function loadScript(url) {
+          return new Promise(function (resolve, reject) {
+            if (scriptLoaded && window.EnjoysVoiceWidget) return resolve();
+            var s = document.createElement("script");
+            // No data-enjoys-key here, so the IIFE will NOT auto-boot; we drive it
+            // programmatically via window.EnjoysVoiceWidget.CallWidget instead.
+            s.src = url;
+            s.async = true;
+            s.onload = function () { scriptLoaded = true; resolve(); };
+            s.onerror = function () { reject(new Error("Failed to load " + url)); };
+            document.head.appendChild(s);
+          });
+        }
+
+        $("init").addEventListener("click", async function () {
+          var key = $("key").value.trim();
+          if (!key) { log("Enter a publishable key first.", "log-err"); return; }
+
+          if (widget) { widget.destroy(); widget = null; }
+
+          var scriptUrl = $("scriptUrl").value.trim() || "/widget.js";
+          $("init").disabled = true;
+          setState("validating");
+          log("Loading " + scriptUrl + " …");
+
+          try {
+            await loadScript(scriptUrl);
+          } catch (err) {
+            $("init").disabled = false;
+            setState("error");
+            log(err.message, "log-err");
+            return;
+          }
+
+          var CallWidget = window.EnjoysVoiceWidget && window.EnjoysVoiceWidget.CallWidget;
+          if (!CallWidget) {
+            $("init").disabled = false;
+            setState("error");
+            log("window.EnjoysVoiceWidget.CallWidget not found — is this the IIFE build?", "log-err");
+            return;
+          }
+
+          var apiBase = $("apiBase").value.trim();
+          var opts = {
+            publicKey: key,
+            autoButton: $("autoButton").checked,
+            position: $("position").value,
+            accentColor: $("accent").value.trim() || undefined,
+            buttonLabel: $("label").value.trim() || undefined,
+            onState: function (s) { setState(s); log("state → " + s); },
+            onError: function (e) { log("error: " + e.message, "log-err"); },
+          };
+          if (apiBase) opts.apiBase = apiBase;
+
+          log("Initializing widget (apiBase=" + (apiBase || "this origin") + ") …");
+          widget = CallWidget.init(opts);
+          $("destroy").disabled = false;
+
+          widget.ready
+            .then(function () { log("key validated — widget is ready", "log-ok"); })
+            .catch(function (e) { log("validation failed: " + e.message, "log-err"); })
+            .finally(function () { $("init").disabled = false; });
+        });
+
+        $("call").addEventListener("click", function () {
+          if (widget) { log("startCall()"); widget.startCall(); }
+        });
+        $("hangup").addEventListener("click", function () {
+          if (widget) { log("hangup()"); widget.hangup(); }
+        });
+        $("destroy").addEventListener("click", function () {
+          if (widget) { widget.destroy(); widget = null; }
+          $("destroy").disabled = true;
+          $("call").disabled = true;
+          $("hangup").disabled = true;
+          setState("not initialized");
+          log("widget destroyed");
+        });
+
+        log("Ready. Enter a key and click \u201cLoad & initialize\u201d.");
+      })();
+    </script>
+  </body>
+</html>

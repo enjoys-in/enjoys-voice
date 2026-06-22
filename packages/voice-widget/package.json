@@ -1,0 +1,47 @@
+{
+  "name": "@enjoys/voice-widget",
+  "version": "0.1.0",
+  "description": "Embeddable click-to-call widget for Enjoys Voice — browser WebRTC, API-key gated, locked to a single destination.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": [
+    "./dist/widget.js"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "build:cdn": "tsup && node scripts/copy-cdn.mjs",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "webrtc",
+    "click-to-call",
+    "sip",
+    "voip",
+    "widget",
+    "telephony"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "sip.js": "^0.21.2"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
