@@ -209,6 +209,16 @@ services:
       DRACHTIO_SECRET: siprocks
       FREESWITCH_HOST: drachtio-freeswitch
       FREESWITCH_PORT: "8021"
+      # ESL-OUTBOUND callback target (advertisedAddress / X-esl-outbound). After
+      # answering the MRF INVITE, FreeSWITCH connects BACK to the fsmrf listener
+      # on :8085 to drive IVR/voicemail media. In prod the Node app runs INSIDE
+      # the callnet-api container, so FS must reach it by its docker-network name
+      # over voipnet. The code default is host.docker.internal, which points at
+      # the HOST — where :8085 is NOT published — so FS can't connect back =>
+      # "Connection timeout" on every IVR/voicemail/conference call. (Local works
+      # because the dev app runs on the host, reachable via host.docker.internal.)
+      FREESWITCH_LISTEN_ADDRESS: callnet-api
+      FREESWITCH_LISTEN_PORT: "8085"
       RECORDINGS_DIR: /app/recordings
     volumes:
       - callnet-recordings:/app/recordings
