@@ -12,6 +12,18 @@ export type {
   ConferenceRosterEntry,
   ConferenceSnapshot,
 } from './conference.service';
+export { QueueService } from './queue.service';
+export type {
+  QueueAgent,
+  QueueAgentState,
+  QueueCaller,
+  QueueCallerState,
+  QueueStrategy,
+  QueueAgentSnapshot,
+  QueueCallerSnapshot,
+  QueueSnapshot,
+  QueueDefinition,
+} from './queue.service';
 export { createRegistrationStore, MemoryRegistrationStore, RedisRegistrationStore } from './registration';
 export type { RegistrationStore } from './registration';
 export { UserSyncListener } from './postgres';

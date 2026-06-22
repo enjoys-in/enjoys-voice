@@ -3,12 +3,12 @@ import crypto from 'crypto';
 import { config } from '@/core';
 import { SipStatus } from '@/core/types';
 import { DatabaseService, TrunkService, AuditService, DialPlanService, RouteType } from '@/services';
-import type { DialResult, ConferenceService } from '@/services';
+import type { DialResult, ConferenceService, QueueService } from '@/services';
 import type { RegistrationStore } from '@/services/registration';
 import { IVRSystem } from './ivr.system';
 import { SipAbuseGuard } from './abuse-guard';
 import {
-  TrunkInboundHandler, TeamsMeetingHandler, ConferenceHandler, EmergencyHandler, IvrHandler,
+  TrunkInboundHandler, TeamsMeetingHandler, ConferenceHandler, QueueHandler, EmergencyHandler, IvrHandler,
   InternalHandler, ExternalHandler,
   type RouteHandler, type CallContext, type RouteServices,
 } from './routes';
@@ -31,6 +31,7 @@ export class SipServer {
     new TrunkInboundHandler(),
     new TeamsMeetingHandler(),
     new ConferenceHandler(),
+    new QueueHandler(),
     new EmergencyHandler(),
     new IvrHandler(),
     new InternalHandler(),
@@ -43,6 +44,7 @@ export class SipServer {
     private registrationStore: RegistrationStore,
     private audit: AuditService,
     private conference: ConferenceService,
+    private queue: QueueService,
   ) {
     this.srf = new Srf();
     // Pre-bind to avoid allocating new functions on every INVITE
@@ -182,6 +184,8 @@ export class SipServer {
           this.audit.log('unregister', user.extension, { contact }, req.source_address);
           res.send(SipStatus.OK, { headers: { 'Contact': contact, 'Expires': '0' } });
           console.log(`🔴 SIP: ${user.name} unregistered`);
+          // Reflect the agent going offline in any queues they belong to.
+          this.queue.syncPresence();
         } else {
           const source = {
             address: req.source_address,
@@ -203,6 +207,8 @@ export class SipServer {
           void this.db.hydrateUserDetail(user.extension).catch((err: any) =>
             console.warn(`⚠️  detail refresh failed for ${user.extension}: ${err?.message}`),
           );
+          // Reflect the agent coming online in any queues they belong to.
+          this.queue.syncPresence();
         }
       } catch (err: any) {
         console.error('❌ SIP REGISTER error:', err.message, err.stack);
@@ -269,6 +275,7 @@ export class SipServer {
           audit: this.audit,
           ivr: this.ivr,
           conference: this.conference,
+          queue: this.queue,
           notifyFn: this.notifyFn,
           routeToExtension: this.boundRouteToExtension,
           forwardCall: this.boundForwardCall,
@@ -312,6 +319,8 @@ export class SipServer {
       case RouteType.External:
         return this.db.isRegistered(caller);
       case RouteType.Conference:
+        return this.db.isRegistered(caller);
+      case RouteType.Queue:
         return this.db.isRegistered(caller);
       case RouteType.IVR:
       case RouteType.Emergency:

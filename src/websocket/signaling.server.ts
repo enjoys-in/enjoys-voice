@@ -5,7 +5,7 @@ import path from 'path';
 import { config, verifyAccessToken, parseCookies } from '@/core';
 import type { JwtClaims } from '@/core';
 import { DatabaseService } from '@/services';
-import type { MetricsSnapshot, AuditEntry, ConferenceService } from '@/services';
+import type { MetricsSnapshot, AuditEntry, ConferenceService, QueueService } from '@/services';
 
 interface WsClient {
   ws: WebSocket;
@@ -29,12 +29,23 @@ export class SignalingServer {
   // Shared conference registry (same instance the SIP path writes joins to).
   // Used to create rooms, send invites and broadcast live rosters.
   private conference?: ConferenceService;
+  // Shared call-queue / ACD registry (same instance the SIP path writes to).
+  // Used to serve live snapshots and let agents toggle their availability.
+  private queue?: QueueService;
+  // Clients watching live queue snapshots (supervisor dashboards / agents).
+  private queueSubscribers = new Set<WsClient>();
 
   constructor(private db: DatabaseService) {}
 
   /** Supply the shared ConferenceService so the socket can orchestrate rooms. */
   setConferenceService(cs: ConferenceService): void {
     this.conference = cs;
+  }
+
+  /** Supply the shared QueueService so the socket can serve queue snapshots
+   * and toggle agent availability. */
+  setQueueService(qs: QueueService): void {
+    this.queue = qs;
   }
 
   /** Supply the current-metrics getter (wired to CallMetricsService). */
@@ -91,6 +102,7 @@ export class SignalingServer {
         if (client.extension) this.clients.delete(client.extension);
         this.metricsSubscribers.delete(client);
         this.auditSubscribers.delete(client);
+        this.queueSubscribers.delete(client);
         this.broadcastPresence();
       });
 
@@ -98,6 +110,7 @@ export class SignalingServer {
         if (client.extension) this.clients.delete(client.extension);
         this.metricsSubscribers.delete(client);
         this.auditSubscribers.delete(client);
+        this.queueSubscribers.delete(client);
       });
     });
   }
@@ -155,6 +168,15 @@ export class SignalingServer {
         break;
       case 'conference':
         this.handleConference(client, msg);
+        break;
+      case 'subscribe_queues':
+        this.handleSubscribeQueues(client);
+        break;
+      case 'unsubscribe_queues':
+        this.queueSubscribers.delete(client);
+        break;
+      case 'queue':
+        this.handleQueue(client, msg);
         break;
       default:
         this.send(client.ws, { type: 'error', message: `Unknown type: ${msg.type}` });
@@ -539,6 +561,90 @@ export class SignalingServer {
       const client = this.clients.get(ext);
       if (client?.authenticated && client.ws.readyState === WebSocket.OPEN) {
         this.send(client.ws, { type: 'conference_event', event: 'closed', roomId });
+      }
+    }
+  }
+
+  /**
+   * Subscribe a client to live queue snapshots (supervisor dashboard or an
+   * agent watching their own queues) and paint the current state immediately.
+   * Any authenticated user may watch; pushes are read-only.
+   */
+  private handleSubscribeQueues(client: WsClient): void {
+    if (!client.authenticated) {
+      this.send(client.ws, { type: 'error', message: 'Not authenticated' });
+      return;
+    }
+    if (!this.queue) {
+      this.send(client.ws, { type: 'queue_event', event: 'error', message: 'Queues unavailable' });
+      return;
+    }
+    this.queueSubscribers.add(client);
+    this.send(client.ws, { type: 'queue_event', event: 'snapshot', queues: this.queue.snapshotAll() });
+  }
+
+  /**
+   * Handle an agent action on a queue. Identity is taken from the authenticated
+   * connection (never the message body), so an agent can only pause/unpause
+   * themselves. `queueId` scopes the change to one queue; omit it to toggle the
+   * agent across every queue they belong to.
+   */
+  private handleQueue(client: WsClient, msg: any): void {
+    if (!client.authenticated) {
+      this.send(client.ws, { type: 'error', message: 'Not authenticated' });
+      return;
+    }
+    if (!this.queue) {
+      this.send(client.ws, { type: 'queue_event', event: 'error', message: 'Queues unavailable' });
+      return;
+    }
+
+    const ext = client.extension;
+    switch (msg.action) {
+      case 'pause':
+      case 'unpause': {
+        const paused = msg.action === 'pause';
+        const queueId = msg.queueId ? String(msg.queueId).trim() : '';
+        const changed = queueId
+          ? (this.queue.setAgentPaused(queueId, ext, paused) ? [queueId] : [])
+          : this.queue.setAgentPausedAll(ext, paused);
+        this.send(client.ws, {
+          type: 'queue_event', event: 'agent_state',
+          extension: ext, paused, queues: changed,
+        });
+        break;
+      }
+
+      case 'snapshot': {
+        const queueId = msg.queueId ? String(msg.queueId).trim() : '';
+        if (queueId) {
+          const snapshot = this.queue.snapshot(queueId);
+          this.send(client.ws, snapshot
+            ? { type: 'queue_event', event: 'queue', queueId, queue: snapshot }
+            : { type: 'queue_event', event: 'error', message: 'Unknown queue' });
+        } else {
+          this.send(client.ws, { type: 'queue_event', event: 'snapshot', queues: this.queue.snapshotAll() });
+        }
+        break;
+      }
+
+      default:
+        this.send(client.ws, { type: 'queue_event', event: 'error', message: `Unknown action: ${msg.action}` });
+    }
+  }
+
+  /**
+   * Push the latest snapshot of one queue to every subscribed client (called on
+   * any change via the QueueService 'updated' event).
+   */
+  broadcastQueueSnapshot(queueId: string): void {
+    if (!this.queue || this.queueSubscribers.size === 0) return;
+    const snapshot = this.queue.snapshot(queueId);
+    if (!snapshot) return;
+    const payload = { type: 'queue_event', event: 'queue', queueId, queue: snapshot };
+    for (const client of this.queueSubscribers) {
+      if (client.authenticated && client.ws.readyState === WebSocket.OPEN) {
+        this.send(client.ws, payload);
       }
     }
   }

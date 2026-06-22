@@ -419,6 +419,249 @@ export class IVRSystem {
   }
 
   /**
+   * Answer a caller into a call queue and distribute them to an agent (ACD).
+   *
+   * The browser/PSTN caller dials `queue-<id>`; we anchor their leg on the media
+   * server (handles WebRTC DTLS-SRTP), play hold music, then ring the queue's
+   * available agents one at a time. The agent to try next is chosen by the
+   * caller via `opts.nextAgent()` (the QueueService applies the distribution
+   * strategy), so this method stays policy-free — it only does the SIP/media
+   * work: ring, wait, and on answer bridge the two legs. The hold music keeps
+   * looping until an agent answers (we break it just before bridging).
+   *
+   * Ringing uses a 3pcc endpoint as the B-leg offer and an outbound UAC to the
+   * agent's contact; a per-attempt timer cancels the INVITE if the agent does
+   * not answer in `ringTimeoutMs`, and the loop moves on to the next agent. The
+   * whole thing gives up after `maxWaitMs`. If the caller hangs up while
+   * waiting, the in-flight ring is cancelled and we report `abandoned`.
+   *
+   * Returns the final outcome plus the agent that answered (if any). The bridged
+   * legs live until either side hangs up; teardown + `hooks.onEnded` fire once.
+   */
+  async enqueueCaller(
+    req: any,
+    res: any,
+    opts: {
+      queueName: string;
+      moh: string;
+      ringTimeoutMs: number;
+      maxWaitMs: number;
+      pollIntervalMs?: number;
+      callerNumber: string;
+      callerName: string;
+      nextAgent: () => { extension: string; contactUri: string; name: string } | null;
+      hooks?: {
+        onWaiting?: () => void;
+        onRingAgent?: (ext: string) => void;
+        onAgentNoAnswer?: (ext: string) => void;
+        onConnected?: (ext: string) => void;
+        onAbandoned?: () => void;
+        onTimeout?: () => void;
+        onEnded?: () => void;
+      };
+    },
+  ): Promise<{ outcome: 'connected' | 'abandoned' | 'timeout' | 'failed'; connectedAgent?: string }> {
+    if (!(await this.ensureConnected())) {
+      if (!res.finalResponseSent) res.send(480, 'Temporarily Unavailable');
+      return { outcome: 'failed' };
+    }
+
+    const pollIntervalMs = opts.pollIntervalMs ?? 1500;
+    const hooks = opts.hooks;
+
+    let aLeg: Mrf.Endpoint | undefined;
+    let dialog: Srf.Dialog | undefined;
+    let abandoned = false;
+    let bridged = false;
+    let torndown = false;
+    let endedNotified = false;
+    /** Cancels the ring currently in flight (set while an agent is being rung). */
+    let cancelActiveRing: (() => void) | null = null;
+
+    const teardown = () => {
+      if (torndown) return;
+      torndown = true;
+      try { aLeg?.destroy?.(); } catch { /* noop */ }
+      try { dialog?.destroy?.(); } catch { /* noop */ }
+    };
+    const notifyEnded = () => {
+      if (endedNotified) return;
+      endedNotified = true;
+      try { hooks?.onEnded?.(); } catch { /* noop */ }
+    };
+
+    // The caller hung up: stop ringing immediately and let the loop unwind.
+    const onCallerGone = () => {
+      abandoned = true;
+      try { cancelActiveRing?.(); } catch { /* noop */ }
+    };
+
+    try {
+      ({ endpoint: aLeg, dialog } = await this.ms!.connectCaller(req, res));
+      await this.prepareVoice(aLeg);
+      await this.playSafe(aLeg, 'say:Please hold while we connect you to an agent.');
+
+      dialog.on('destroy', onCallerGone);
+      aLeg.on('destroy', onCallerGone);
+      try { hooks?.onWaiting?.(); } catch { /* noop */ }
+
+      // Start hold music (non-blocking; the stream loops until we break it).
+      try { aLeg.executeAsync('playback', opts.moh); } catch { /* noop */ }
+
+      const deadline = Date.now() + opts.maxWaitMs;
+
+      while (!abandoned && Date.now() < deadline) {
+        const agent = opts.nextAgent();
+        if (!agent) {
+          // No agent free right now — keep holding and re-check shortly.
+          await new Promise((r) => setTimeout(r, pollIntervalMs));
+          continue;
+        }
+
+        try { hooks?.onRingAgent?.(agent.extension); } catch { /* noop */ }
+
+        // Ring this one agent: a 3pcc endpoint supplies the offer, then we
+        // originate an INVITE to the agent's contact and wait for an answer,
+        // cancelling if they don't pick up within ringTimeoutMs.
+        const bLeg = await this.ms!.createEndpoint();
+        const uac = await this.ringAgent(
+          agent.contactUri,
+          bLeg.local.sdp || '',
+          opts.ringTimeoutMs,
+          opts.callerNumber,
+          opts.callerName,
+          opts.queueName,
+          (cancel) => { cancelActiveRing = cancel; },
+        );
+        cancelActiveRing = null;
+
+        if (!uac || abandoned) {
+          try { (uac as any)?.destroy?.(); } catch { /* noop */ }
+          try { bLeg.destroy(); } catch { /* noop */ }
+          if (!uac && !abandoned) {
+            try { hooks?.onAgentNoAnswer?.(agent.extension); } catch { /* noop */ }
+          }
+          continue;
+        }
+
+        // Agent answered — point FreeSWITCH at their SDP, stop the hold music
+        // and bridge the two legs together.
+        try {
+          await bLeg.modify((uac as any).remote?.sdp || '');
+          try { await aLeg.execute('break'); } catch { /* noop */ }
+
+          const onLegGone = () => {
+            try { (uac as any)?.destroy?.(); } catch { /* noop */ }
+            try { bLeg.destroy(); } catch { /* noop */ }
+            notifyEnded();
+            teardown();
+          };
+          (uac as any).on('destroy', onLegGone);
+          bLeg.on('destroy', onLegGone);
+          dialog.removeListener('destroy', onCallerGone);
+          aLeg.removeListener('destroy', onCallerGone);
+          dialog.on('destroy', onLegGone);
+          aLeg.on('destroy', onLegGone);
+
+          await aLeg.bridge(bLeg);
+          bridged = true;
+          try { hooks?.onConnected?.(agent.extension); } catch { /* noop */ }
+          console.log(`✅ Queue [${opts.queueName}]: connected ${opts.callerNumber} → agent ${agent.extension}`);
+          return { outcome: 'connected', connectedAgent: agent.extension };
+        } catch (err: any) {
+          console.warn(`⚠️ Queue [${opts.queueName}]: bridge to ${agent.extension} failed: ${err?.message}`);
+          try { (uac as any)?.destroy?.(); } catch { /* noop */ }
+          try { bLeg.destroy(); } catch { /* noop */ }
+          try { hooks?.onAgentNoAnswer?.(agent.extension); } catch { /* noop */ }
+          continue;
+        }
+      }
+
+      // Fell out of the loop without bridging: either the caller left, or we hit
+      // the max-wait deadline with no agent ever answering.
+      if (abandoned) {
+        try { hooks?.onAbandoned?.(); } catch { /* noop */ }
+        notifyEnded();
+        teardown();
+        return { outcome: 'abandoned' };
+      }
+      try { await this.playSafe(aLeg, 'say:All of our agents are busy. Please try again later. Goodbye.'); } catch { /* noop */ }
+      try { hooks?.onTimeout?.(); } catch { /* noop */ }
+      notifyEnded();
+      teardown();
+      return { outcome: 'timeout' };
+    } catch (err: any) {
+      console.error('❌ Queue enqueue error:', err?.message || err);
+      if (!bridged) {
+        notifyEnded();
+        teardown();
+        if (res && !res.finalResponseSent) res.send(480, 'Temporarily Unavailable');
+      }
+      return { outcome: 'failed' };
+    }
+  }
+
+  /**
+   * Ring a single agent and wait for an answer, cancelling the INVITE if they
+   * don't pick up within `ringTimeoutMs`. Resolves to the answered UAC dialog,
+   * or null if the agent declined / didn't answer / errored. `onCancel` exposes
+   * a canceller so the caller can abort the ring early (e.g. on caller hang-up).
+   */
+  private ringAgent(
+    contactUri: string,
+    localSdp: string,
+    ringTimeoutMs: number,
+    callerNumber: string,
+    callerName: string,
+    queueName: string,
+    onCancel: (cancel: () => void) => void,
+  ): Promise<any | null> {
+    return new Promise((resolve) => {
+      let settled = false;
+      let outReq: any;
+
+      const finish = (uac: any | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(uac);
+      };
+      const cancel = () => {
+        if (settled) return;
+        try { outReq?.cancel?.(() => { /* noop */ }); } catch { /* noop */ }
+        finish(null);
+      };
+
+      const timer = setTimeout(cancel, ringTimeoutMs);
+      onCancel(cancel);
+
+      this.srf
+        .createUAC(
+          contactUri,
+          {
+            localSdp,
+            // Present the original caller's number/name on the agent's phone,
+            // and tag the INVITE with the queue it came from.
+            headers: {
+              'From': `"${callerName}" <sip:${callerNumber}@${config.server.domain}>`,
+              'X-Queue': queueName,
+            },
+          },
+          { cbRequest: (req: any) => { outReq = req; } },
+        )
+        .then((uac) => {
+          if (settled) {
+            // Answered after we already gave up (raced the timeout): drop it.
+            try { (uac as any).destroy?.(); } catch { /* noop */ }
+            return;
+          }
+          finish(uac);
+        })
+        .catch(() => finish(null));
+    });
+  }
+
+  /**
    * Play a file/prompt, logging it and tolerating a missing file.
    *
    * `endpoint.play()` throws "File Not Found" when FreeSWITCH can't locate the

@@ -14,6 +14,7 @@ import {
   upsertCall,
   debitForCall,
   ConferenceService,
+  QueueService,
 } from '@/services';
 import { SipServer } from '@/sip';
 import { SignalingServer } from '@/websocket';
@@ -41,6 +42,7 @@ class Application {
   private rating: RatingService;
   private writeQueue: WriteQueue;
   private conference: ConferenceService;
+  private queue: QueueService;
 
   constructor() {
     this.db = new DatabaseService();
@@ -65,13 +67,25 @@ class Application {
     // from the media leg; the signaling server reads the roster and sends
     // invites. A single instance is shared by both so they stay in lock-step.
     this.conference = new ConferenceService();
-    this.sip = new SipServer(this.db, this.trunk, registrationStore, this.audit, this.conference);
+    // Shared call-queue / ACD registry. The SIP path drives caller/agent state
+    // from the media leg; the signaling server reads snapshots and toggles
+    // agent availability. Agent presence is resolved from the registration
+    // store via DatabaseService, with display names where known.
+    this.queue = new QueueService(config.queue.definitions);
+    this.queue.setPresenceProvider(
+      (ext) => this.db.isRegistered(ext),
+      (ext) => this.db.getUser(ext)?.name,
+    );
+    this.sip = new SipServer(this.db, this.trunk, registrationStore, this.audit, this.conference, this.queue);
     this.ws = new SignalingServer(this.db);
     this.ws.setConferenceService(this.conference);
+    this.ws.setQueueService(this.queue);
     // Re-broadcast the live roster to a room's participants whenever it changes,
     // and tell everyone when a room closes (host left / emptied).
     this.conference.on('updated', (roomId: string) => this.ws.broadcastConferenceRoster(roomId));
     this.conference.on('closed', (roomId: string) => this.ws.broadcastConferenceClosed(roomId));
+    // Push a fresh queue snapshot to subscribed dashboards/agents on any change.
+    this.queue.on('updated', (queueId: string) => this.ws.broadcastQueueSnapshot(queueId));
     // Stream live metric snapshots to subscribed dashboard clients, and let the
     // WS serve the current snapshot on subscribe.
     this.ws.setMetricsProvider(() => this.metrics.getSnapshot());

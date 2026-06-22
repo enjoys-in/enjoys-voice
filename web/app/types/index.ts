@@ -72,6 +72,51 @@ export interface ConferenceInvite {
   fromName: string;
 }
 
+/** Agent availability within a call queue (mirrors the server ACD states). */
+export type QueueAgentState = "offline" | "available" | "ringing" | "busy" | "paused";
+
+/** State of a caller waiting in (or connected through) a queue. */
+export type QueueCallerState = "waiting" | "ringing" | "connected";
+
+/** Distribution policy used to pick the next agent for a waiting caller. */
+export type QueueStrategy = "longest-idle" | "round-robin" | "sequential";
+
+/** A queue agent as shown on the supervisor dashboard. */
+export interface QueueAgentSnapshot {
+  extension: string;
+  name: string;
+  state: QueueAgentState;
+  paused: boolean;
+  callsHandled: number;
+}
+
+/** A caller waiting in (or connected through) a queue. */
+export interface QueueCallerSnapshot {
+  id: string;
+  from: string;
+  fromName: string;
+  state: QueueCallerState;
+  agent?: string;
+  /** Seconds the caller has been waiting (at snapshot time). */
+  waitingSecs: number;
+}
+
+/** Live snapshot of one call queue pushed over the signaling socket. */
+export interface QueueSnapshot {
+  id: string;
+  name: string;
+  strategy: QueueStrategy;
+  agents: QueueAgentSnapshot[];
+  callers: QueueCallerSnapshot[];
+  stats: {
+    waiting: number;
+    connected: number;
+    agentsAvailable: number;
+    agentsTotal: number;
+    longestWaitSecs: number;
+  };
+}
+
 export interface ForwardingRules {
   busy?: string;
   noAnswer?: string;

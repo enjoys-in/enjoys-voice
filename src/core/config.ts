@@ -127,6 +127,23 @@ export interface AppConfig {
     // Hard cap on members per room (-1 = unlimited).
     maxMembers: number;
   };
+  queue: {
+    // Call queues / ACD (Automatic Call Distribution). A caller dials
+    // `queue-<id>`; the SIP server answers them onto the media server, plays
+    // hold music, and rings the queue's registered agents one at a time until
+    // one answers (then bridges the two legs). All mixing/bridging is done on
+    // FreeSWITCH; this layer drives the distribution and keeps the live roster.
+    enabled: boolean;
+    // Hold music played to waiting callers (a FreeSWITCH stream/file URI).
+    moh: string;
+    // How long to ring a single agent before moving on to the next (seconds).
+    ringTimeoutSecs: number;
+    // Max time a caller waits in the queue before giving up (seconds).
+    maxWaitSecs: number;
+    // Queue definitions, parsed from the QUEUES env var. Each entry maps a queue
+    // id to a display name and its roster of agent extensions.
+    definitions: Array<{ id: string; name: string; agents: string[]; strategy: string }>;
+  };
   teams: {
     // Microsoft Teams "Audio Conferencing" dial-in join. A registered user is
     // bridged onto a Teams meeting by dialing its PSTN dial-in number via the
@@ -180,6 +197,33 @@ export function buildValkeyUrl(): string {
   const auth = password ? `:${encodeURIComponent(password)}@` : '';
   const path = db ? `/${db}` : '';
   return `redis://${auth}${addr}${path}`;
+}
+
+// Parse the QUEUES env var into call-queue definitions. Each `;`-separated
+// entry is `id:Name:ext1,ext2[:strategy]`. Malformed entries (missing id or no
+// agents) are skipped so one typo can't break the whole list.
+function parseQueueDefinitions(raw: string): Array<{ id: string; name: string; agents: string[]; strategy: string }> {
+  const valid = new Set(['longest-idle', 'round-robin', 'sequential']);
+  return raw
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [idPart, namePart, agentsPart, strategyPart] = entry.split(':');
+      const id = (idPart || '').trim().toLowerCase();
+      const agents = (agentsPart || '')
+        .split(',')
+        .map((a) => a.trim())
+        .filter(Boolean);
+      const strategy = (strategyPart || '').trim().toLowerCase();
+      return {
+        id,
+        name: (namePart || '').trim() || id,
+        agents,
+        strategy: valid.has(strategy) ? strategy : 'longest-idle',
+      };
+    })
+    .filter((q) => q.id && q.agents.length > 0);
 }
 
 export const config: AppConfig = {
@@ -303,6 +347,16 @@ export const config: AppConfig = {
     enabled: process.env.CONFERENCE_ENABLED !== 'false',
     profile: (process.env.CONFERENCE_PROFILE || 'default').trim(),
     maxMembers: parseInt(process.env.CONFERENCE_MAX_MEMBERS || '16'),
+  },
+  queue: {
+    enabled: process.env.QUEUE_ENABLED !== 'false',
+    moh: (process.env.QUEUE_MOH || 'local_stream://moh').trim(),
+    ringTimeoutSecs: parseInt(process.env.QUEUE_RING_TIMEOUT_SECS || '20'),
+    maxWaitSecs: parseInt(process.env.QUEUE_MAX_WAIT_SECS || '300'),
+    // QUEUES format: `id:Name:ext1,ext2[:strategy]` entries separated by `;`.
+    //   e.g. QUEUES=sales:Sales:1001,1002:longest-idle;support:Support:1003
+    // strategy ∈ longest-idle | round-robin | sequential (default longest-idle).
+    definitions: parseQueueDefinitions(process.env.QUEUES || ''),
   },
   teams: {
     dtmfDelayMs: parseInt(process.env.TEAMS_DTMF_DELAY_MS || '4000'),
