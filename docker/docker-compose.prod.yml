@@ -54,15 +54,27 @@ services:
     volumes:
       - ./freeswitch_configs:/etc/freeswitch
       # PROD-ONLY override: overlay the single MRF profile on top of the shared
-      # config dir so ext-rtp-ip/ext-sip-ip advertise the VPS PUBLIC IP (the
+      # config dir so ext-rtp-ip advertises the VPS PUBLIC IP for RTP/media (the
       # shared file uses $${local_ip_v4} = the container's internal docker IP,
-      # which browsers can't reach -> one-way / no audio). A file bind-mount on a
+      # which browsers can't reach -> one-way / no audio). ext-sip-ip stays on the
+      # internal IP (SIP only talks to drachtio inside the network). A file bind-mount on a
       # longer path wins over the ./freeswitch_configs dir mount above. This file
       # lives only in prod/ and is referenced ONLY here (never in the dev compose).
       # >>> Update the public IP inside prod/freeswitch/drachtio_mrf.xml on change.
       - ../prod/freeswitch/drachtio_mrf.xml:/etc/freeswitch/sip_profiles/drachtio_mrf.xml:ro
       - ./freeswitch_sounds:/usr/share/freeswitch/sounds
       - ./recordings:/usr/local/freeswitch/recordings
+    # The image's /healthcheck.sh authenticates with the DEFAULT ESL password
+    # (ClueCon) and therefore ALWAYS fails here (real password is JambonzR0ck$),
+    # leaving the container permanently (unhealthy). Override it with the correct
+    # password. In compose, $$ becomes a literal $ after interpolation; the
+    # single quotes then keep it literal for the shell.
+    healthcheck:
+      test: ["CMD-SHELL", "fs_cli -p 'JambonzR0ck$$' -x status | grep -q 'is ready'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
     networks:
       - voipnet
     restart: unless-stopped
@@ -208,7 +220,7 @@ services:
       drachtio-server:
         condition: service_started
       drachtio-freeswitch:
-        condition: service_started
+        condition: service_healthy
     networks:
       - voipnet
     restart: unless-stopped

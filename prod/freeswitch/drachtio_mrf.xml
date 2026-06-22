@@ -2,8 +2,13 @@
   <!--
     PRODUCTION MRF profile for VPS deployment.
     Identical to docker/freeswitch_configs/sip_profiles/drachtio_mrf.xml EXCEPT
-    ext-rtp-ip / ext-sip-ip are set to the VPS public IP so RTP/media reaches
-    browsers over the internet. Mounted over the shared file only in prod.
+    ext-rtp-ip is set to the VPS public IP so RTP/media reaches browsers over
+    the internet. ext-sip-ip intentionally STAYS on the internal docker IP
+    ($${local_ip_v4}) because the only SIP peer is drachtio inside the compose
+    network: advertising the public IP there makes drachtio's ACK hairpin to the
+    box's own public IP and never complete => connectCaller "Connection timeout"
+    => every IVR / voicemail / conference / queue call fails. Mounted over the
+    shared file only in prod.
 
     >>> REPLACE 77.237.241.24 below if your public IP changes. <<<
   -->
@@ -19,8 +24,12 @@
     <param name="rtp-ip" value="$${local_ip_v4}"/>
     <param name="sip-ip" value="$${local_ip_v4}"/>
     <param name="sip-port" value="5090"/>
+    <!-- Browser RTP must reach the box across the internet => advertise PUBLIC IP. -->
     <param name="ext-rtp-ip" value="77.237.241.24"/>
-    <param name="ext-sip-ip" value="77.237.241.24"/>
+    <!-- SIP only ever talks to drachtio INSIDE the docker network, so advertise the
+         internal container IP. Using the public IP here makes drachtio ACK to the
+         box's own public IP (NAT hairpin) => connectCaller "Connection timeout". -->
+    <param name="ext-sip-ip" value="$${local_ip_v4}"/>
     <param name="auth-calls" value="false"/>
     <param name="enable-timer" value="false"/>
     <param name="user-agent-string" value="Enjoys media gateway"/>
