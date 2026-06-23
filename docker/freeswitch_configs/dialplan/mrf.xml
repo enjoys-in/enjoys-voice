@@ -9,16 +9,16 @@
              ESL-outbound callback FreeSWITCH will dial back to. ERR level so it
              surfaces in `docker logs drachtio-freeswitch`. -->
         <action application="log" data="ERR HIT SOCKET DIALPLAN ua=${sip_user_agent} esl=${sip_h_X-esl-outbound}"/>
-        <!-- Browser legs arrive as WebRTC offers (UDP/TLS/RTP/SAVPF) relayed
-             by drachtio. rtp_secure_media_inbound=true pins the inbound browser
-             leg to DTLS-SRTP so FreeSWITCH answers the secure media offer
-             instead of rejecting it with 488 Not Acceptable.
-             rtp_secure_media (the general/trunk-facing policy) is driven by the
-             mrf_secure_media global var (see vars.xml) so operators can relax
-             SRTP on the outbound trunk/Teams leg without touching the browser
-             leg. Default true = behaviour-preserving. -->
-        <action application="set" data="rtp_secure_media=${mrf_secure_media}"/>
-        <action application="set" data="rtp_secure_media_inbound=true"/>
+        <!-- Browser legs arrive as WebRTC offers (UDP/TLS/RTP/SAVPF + a=fingerprint,
+             NO a=crypto). Forcing rtp_secure_media_inbound=true requires an SDES
+             a=crypto suite the DTLS offer never contains -> FreeSWITCH logs
+             "Crypto not negotiated but required" and media dies ~3.5s after
+             answer (the connectCaller "Connection timeout"). `optional` lets the
+             DTLS offer auto-negotiate from a=fingerprint, and still accepts SDES
+             if a peer (e.g. a SIP trunk leg) actually offers a=crypto. This
+             mirrors the prod override (prod/freeswitch/dialplan-mrf.xml). -->
+        <action application="set" data="rtp_secure_media=optional"/>
+        <action application="set" data="rtp_secure_media_inbound=optional"/>
         <action application="answer"/>
         <action application="set" data="send_silence_when_idle=-1"/>
         <action application="set" data="hangup_after_bridge=false"/>

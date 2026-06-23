@@ -147,8 +147,11 @@
     <!-- NEEDS DOCUMENTATION -->
 
     <!-- RTP port range -->
-    <!-- <param name="rtp-start-port" value="16384"/> -->
-    <!-- <param name="rtp-end-port" value="32768"/> -->
+    <!-- Pinned to EXACTLY the docker-compose published udp range (16384-16403)
+         so FreeSWITCH never picks an RTP port outside what the host exposes;
+         a port outside this range is unreachable by the browser → no media. -->
+    <param name="rtp-start-port" value="16384"/>
+    <param name="rtp-end-port" value="16403"/>
 
     <!-- Test each port to make sure it is not in use by some other process before allocating it to RTP -->
     <!-- <param name="rtp-port-usage-robustness" value="true"/> -->
