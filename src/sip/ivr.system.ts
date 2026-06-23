@@ -5,6 +5,8 @@ import fs from 'fs';
 import path from 'path';
 import { config, IVRCallState, Department } from '@/core';
 import { DatabaseService } from '@/services';
+import { runFlow, type FlowRunnerContext, type FlowRunnerHandlers, type FlowResult } from './ivr/flow-runner';
+import type { IvrFlowGraph } from './ivr/flow.types';
 
 const DEFAULT_DEPARTMENTS: Department[] = [
   { id: 'sales', name: 'Sales', nameHi: 'बिक्री', agents: ['1001', '1002'], queueName: 'sales_queue', maxWait: 120, priority: 2 },
@@ -132,6 +134,40 @@ export class IVRSystem {
       return false;
     }
 
+    let endpoint: Mrf.Endpoint | undefined;
+    let dialog: Srf.Dialog | undefined;
+
+    try {
+      ({ endpoint, dialog } = await this.ms!.connectCaller(req, res));
+      return await this.captureVoicemail(endpoint, mailbox, callerNumber, fromName);
+    } catch (err: any) {
+      console.error('❌ Voicemail error:', err.message);
+      if (res && !res.finalResponseSent) res.send(480, 'Temporarily Unavailable');
+      return false;
+    } finally {
+      try { endpoint?.destroy(); } catch { /* noop */ }
+      try { await dialog?.destroy?.(); } catch { /* noop */ }
+    }
+  }
+
+  /**
+   * Record a voicemail on an ALREADY-CONNECTED endpoint (the caller's A-leg is
+   * answered onto FreeSWITCH and `res` has been responded). Plays a greeting
+   * (a custom prompt or the default "unavailable" message), a beep, then records
+   * until the caller presses 0/# or the limit is reached, persists the message
+   * and notifies the mailbox owner. Shared by the offline-user fallback
+   * (recordVoicemail, which does the connectCaller first) and the IVR flow
+   * `voicemail` node. Never touches `res`.
+   */
+  private async captureVoicemail(
+    endpoint: Mrf.Endpoint,
+    mailbox: string,
+    callerNumber: string,
+    fromName: string,
+    opts: { greeting?: string; maxSeconds?: number } = {},
+  ): Promise<boolean> {
+    if (!config.voicemail.enabled) return false;
+
     const id = crypto.randomUUID();
     // Organize recordings as <mailbox>/<YYYYMMDD>/vm_<ts>.wav so messages are
     // easy to browse per-user/per-day instead of piling up in one flat folder.
@@ -148,64 +184,59 @@ export class IVRSystem {
       fs.mkdirSync(path.resolve(config.voicemail.hostDir, relDir), { recursive: true });
     } catch { /* best-effort */ }
 
-    let endpoint: Mrf.Endpoint | undefined;
-    let dialog: Srf.Dialog | undefined;
     const startedAt = Date.now();
 
+    // Set the TTS engine so a `say:` greeting renders, then play the greeting
+    // (a custom voicemail-node prompt, or the default message) and a beep.
     try {
-      ({ endpoint, dialog } = await this.ms!.connectCaller(req, res));
+      await endpoint.execute('set', 'tts_engine=flite');
+      await endpoint.execute('set', 'tts_voice=slt');
+    } catch { /* best-effort */ }
 
-      const greeting = `The person you are trying to reach is unavailable. `
-        + `Please leave a message after the tone. Press zero when you are finished.`;
-      await endpoint.speak({ ttsEngine: 'flite', voice: 'slt', text: greeting });
-      // Short beep tone.
-      await endpoint.play('tone_stream://%(500,0,800)');
+    const greeting = opts.greeting
+      || 'say:The person you are trying to reach is unavailable. '
+        + 'Please leave a message after the tone. Press zero when you are finished.';
+    await this.playSafe(endpoint, greeting);
+    // Short beep tone.
+    await this.playSafe(endpoint, 'tone_stream://%(500,0,800)');
 
-      // Stop recording when the caller presses 0 (or #).
-      await endpoint.execute('set', 'playback_terminators=0#');
-      // Typed record() helper (same underlying `record` app as execute('record',…))
-      // but it hands back FreeSWITCH's own stats. We use recordSeconds for the
-      // duration so it reflects ONLY the message — not the greeting/beep that
-      // played first, which wall-clock (Date.now() - startedAt) would include.
-      const rec = await endpoint.record(fsPath, {
-        timeLimitSecs: config.voicemail.maxSec,
-        silenceThresh: 200,
-        silenceHits: 5,
-      });
+    // Stop recording when the caller presses 0 (or #).
+    await endpoint.execute('set', 'playback_terminators=0#');
+    // Typed record() helper (same underlying `record` app as execute('record',…))
+    // but it hands back FreeSWITCH's own stats. We use recordSeconds for the
+    // duration so it reflects ONLY the message — not the greeting/beep that
+    // played first, which wall-clock (Date.now() - startedAt) would include.
+    const rec = await endpoint.record(fsPath, {
+      timeLimitSecs: opts.maxSeconds ?? config.voicemail.maxSec,
+      silenceThresh: 200,
+      silenceHits: 5,
+    });
 
-      const duration = rec.recordSeconds
-        ? Math.round(Number(rec.recordSeconds))
-        : Math.round((Date.now() - startedAt) / 1000);
+    const duration = rec.recordSeconds
+      ? Math.round(Number(rec.recordSeconds))
+      : Math.round((Date.now() - startedAt) / 1000);
 
-      await this.db.addVoicemail({
-        id,
-        mailbox,
-        from: callerNumber,
-        fromName: fromName || callerNumber,
-        file: relPath,
-        duration,
-        createdAt: new Date().toISOString(),
-        read: false,
-      });
+    await this.db.addVoicemail({
+      id,
+      mailbox,
+      from: callerNumber,
+      fromName: fromName || callerNumber,
+      file: relPath,
+      duration,
+      createdAt: new Date().toISOString(),
+      read: false,
+    });
 
-      this.notifyFn?.(mailbox, 'voicemail', {
-        id,
-        from: callerNumber,
-        fromName: fromName || callerNumber,
-        duration,
-        createdAt: new Date().toISOString(),
-      });
+    this.notifyFn?.(mailbox, 'voicemail', {
+      id,
+      from: callerNumber,
+      fromName: fromName || callerNumber,
+      duration,
+      createdAt: new Date().toISOString(),
+    });
 
-      console.log(`📭 Voicemail saved for ${mailbox} from ${callerNumber} (${duration}s)`);
-      return true;
-    } catch (err: any) {
-      console.error('❌ Voicemail error:', err.message);
-      if (res && !res.finalResponseSent) res.send(480, 'Temporarily Unavailable');
-      return false;
-    } finally {
-      try { endpoint?.destroy(); } catch { /* noop */ }
-      try { await dialog?.destroy?.(); } catch { /* noop */ }
-    }
+    console.log(`📭 Voicemail saved for ${mailbox} from ${callerNumber} (${duration}s)`);
+    return true;
   }
 
   /**
@@ -767,10 +798,60 @@ export class IVRSystem {
     return '';
   }
 
-  async handleIncomingCall(req: any, res: any, existingCallId?: string): Promise<void> {
+  /**
+   * Build the media handlers the flow interpreter needs (wired to this system's
+   * private helpers) and execute the flow against the connected caller. Returns
+   * how the flow ended so the caller can decide whether to tear the call down.
+   */
+  private async runFlowForCall(
+    endpoint: Mrf.Endpoint,
+    flow: IvrFlowGraph,
+    state: IVRCallState,
+  ): Promise<FlowResult> {
+    const ctx: FlowRunnerContext = {
+      callId: state.callId,
+      callerNumber: state.callerNumber,
+      dialedNumber: state.calledNumber,
+    };
+    const fromName = this.db.getUser(state.callerNumber)?.name || state.callerNumber;
+    const handlers: FlowRunnerHandlers = {
+      play: (file) => this.playSafe(endpoint, file),
+      collect: (prompt, opts) => this.promptAndCollect(endpoint, prompt, opts),
+      voicemail: async (mailbox, opts) => {
+        await this.captureVoicemail(endpoint, mailbox, state.callerNumber, fromName, opts);
+      },
+      transfer: (opts) => this.flowTransfer(endpoint, state, opts),
+    };
+    return runFlow(flow, ctx, handlers);
+  }
+
+  /**
+   * IVR flow `transfer` node: route the caller to a department queue (and/or a
+   * named extension) by setting call state and starting hold music, mirroring the
+   * built-in menu's behaviour. The agent bridge is driven by the queue/transfer
+   * subsystem; this never tears the call down.
+   */
+  private async flowTransfer(
+    endpoint: Mrf.Endpoint,
+    state: IVRCallState,
+    opts: { department?: string; extension?: string; ringSeconds?: number },
+  ): Promise<void> {
+    if (opts.department) {
+      const dept = this.departments.find((d) => d.id === opts.department);
+      state.department = dept?.id || opts.department;
+    }
+    state.status = 'queued';
+    this.db.updateCall(state.callId, { status: 'answered' });
+    const where = opts.department ? `dept:${opts.department}` : opts.extension ? `ext:${opts.extension}` : 'queue';
+    console.log(`🔀 IVR flow transfer → ${where} [${state.callId}]`);
+    // Hold music loops forever — fire-and-forget so we don't block the flow.
+    try { endpoint.executeAsync('playback', config.sounds.holdMusic); } catch { /* noop */ }
+  }
+
+  async handleIncomingCall(req: any, res: any, existingCallId?: string, dialedNumber?: string): Promise<void> {
     const callId = existingCallId || crypto.randomUUID();
     const callerNumber = req.callingNumber || 'unknown';
-    const calledNumber = req.calledNumber || 'unknown';
+    const calledNumber = dialedNumber || req.calledNumber || 'unknown';
 
     console.log(`\n📞 IVR: incoming call [${callId}]`);
     console.log(`   from=${callerNumber} to=${calledNumber} reusedId=${!!existingCallId}`);
@@ -809,6 +890,27 @@ export class IVRSystem {
 
       // Calmer, clearer TTS voice + brief lead-in silence (see prepareVoice).
       await this.prepareVoice(endpoint);
+
+      // Custom IVR flow? If an enabled flow is published for this DID/extension,
+      // run it and skip the built-in menu entirely. Any DID without a flow falls
+      // through to the default language/department menu below (no regression).
+      const flow = await this.db.getIvrFlow(calledNumber);
+      if (flow && flow.enabled && flow.nodes.length) {
+        console.log(`🧭 IVR: running custom flow "${flow.name}" (${flow.nodes.length} nodes) [${callId}]`);
+        this.db.updateCall(callId, { status: 'answered' });
+        const result = await this.runFlowForCall(endpoint, flow, state);
+        console.log(`🧭 IVR: flow ended (${result}) [${callId}]`);
+        // A `transfer` node leaves the call up on hold music for the queue to
+        // pick up; every other outcome (hangup / voicemail / completed / error)
+        // is terminal, so tear the answered leg down here.
+        if (result !== 'transferred') {
+          this.activeCalls.delete(callId);
+          this.db.updateCall(callId, { status: result === 'voicemail' ? 'voicemail' : 'answered' });
+          try { await dialog?.destroy?.(); } catch { /* noop */ }
+          try { await endpoint?.destroy?.(); } catch { /* noop */ }
+        }
+        return;
+      }
 
       // One-time greeting. Played ONCE so it is NOT repeated on menu retries.
       console.log(`🗣️ IVR: greeting [${callId}]`);

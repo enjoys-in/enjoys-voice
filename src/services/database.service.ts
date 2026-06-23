@@ -18,8 +18,10 @@ import {
   updateVoicemailRead,
   removeVoicemail,
   countUnreadVoicemails,
+  loadIvrFlowByExtension,
   type ForwardingRow,
 } from './postgres';
+import type { IvrFlowGraph } from '@/sip/ivr/flow.types';
 
 /**
  * Minimal shape of the rating engine the DatabaseService depends on. Declared
@@ -40,6 +42,13 @@ export class DatabaseService extends EventEmitter {
   private registrations = new Map<string, SipRegistration>();
   /** phone number → extension lookup */
   private phoneIndex = new Map<string, string>();
+  /**
+   * Per-extension IVR-flow cache. A present value is the loaded flow; `null` is a
+   * negative cache ("no enabled flow for this DID") so calls to plain extensions
+   * don't hit Postgres on every INVITE. Invalidated per-extension on an
+   * `ivr_flows` NOTIFY and cleared wholesale on listener reconnect.
+   */
+  private ivrFlows = new Map<string, IvrFlowGraph | null>();
   /**
    * Optional call rater. Injected (not imported) to avoid a module cycle with
    * the rating service. When set, a call transitioning to `ended` is priced here
@@ -515,5 +524,39 @@ export class DatabaseService extends EventEmitter {
   unreadVoicemailCount(mailbox: string): Promise<number> {
     return countUnreadVoicemails(mailbox);
   }
-}
 
+  // ─── IVR flows ───────────────────────────────────────
+  // Visual IVR flows are authored in the dashboard and persisted by the Go API
+  // in the shared `ivr_flows` table. The SIP runtime only READS them, keyed by
+  // the dialed DID/extension, with a small in-memory cache kept fresh by the
+  // ivr-flow-sync LISTEN/NOTIFY listener (see invalidateIvrFlow / clearIvrFlowCache).
+
+  /**
+   * The enabled IVR flow for a dialed DID/extension, or undefined when none
+   * exists. Caches both hits and misses; a DB error returns undefined (the
+   * caller falls back to the built-in menu) and is NOT cached.
+   */
+  async getIvrFlow(extension: string): Promise<IvrFlowGraph | undefined> {
+    if (this.ivrFlows.has(extension)) {
+      return this.ivrFlows.get(extension) ?? undefined;
+    }
+    try {
+      const flow = await loadIvrFlowByExtension(extension);
+      this.ivrFlows.set(extension, flow ?? null);
+      return flow;
+    } catch (err: any) {
+      console.warn(`⚠️ IVR: flow lookup failed for ${extension}: ${err?.message}`);
+      return undefined;
+    }
+  }
+
+  /** Drop one extension's cached flow (on an `ivr_flows` change NOTIFY). */
+  invalidateIvrFlow(extension: string): void {
+    this.ivrFlows.delete(extension);
+  }
+
+  /** Drop all cached flows (on listener reconnect, to catch missed changes). */
+  clearIvrFlowCache(): void {
+    this.ivrFlows.clear();
+  }
+}

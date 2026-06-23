@@ -31,6 +31,8 @@ export type { RegistrationStore } from './registration';
 export { UserSyncListener } from './postgres';
 export { SettingsSyncListener } from './postgres';
 export { RateSyncListener } from './postgres';
+export { IvrFlowSyncListener } from './postgres';
+export type { IvrFlowSyncOptions } from './postgres';
 export { ensureCallSchema, upsertCall } from './postgres';
 export { debitForCall } from './postgres';
 export { WriteQueue } from './queue';
