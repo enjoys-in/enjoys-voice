@@ -145,7 +145,7 @@ export class SipServer {
   }
 
   private handleRegister(): void {
-    this.srf.register(async (req: any, res: any) => {
+    this.srf.register(async (req: Srf.SrfRequest, res: Srf.SrfResponse) => {
       try {
         const ip = req.source_address;
         // Banned source → refuse instantly, before any rate accounting or lookup.

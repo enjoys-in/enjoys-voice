@@ -126,15 +126,18 @@ export class IVRSystem {
    * for the mailbox owner and notifies them over WebSocket.
    */
   async recordVoicemail(
-    req: any,
-    res: any,
+    req: Srf.SrfRequest,
+    res: Srf.SrfResponse,
     mailbox: string,
     callerNumber: string,
     fromName: string,
   ): Promise<boolean> {
-    if (!config.voicemail.enabled) return false;
-
+    console.log(`\n📭 Voicemail: incoming for mailbox=${mailbox} from=${callerNumber}`);
+    if (!config.voicemail.enabled) {
+      return false;
+    }    
     if (!(await this.ensureConnected())) {
+      console.warn('   ⚠️ Voicemail: media server unavailable; replying 480');
       if (!res.finalResponseSent) res.send(480, 'Temporarily Unavailable');
       return false;
     }
@@ -143,7 +146,10 @@ export class IVRSystem {
     let dialog: Srf.Dialog | undefined;
 
     try {
+      console.log(`   🔗 Voicemail: step 2/3 — connectCaller (FS dials back to ${config.freeswitch.listenAddress}:${config.freeswitch.listenPort})`);
       ({ endpoint, dialog } = await this.ms!.connectCaller(req, res));
+      console.log(`   ✅ Voicemail: media connected, channel=${endpoint.uuid}`);
+  
       return await this.captureVoicemail(endpoint, mailbox, callerNumber, fromName);
     } catch (err: any) {
       console.error('❌ Voicemail error:', err.message);
@@ -201,12 +207,15 @@ export class IVRSystem {
     const greeting = opts.greeting
       || 'say:The person you are trying to reach is unavailable. '
       + 'Please leave a message after the tone. Press zero when you are finished.';
+    console.log(`   🗣️ Voicemail: playing greeting for mailbox=${mailbox}`);
     await this.playSafe(endpoint, greeting);
     // Short beep tone.
+    console.log('   🔔 Voicemail: playing beep');
     await this.playSafe(endpoint, 'tone_stream://%(500,0,800)');
 
     // Stop recording when the caller presses 0 (or #).
     await endpoint.execute('set', 'playback_terminators=0#');
+    console.log(`   ⏺️ Voicemail: recording → ${fsPath}`);
     // Typed record() helper (same underlying `record` app as execute('record',…))
     // but it hands back FreeSWITCH's own stats. We use recordSeconds for the
     // duration so it reflects ONLY the message — not the greeting/beep that
@@ -890,6 +899,7 @@ export class IVRSystem {
 
     try {
       console.log(`🔗 IVR: answering & connecting caller to media server [${callId}]`);
+      console.log(`   ↩️ IVR: FS will dial back to ${config.freeswitch.listenAddress}:${config.freeswitch.listenPort} (X-esl-outbound) [${callId}]`);
 
       ({ endpoint, dialog } = await this.ms!.connectCaller(req, res));
 

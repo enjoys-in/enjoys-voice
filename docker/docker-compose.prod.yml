@@ -186,6 +186,7 @@ services:
       - "3002:3002" # signaling WebSocket
       - "3004:3004" # media-stream WS
       - "3005:3005" # browser-bridge WS
+      - "8085:8085" # FreeSWITCH outbound-ESL callback (connectCaller socket)
     environment:
       # Stores are reachable by service name on their STANDARD ports inside the
       # compose network (the host port shift only affects host access).
@@ -223,7 +224,7 @@ services:
       # over voipnet. The code default is host.docker.internal, which points at
       # the HOST — where :8085 is NOT published — so FS can't connect back =>
       # "Connection timeout" on every IVR/voicemail/conference call. (Local works
-      # because the dev app runs on the host, reachable via host.docker.internal.)
+      # because the dev app runs on the host, reachable via host.docker.internal or localhost)
       FREESWITCH_LISTEN_ADDRESS: callnet-api
       FREESWITCH_LISTEN_PORT: "8085"
       RECORDINGS_DIR: /app/recordings
