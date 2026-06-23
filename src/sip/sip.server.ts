@@ -94,9 +94,11 @@ export class SipServer {
 
     this.srf.connect({
       ...config.drachtio,
-      logger: (message: string) => {
-        console.log(`📡 [Drachtio]: ${message}`);
-      }
+      // Raw SIP wire traces are very noisy; only emit them when explicitly
+      // debugging drachtio (DRACHTIO_DEBUG=true).
+      ...(process.env.DRACHTIO_DEBUG === 'true'
+        ? { logger: (message: string) => console.log(`📡 [Drachtio]: ${message}`) }
+        : {}),
     });
 
     this.srf.on('connect', (_err: any, hp: string) => {

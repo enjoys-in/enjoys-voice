@@ -43,6 +43,7 @@ export class IVRSystem {
     const maxRetries = 3;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
+ 
         this.ms = await this.mrf.connect({
           address: config.freeswitch.host,
           port: config.freeswitch.port,
@@ -69,15 +70,19 @@ export class IVRSystem {
    * never tear down the shared connection (that previously caused every later
    * call to 503 / fall through to 480).
    */
-  private attachConnectionListeners(ms: any): void {
+  private attachConnectionListeners(ms: Mrf.MediaServer): void {
     const onDown = (why: string) => {
       if (this.ms !== ms) return; // stale listener for a replaced connection
       console.warn(`⚠️ IVR: FreeSWITCH connection lost (${why}); will reconnect`);
       this.ms = null;
       this.scheduleReconnect();
     };
+    ms.on('connect', () => console.log('✅ IVR: FreeSWITCH ESL connected'));
+    ms.on('ready', () => console.log('✅ IVR: FreeSWITCH ESL ready'));
     ms.on('end', () => onDown('end'));
     ms.on('error', (e: any) => onDown(e?.message || 'error'));
+    ms.on('channel::open', () => console.log('✅ IVR: FreeSWITCH channel opened'));
+    ms.on('channel::close', () => console.log('ℹ️ IVR: FreeSWITCH channel closed'));
   }
 
   private scheduleReconnect(): void {
@@ -195,7 +200,7 @@ export class IVRSystem {
 
     const greeting = opts.greeting
       || 'say:The person you are trying to reach is unavailable. '
-        + 'Please leave a message after the tone. Press zero when you are finished.';
+      + 'Please leave a message after the tone. Press zero when you are finished.';
     await this.playSafe(endpoint, greeting);
     // Short beep tone.
     await this.playSafe(endpoint, 'tone_stream://%(500,0,800)');
@@ -885,7 +890,9 @@ export class IVRSystem {
 
     try {
       console.log(`🔗 IVR: answering & connecting caller to media server [${callId}]`);
+
       ({ endpoint, dialog } = await this.ms!.connectCaller(req, res));
+
       console.log(`✅ IVR: media connected, channel=${endpoint.uuid} [${callId}]`);
 
       // Calmer, clearer TTS voice + brief lead-in silence (see prepareVoice).
