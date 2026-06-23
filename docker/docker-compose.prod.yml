@@ -28,8 +28,8 @@ services:
       - DRACHTIO_EXTERNAL_IP=auto
     restart: unless-stopped
     networks:
-      voipnet:
-        ipv4_address: 172.19.0.2
+      # No static IP needed: reached by service name "drachtio-server" (DRACHTIO_HOST).
+      - voipnet
     volumes:
       - ./drachtio-server/config/drachtio.conf.prod.xml:/etc/drachtio.conf.xml
       # TLS certs for the wss listener on :5065 (sips:*;transport=wss).
@@ -84,8 +84,8 @@ services:
       retries: 5
       start_period: 40s
     networks:
-      voipnet:
-        ipv4_address: 172.19.0.3
+      # No static IP needed: reached by service name "drachtio-freeswitch" (FREESWITCH_HOST).
+      - voipnet
     restart: unless-stopped
 
   postgres:
@@ -216,7 +216,7 @@ services:
       DRACHTIO_HOST: drachtio-server
       DRACHTIO_PORT: "9022"
       DRACHTIO_SECRET: siprocks
-      FREESWITCH_HOST: 172.19.0.3
+      FREESWITCH_HOST: drachtio-freeswitch
       FREESWITCH_PORT: "8021"
       # ESL-OUTBOUND callback target (advertisedAddress / X-esl-outbound). After
       # answering the MRF INVITE, FreeSWITCH connects BACK to the fsmrf listener
@@ -226,7 +226,7 @@ services:
       # the HOST — where :8085 is NOT published — so FS can't connect back =>
       # "Connection timeout" on every IVR/voicemail/conference call. (Local works
       # because the dev app runs on the host, reachable via host.docker.internal or localhost)
-      FREESWITCH_LISTEN_ADDRESS: 172.19.0.4
+      FREESWITCH_LISTEN_ADDRESS: 10.89.0.10
       FREESWITCH_LISTEN_PORT: "8085"
       RECORDINGS_DIR: /app/recordings
     volumes:
@@ -241,8 +241,10 @@ services:
       drachtio-freeswitch:
         condition: service_healthy
     networks:
+      # Only the api keeps a pinned IP so the FreeSWITCH MRF dialplan can dial
+      # the ESL callback back to a known, stable address (see dialplan-mrf.xml).
       voipnet:
-        ipv4_address: 172.19.0.4
+        ipv4_address: 10.89.0.10
     restart: unless-stopped
 
   web:
@@ -281,7 +283,11 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.19.0.0/24
+        # Free subnet outside Docker's default 172.17-172.31 pool to avoid the
+        # "failed to set up container networking: Address already in use" clash
+        # on a host running many other stacks. Verify it's unused on the host
+        # with: docker network inspect $(docker network ls -q) | grep 10.89
+        - subnet: 10.89.0.0/24
 
 volumes:
   freeswitch-sounds:

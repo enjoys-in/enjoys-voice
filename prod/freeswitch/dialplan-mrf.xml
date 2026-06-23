@@ -19,7 +19,7 @@
   <context name="mrf">
 
     <!-- drachtio-fsmrf: establish outbound event socket connection back to the
-         api container. Hardcoded to its pinned voipnet IP (172.19.0.4:8085);
+         api container. Hardcoded to its pinned voipnet IP (10.89.0.10:8085);
          the X-esl-outbound header (from FREESWITCH_LISTEN_ADDRESS) carries the
          same value, so this just removes any dependence on the header surviving
          the drachtio relay. -->
@@ -37,7 +37,7 @@
         <action application="set" data="playback_terminators=none"/>
         <!-- Update this IP if the api service ipv4_address in
              docker-compose.prod.yml changes. -->
-        <action application="socket" data="172.19.0.4:8085 async full"/>
+        <action application="socket" data="10.89.0.10:8085 async full"/>
       </condition>
     </extension>
   </context>

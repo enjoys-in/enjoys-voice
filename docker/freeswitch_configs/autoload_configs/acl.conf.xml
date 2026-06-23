@@ -20,8 +20,8 @@
       <node type="allow" cidr="127.0.0.1/32"/>
       <node type="allow" cidr="10.0.0.0/8"/>
       <node type="allow" cidr="94.26.106.80/32"/> 
-      <!-- api container's pinned voipnet IP (already inside 172.16.0.0/12; explicit) -->
-      <node type="allow" cidr="172.19.0.4/32"/>
+      <!-- api container's pinned voipnet IP (already inside 10.0.0.0/8; explicit) -->
+      <node type="allow" cidr="10.89.0.10/32"/>
     </list>
 
     <!--
