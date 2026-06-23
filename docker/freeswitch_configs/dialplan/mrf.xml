@@ -5,6 +5,10 @@
          address specified in the X-esl-outbound header -->
     <extension name="socket">
       <condition field="${sip_user_agent}" expression="^drachtio-fsmrf:(.*)$">
+        <!-- DIAGNOSTIC: confirm this extension matched and show the exact
+             ESL-outbound callback FreeSWITCH will dial back to. ERR level so it
+             surfaces in `docker logs drachtio-freeswitch`. -->
+        <action application="log" data="ERR HIT SOCKET DIALPLAN ua=${sip_user_agent} esl=${sip_h_X-esl-outbound}"/>
         <!-- Browser legs arrive as WebRTC offers (UDP/TLS/RTP/SAVPF) relayed
              by drachtio. rtp_secure_media_inbound=true pins the inbound browser
              leg to DTLS-SRTP so FreeSWITCH answers the secure media offer

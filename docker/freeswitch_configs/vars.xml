@@ -84,9 +84,10 @@
       PSTN/Teams carrier rejects SRTP on the trunk leg.
   -->
   <X-PRE-PROCESS cmd="set" data="mrf_secure_media=true"/>
+  
+
   <!--
-      NOTICE: When using SRTP it's critical that you do not offer or accept
-      variable bit rate codecs, doing so would leak information and possibly
+      mrf_ext_rtp_ip: the RTP address the drachtio_mrf profile ADVERTISES in i bit rate codecs, doing so would leak information and possibly
       compromise your SRTP stream. (FS-6404)
 
       Supported SRTP Crypto Suites:

@@ -43,7 +43,7 @@ export class IVRSystem {
     const maxRetries = 3;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
- 
+
         this.ms = await this.mrf.connect({
           address: config.freeswitch.host,
           port: config.freeswitch.port,
@@ -135,7 +135,7 @@ export class IVRSystem {
     console.log(`\n📭 Voicemail: incoming for mailbox=${mailbox} from=${callerNumber}`);
     if (!config.voicemail.enabled) {
       return false;
-    }    
+    }
     if (!(await this.ensureConnected())) {
       console.warn('   ⚠️ Voicemail: media server unavailable; replying 480');
       if (!res.finalResponseSent) res.send(480, 'Temporarily Unavailable');
@@ -146,12 +146,12 @@ export class IVRSystem {
     let dialog: Srf.Dialog | undefined;
 
     try {
-      console.log(`   🔗 Voicemail: step 2/3 — connectCaller (FS dials back to ${config.freeswitch.listenAddress}:${config.freeswitch.listenPort})`);
       ({ endpoint, dialog } = await this.ms!.connectCaller(req, res));
       console.log(`   ✅ Voicemail: media connected, channel=${endpoint.uuid}`);
-  
+
       return await this.captureVoicemail(endpoint, mailbox, callerNumber, fromName);
     } catch (err: any) {
+      console.log(err)
       console.error('❌ Voicemail error:', err.message);
       if (res && !res.finalResponseSent) res.send(480, 'Temporarily Unavailable');
       return false;
