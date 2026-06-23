@@ -12,7 +12,7 @@
 
        WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING
   -->
-  <X-PRE-PROCESS cmd="set" data="default_password=3cQ4DVCoSJI_"
+  <X-PRE-PROCESS cmd="set" data="default_password=3cQ4DVCoSJI_"/>
   <X-PRE-PROCESS cmd="set" data="disable_system_api_commands=false"/>
   <!-- Did you change it yet? -->
   <!--
@@ -64,6 +64,14 @@
   <X-PRE-PROCESS cmd="set" data="hold_music=local_stream://moh"/>
   <X-PRE-PROCESS cmd="set" data="use_profile=external"/>
   <X-PRE-PROCESS cmd="set" data="rtp_sdes_suites=AEAD_AES_256_GCM_8|AEAD_AES_128_GCM_8|AES_CM_256_HMAC_SHA1_80|AES_CM_192_HMAC_SHA1_80|AES_CM_128_HMAC_SHA1_80|AES_CM_256_HMAC_SHA1_32|AES_CM_192_HMAC_SHA1_32|AES_CM_128_HMAC_SHA1_32|AES_CM_128_NULL_AUTH"/>
+  <!--
+      RTP inactivity timeouts (in MILLISECONDS). Replace the deprecated
+      per-profile rtp-timeout-sec (300s) / rtp-hold-timeout-sec (1800s) params.
+      Defined here once and applied as channel variables in the default/public
+      dialplan contexts so registered-softphone calls keep the same behaviour.
+  -->
+  <X-PRE-PROCESS cmd="set" data="media_timeout=300000"/>
+  <X-PRE-PROCESS cmd="set" data="media_hold_timeout=1800000"/>
   <!--
       mrf_secure_media: SRTP policy applied to the trunk-facing leg of MRF-
       anchored calls (e.g. the Microsoft Teams dial-in bridge in

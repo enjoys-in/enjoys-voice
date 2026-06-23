@@ -20,6 +20,15 @@
       </condition>
     </extension>
 
+    <!-- RTP inactivity timeouts (ms). Replaces the deprecated per-profile
+         rtp-timeout-sec / rtp-hold-timeout-sec on the internal profile. -->
+    <extension name="rtp_media_timeout" continue="true">
+      <condition>
+        <action application="set" data="media_timeout=$${media_timeout}"/>
+        <action application="set" data="media_hold_timeout=$${media_hold_timeout}"/>
+      </condition>
+    </extension>
+
     <!-- Example of doing things based on time of day.
 
 	 year = 4 digit year. Example year="2009"

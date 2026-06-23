@@ -19,6 +19,15 @@
 	<action application="deflect" data="${destination_number}"/>
       </condition>
     </extension>
+
+    <!-- RTP inactivity timeouts (ms). Replaces the deprecated per-profile
+         rtp-timeout-sec / rtp-hold-timeout-sec on the external profile. -->
+    <extension name="rtp_media_timeout" continue="true">
+      <condition>
+        <action application="set" data="media_timeout=$${media_timeout}"/>
+        <action application="set" data="media_hold_timeout=$${media_hold_timeout}"/>
+      </condition>
+    </extension>
     <!--
 	Tag anything pass thru here as an outside_call so you can make sure not
 	to create any routing loops based on the conditions that it came from 
