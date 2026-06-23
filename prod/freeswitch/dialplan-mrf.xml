@@ -1,0 +1,39 @@
+<include>
+  <!-- PROD-ONLY override of docker/freeswitch_configs/dialplan/mrf.xml.
+       Mounted over /etc/freeswitch/dialplan/mrf.xml by docker-compose.prod.yml
+       (a single-file bind on the longer dest path wins over the
+       ./freeswitch_configs dir mount). Referenced ONLY by the prod compose,
+       never by the dev compose — so local keeps its current (strict SDES)
+       behaviour while prod relaxes SRTP so real WebRTC browsers can connect.
+
+       WHY THIS DIFFERS FROM DEV: a WebRTC browser offers DTLS-SRTP
+       (m=audio ... UDP/TLS/RTP/SAVPF + a=fingerprint, NO a=crypto). The dev
+       file forces SDES on the inbound leg (rtp_secure_media_inbound=true), so
+       FreeSWITCH requires an a=crypto suite the offer never contains and logs
+       "switch_core_media.c:5606 Crypto not negotiated but required" -> media
+       fails, call drops ~3.5s after answer. Local "works" only because the
+       browser and FreeSWITCH share one host (no NAT), so the path is rarely
+       exercised. In prod we relax both knobs to `optional`: DTLS is then
+       auto-detected from the fingerprint and SDES is still accepted if a peer
+       (e.g. a SIP trunk leg) actually offers a=crypto. -->
+  <context name="mrf">
+
+    <!-- drachtio-fsmrf: establish outbound event socket connection to the
+         address specified in the X-esl-outbound header -->
+    <extension name="socket">
+      <condition field="${sip_user_agent}" expression="^drachtio-fsmrf:(.*)$">
+        <!-- optional = negotiate SRTP only if the peer offers it; let a DTLS
+             (WebRTC) offer fall through to DTLS auto-negotiation from the
+             a=fingerprint instead of requiring an a=crypto suite. -->
+        <action application="set" data="rtp_secure_media=optional"/>
+        <action application="set" data="rtp_secure_media_inbound=optional"/>
+        <action application="answer"/>
+        <action application="set" data="send_silence_when_idle=-1"/>
+        <action application="set" data="hangup_after_bridge=false"/>
+        <action application="set" data="park_after_bridge=true"/>
+        <action application="set" data="playback_terminators=none"/>
+        <action application="socket" data="${sip_h_X-esl-outbound} async full"/>
+      </condition>
+    </extension>
+  </context>
+</include>

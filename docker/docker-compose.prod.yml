@@ -62,6 +62,13 @@ services:
       # lives only in prod/ and is referenced ONLY here (never in the dev compose).
       # >>> Update the public IP inside prod/freeswitch/drachtio_mrf.xml on change.
       - ../prod/freeswitch/drachtio_mrf.xml:/etc/freeswitch/sip_profiles/drachtio_mrf.xml:ro
+      # PROD-ONLY override: relax MRF SRTP policy so real WebRTC browsers (DTLS-
+      # SRTP, no a=crypto) negotiate media instead of failing with "Crypto not
+      # negotiated but required". The shared dialplan/mrf.xml forces SDES on the
+      # inbound browser leg (rtp_secure_media_inbound=true); this prod copy sets
+      # both knobs to `optional` so DTLS auto-negotiates. Dev keeps the strict
+      # behaviour (file referenced ONLY here). Longer dest path wins over the dir.
+      - ../prod/freeswitch/dialplan-mrf.xml:/etc/freeswitch/dialplan/mrf.xml:ro
       - ./freeswitch_sounds:/usr/share/freeswitch/sounds
       - ./recordings:/usr/local/freeswitch/recordings
     # The image's /healthcheck.sh authenticates with the DEFAULT ESL password
