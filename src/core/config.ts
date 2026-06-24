@@ -95,8 +95,10 @@ export interface AppConfig {
     // Embeddable click-to-call widget (developer API). When false, the
     // /api/n/widget/* endpoints return 503 and no capability tokens are minted.
     enabled: boolean;
-    // Public wss:// URL the widget's SIP.js client connects to. Falls back to
-    // the SIP-WS public URL, then a wss://<domain> guess.
+    // Public URL the widget's SIP.js client connects to (drachtio SIP-over-WS).
+    // Prefer the explicit PUBLIC_SIP_WS_URL (e.g. wss:// behind a TLS proxy in
+    // prod); otherwise fall back to the local ws://<publicIp>:<sipWsPort>, the
+    // SAME default the dialer's signaling server uses.
     sipWsUrl: string;
     // ICE servers handed to the widget for WebRTC (PUBLIC_ICE_SERVERS as a JSON
     // array). Defaults to a public STUN server when unset.
@@ -352,9 +354,13 @@ export const config: AppConfig = {
   },
   widget: {
     enabled: process.env.WIDGET_ENABLED !== 'false',
+    // Prefer the explicit PUBLIC_SIP_WS_URL (wss:// behind a TLS proxy in prod).
+    // Otherwise fall back to ws://<publicIp>:<sipWsPort> — the SAME local default
+    // the dialer's signaling server uses. A `wss://<domain>` guess is wrong
+    // locally: there's no TLS SIP-WS listener and no port, so SIP.js gets a 1006.
     sipWsUrl:
       process.env.PUBLIC_SIP_WS_URL ||
-      (process.env.DOMAIN ? `wss://${process.env.DOMAIN}` : ''),
+      `ws://${process.env.PUBLIC_IP || '127.0.0.1'}:${process.env.SIP_WS_PORT || '5065'}`,
     iceServers: parseIceServers(process.env.PUBLIC_ICE_SERVERS),
   },
   database: {
