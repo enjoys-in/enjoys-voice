@@ -200,8 +200,8 @@ export class IVRSystem {
     // Set the TTS engine so a `say:` greeting renders, then play the greeting
     // (a custom voicemail-node prompt, or the default message) and a beep.
     try {
-      await endpoint.execute('set', 'tts_engine=flite');
-      await endpoint.execute('set', 'tts_voice=slt');
+      await endpoint.execute('set', `tts_engine=${config.tts.engine}`);
+      await endpoint.execute('set', `tts_voice=${config.tts.voice}`);
     } catch { /* best-effort */ }
 
     const greeting = opts.greeting
@@ -722,17 +722,20 @@ export class IVRSystem {
   }
 
   /**
-   * Configure a calmer, clearer TTS voice and add a short lead-in silence.
+   * Configure the server-side TTS engine/voice and add a short lead-in silence.
    *
-   * The default flite voice ("kal") is fast and robotic; "slt" is clearer.
-   * Flite has NO true speech-rate control, so for a genuinely slower/natural
-   * pace the real fix is pre-recorded prompt files (see audit notes). The
-   * 500ms silence prevents the first word being clipped while RTP comes up.
+   * Defaults come from env (config.tts — Piper `tts_commandline` /
+   * `en_US-amy-medium`). Callers may pass { engine, voice } to override per
+   * call; when omitted the env defaults are used. The 500ms silence prevents
+   * the first word being clipped while RTP comes up.
    */
-  private async prepareVoice(endpoint: Mrf.Endpoint): Promise<void> {
+  private async prepareVoice(
+    endpoint: Mrf.Endpoint,
+    opts?: { engine?: string; voice?: string },
+  ): Promise<void> {
     try {
-      await endpoint.execute('set', 'tts_engine=flite');
-      await endpoint.execute('set', 'tts_voice=slt');
+      await endpoint.execute('set', `tts_engine=${opts?.engine || config.tts.engine}`);
+      await endpoint.execute('set', `tts_voice=${opts?.voice || config.tts.voice}`);
       await endpoint.play('silence_stream://500');
     } catch (err: any) {
       console.warn(`⚠️ IVR: prepareVoice failed: ${err?.message}`);

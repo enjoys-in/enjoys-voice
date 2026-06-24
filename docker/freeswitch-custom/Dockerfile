@@ -3,20 +3,26 @@
 #
 # WHY: the stock image's only working TTS is mod_flite (robotic, low quality).
 # mod_tts_commandline is ALREADY loaded in modules.conf.xml, so we don't rebuild
-# FreeSWITCH — we just install Piper (self-hosted neural TTS, no cloud/keys) and
+# FreeSWITCH — we just add Piper (self-hosted neural TTS, no cloud/keys) and
 # point mod_tts_commandline at it (see autoload_configs/tts_commandline.conf.xml).
+#
+# The base is a minimal busybox/buildroot rootfs: glibc (so Piper's prebuilt
+# glibc binary runs, and libstdc++/libgomp are present) but NO package manager
+# and NO CA certificates, so we can't download inside it. Hence a MULTI-STAGE
+# build: a full Debian stage fetches Piper + a voice model, and the final stage
+# just copies them onto the stock FreeSWITCH image.
 #
 # Build with run.sh (handles arch/voice build-args).
 # ─────────────────────────────────────────────────────────────────────────────
-FROM safarov/freeswitch:latest
 
-# Override at build time via run.sh / --build-arg.
+# ── Stage 1: fetch Piper (binary + libs + espeak-ng-data) and a voice model ──
+FROM debian:bookworm-slim AS fetch
+
 ARG PIPER_VERSION=2023.11.14-2
 ARG PIPER_ARCH=x86_64
 ARG PIPER_VOICE=en_US-amy-medium
 ARG PIPER_VOICE_PATH=en/en_US/amy/medium
 
-# 1) Piper binary (+ bundled libs + espeak-ng-data) and one voice model.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
  && mkdir -p /opt/piper/voices \
@@ -26,10 +32,24 @@ RUN apt-get update \
       "https://huggingface.co/rhasspy/piper-voices/resolve/main/${PIPER_VOICE_PATH}/${PIPER_VOICE}.onnx" \
  && curl -fL -o "/opt/piper/voices/${PIPER_VOICE}.onnx.json" \
       "https://huggingface.co/rhasspy/piper-voices/resolve/main/${PIPER_VOICE_PATH}/${PIPER_VOICE}.onnx.json" \
- && apt-get clean \
- && rm -rf /var/lib/apt/lists/*
+ && test -s "/opt/piper/voices/${PIPER_VOICE}.onnx" \
+ && test -x /opt/piper/piper
 
-# 2) Build-time smoke test: fail early if the binary/libs/model don't work.
+# ── Stage 2: final image = stock FreeSWITCH + Piper ──
+FROM safarov/freeswitch:latest
+
+# Re-declare so the smoke test below knows which model file to use.
+ARG PIPER_VOICE=en_US-amy-medium
+
+COPY --from=fetch /opt/piper /opt/piper
+
+# The minimal buildroot base ships WITHOUT /tmp. FreeSWITCH's default temp_dir
+# (where mod_tts_commandline writes the synthesized WAV) is /tmp, and Piper also
+# needs a writable dir, so create it. Without this, piper exits 0 but silently
+# writes nothing and the TTS produces no audio.
+RUN mkdir -p /tmp && chmod 1777 /tmp
+
+# Build-time smoke test: fail early if the binary/libs/model don't synthesize.
 RUN echo "freeswitch piper build check" \
       | /opt/piper/piper \
           --model "/opt/piper/voices/${PIPER_VOICE}.onnx" \

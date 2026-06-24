@@ -1,0 +1,99 @@
+# Standalone TEST stack (drachtio + custom enjoys-freeswitch / Piper neural TTS).
+#
+# Goal: run a COMPLETE signaling+media stack on DISTINCT ports so you can place
+# real calls through Piper TTS, either alongside the live stack or (more simply)
+# after stopping it. No original config file is modified.
+#
+# Topology (the host app — bun — stays on the host and points at these ports):
+#   app  --control 9023-->  drachtio-test  --SIP 5090(internal)-->  freeswitch-piper-test
+#   app  --ESL 7415------>  freeswitch-piper-test  --ESL-cb 8085-->  app (host)
+#   drachtio-test and freeswitch-piper-test share the compose default network,
+#   so drachtio reaches FS's drachtio_mrf profile by container IP on 5090
+#   (internal only — never published, so it can't collide with the live FS).
+#
+# Distinct host ports (so nothing collides with the live stack):
+#   drachtio ctrl : 127.0.0.1:9023 -> 9022     (live drachtio = 9022)
+#   drachtio SIP  : 5070/udp+tcp 1:1           (live drachtio = 5060)
+#   drachtio WS   : 5075/tcp 1:1               (live drachtio = 5065)
+#   FS ESL        : 127.0.0.1:7415 -> 8021     (live FS = 8021)
+#   FS RTP        : 15000-15019/udp 1:1        (live FS = 16384-16403)
+#
+# Non-destructive: ../freeswitch_configs + ../drachtio-server config are mounted
+# READ-ONLY; per-service overrides in ./config/ are layered on top (longer dest
+# path wins), so the originals on disk are never touched:
+#   - config/tts_commandline.conf.xml -> Piper TTS engine
+#   - config/switch.conf.xml          -> RTP range 15000-15019
+#   - config/drachtio.conf.xml        -> SIP contacts on 5070/5075
+#
+# Point the host app's .env at this stack:
+#   DRACHTIO_PORT=9023     (was 9022)
+#   FREESWITCH_PORT=7415   (was 8021)
+#
+# Run:
+#   cd docker/freeswitch-custom
+#   ./run.sh                                            # build the FS image first
+#   docker compose -f docker-compose.test.yml up -d     # start drachtio + FS
+#   docker compose -f docker-compose.test.yml logs -f   # watch them boot
+#
+# Verify:
+#   docker exec freeswitch-piper-test fs_cli -p 'JambonzR0ck$' -x reloadxml
+#   docker logs drachtio-test 2>&1 | grep -i listening   # SIP bound to 5070/5075
+#
+# Tear down:
+#   docker compose -f docker-compose.test.yml down
+
+services:
+  drachtio-test:
+    image: drachtio/drachtio-server
+    container_name: drachtio-test
+    # Run drachtio against ONLY the mounted config file so the SIP contacts come
+    # from config/drachtio.conf.xml (5070/5075) and the image's env-derived
+    # default 5060 contact can't override them. (drachtio runs in the foreground
+    # by default, which keeps the container alive.)
+    command: drachtio --config /etc/drachtio.conf.xml
+    environment:
+      - DRACHTIO_SECRET=siprocks
+      - DRACHTIO_EXTERNAL_IP=auto
+    ports:
+      - "127.0.0.1:9023:9022"   # control socket (app: DRACHTIO_PORT=9023)
+      - "5070:5070/udp"          # SIP UDP (live drachtio = 5060)
+      - "5070:5070/tcp"          # SIP TCP
+      - "5075:5075/tcp"          # SIP WebSocket (browser SIP.js; live = 5065)
+    volumes:
+      - ./config/drachtio.conf.xml:/etc/drachtio.conf.xml:ro
+    restart: "no"
+
+  freeswitch-piper-test:
+    image: enjoys-freeswitch:latest
+    container_name: freeswitch-piper-test
+    cap_add:
+      - SYS_NICE
+    # FreeSWITCH dials back to the host app's outbound-ESL listener via
+    # host.docker.internal:8085 (FREESWITCH_LISTEN_ADDRESS); make the hostname
+    # resolvable inside the container.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - SOUND_RATES=8000:16000
+      - SOUND_TYPES=music:en-us-callie
+    ports:
+      # ESL — bound to localhost, distinct host port (live FS = 8021). The app's
+      # .env FREESWITCH_PORT must point here (7415) to drive this test FS.
+      - "127.0.0.1:7415:8021"
+      # RTP media — published 1:1 to match the override range below (live FS =
+      # 16384-16403). Published on all interfaces so a softphone/browser can
+      # reach the media via the host LAN IP advertised in drachtio_mrf.xml.
+      - "15000-15019:15000-15019/udp"
+    volumes:
+      # Originals, read-only — never written to by this container.
+      - ../freeswitch_configs:/etc/freeswitch:ro
+      - ../freeswitch_sounds:/usr/share/freeswitch/sounds:ro
+      # Overrides layered on top of the read-only config dir (longer dest wins).
+      - ./config/tts_commandline.conf.xml:/etc/freeswitch/autoload_configs/tts_commandline.conf.xml:ro
+      # RTP range → 15000-15019 (distinct from the live 16384-16403).
+      - ./config/switch.conf.xml:/etc/freeswitch/autoload_configs/switch.conf.xml:ro
+    # The base image's ClueCon healthcheck reports unhealthy in this minimal
+    # setup; disable it so it doesn't cause confusion during testing.
+    healthcheck:
+      disable: true
+    restart: "no"

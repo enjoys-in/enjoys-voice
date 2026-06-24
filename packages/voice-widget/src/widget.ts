@@ -77,7 +77,7 @@ export class CallWidget {
       return;
     }
 
-    this.call = new SipCall((cs) => this.onCallState(cs));
+    if (!this.call) this.call = new SipCall((cs) => this.onCallState(cs));
     try {
       await this.call.start(session);
     } catch (err) {
@@ -115,10 +115,33 @@ export class CallWidget {
     }
     this.setState("idle");
     this.ui?.ready(this.cfg);
+    // Per "connect on load": pre-acquire the mic and open the SIP transport so
+    // the visitor's first click dials instantly. Best-effort — if the mic is
+    // blocked or the transport is down the widget stays idle and the click path
+    // retries (with a user gesture).
+    void this.preconnect();
+  }
+
+  /** Warm up the call path (mic + SIP transport) right after the key validates. */
+  private async preconnect(): Promise<void> {
+    if (!this.cfg || this.call) return;
+    const call = new SipCall((cs) => this.onCallState(cs));
+    this.call = call;
+    try {
+      await call.connect(this.cfg);
+    } catch (err) {
+      this.call = undefined;
+      this.ui?.setConnected(false);
+      this.opts.onError?.(toError(err, "Microphone access was blocked"));
+    }
   }
 
   private onCallState(cs: CallState): void {
     switch (cs) {
+      case "ready":
+        this.ui?.setConnected(true);
+        if (this.state === "idle" || this.state === "validating") this.setState("idle");
+        break;
       case "connecting":
         this.setState("connecting");
         break;

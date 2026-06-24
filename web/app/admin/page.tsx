@@ -40,6 +40,7 @@ import { TrunksTab } from "./components/TrunksTab";
 import { QueuesTab } from "./components/QueuesTab";
 import { ApiKeysTab } from "./components/ApiKeysTab";
 import { useLiveMetrics } from "../hooks/useLiveMetrics";
+import { useBranding } from "../hooks/useBranding";
 import { CallRecordStatus, type CallRecord } from "../types";
 
 type Tab = "overview" | "users" | "calls" | "customization" | "rates" | "trunks" | "queues" | "apikeys" | "audit" | "config";
@@ -56,6 +57,7 @@ export default function AdminPage() {
   const [stats, setStats] = useState<CallStats | null>(null);
   const [statsDays, setStatsDays] = useState<number>(7);
   const [statsLoading, setStatsLoading] = useState(true);
+  const { brandName } = useBranding();
 
   useEffect(() => {
     loadData();
@@ -111,6 +113,8 @@ export default function AdminPage() {
     { id: "config", label: "Config", icon: Settings },
   ];
 
+  const currentLabel = navItems.find((n) => n.id === tab)?.label ?? "Admin";
+
   return (
     <div className="flex h-dvh">
       {/* Sidebar */}
@@ -153,9 +157,20 @@ export default function AdminPage() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full">
-          <div className="p-6 space-y-6 max-w-5xl">
+      <main className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {/* Static header */}
+        <header className="flex shrink-0 items-center justify-between gap-4 px-6 py-3 border-b border-border/50 bg-background/80 backdrop-blur-sm">
+          <div className="flex items-center gap-2">
+            <Shield className="h-4 w-4 text-primary" />
+            <h2 className="text-base font-semibold">{currentLabel}</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="hidden sm:inline text-xs text-muted-foreground">{brandName}</span>
+            <Badge variant="secondary" className="text-[10px]">Admin</Badge>
+          </div>
+        </header>
+        <ScrollArea className="flex-1">
+          <div className="p-6 space-y-6">
             {tab === "overview" && (
               <OverviewTab
                 health={health}

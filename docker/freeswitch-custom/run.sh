@@ -14,7 +14,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-IMAGE_TAG="${IMAGE_TAG:-callnet-freeswitch-piper:latest}"
+IMAGE_TAG="${IMAGE_TAG:-enjoys-freeswitch:latest}"
 PIPER_ARCH="${PIPER_ARCH:-x86_64}"                 # x86_64 | aarch64 | armv7l
 PIPER_VOICE="${PIPER_VOICE:-en_US-amy-medium}"
 PIPER_VOICE_PATH="${PIPER_VOICE_PATH:-en/en_US/amy/medium}"

@@ -1,0 +1,34 @@
+<!--
+  TEST-CONTAINER OVERRIDE (docker-compose.test.yml).
+
+  Verbatim copy of ../../drachtio-server/config/drachtio.conf.xml with ONLY the
+  SIP contact ports changed so the test drachtio can run alongside the live one
+  without colliding:
+    * SIP udp/tcp : 5070   (live drachtio = 5060)
+    * SIP ws      : 5075   (live drachtio = 5065)
+    * admin/ctrl  : 9022   (kept internal; the test compose publishes it on the
+                            host as 127.0.0.1:9023 -> 9022, so the app sets
+                            DRACHTIO_PORT=9023). The admin port is a plain TCP
+                            control socket and is never advertised in SIP, so a
+                            host:container mismatch there is harmless.
+
+  The SIP contacts are bound 1:1 to the published host ports (5070:5070,
+  5075:5075) so drachtio advertises the same port it listens on — no SDP/Via
+  port mismatch.
+-->
+<drachtio>
+  <logging>
+    <console/>
+    <loglevel>info</loglevel>
+    <sofia-loglevel>3</sofia-loglevel>
+  </logging>
+
+  <sip>
+    <contacts>
+      <contact>sip:*@0.0.0.0:5070;transport=udp,tcp</contact>
+      <contact>sip:*@0.0.0.0:5075;transport=ws</contact>
+    </contacts>
+  </sip>
+
+  <admin port="9022" secret="siprocks">0.0.0.0</admin>
+</drachtio>

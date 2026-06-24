@@ -20,6 +20,8 @@ FreeSWITCH — we just install Piper and point `mod_tts_commandline` at it.
 |------|---------|
 | `Dockerfile` | `FROM safarov/freeswitch:latest` + Piper binary + one voice model. Includes a build‑time smoke test that fails the build if Piper can't synthesize. |
 | `run.sh` | Builds the image (and, with `--up`, recreates the compose service and verifies Piper). |
+| `config/tts_commandline.conf.xml` | Piper override for `mod_tts_commandline`, used **only** by the test container. The original under `../freeswitch_configs/` is never touched. |
+| `docker-compose.test.yml` | Standalone, isolated test container (`freeswitch-piper-test`) using `enjoys-freeswitch:latest` with the override layered on read‑only originals. |
 
 ## What you can do
 
@@ -68,7 +70,7 @@ After the first build, point the FreeSWITCH service at this image. In
 ```
 with:
 ```yaml
-    image: callnet-freeswitch-piper:latest
+    image: enjoys-freeswitch:latest
 ```
 then `./run.sh --up`.
 
@@ -87,7 +89,41 @@ The remaining config lives outside this folder (bind-mounted, no rebuild needed)
    to `flite` on every call; change it to `tts_commandline` /
    `en_US-amy-medium` or vars.xml is overridden.
 
-## Verify
+## Test container (isolated, non-destructive)
+
+Before wiring anything live, validate Piper inside a **real but throwaway**
+FreeSWITCH process. It uses the custom image, mounts the original configs
+**read‑only**, and layers `config/tts_commandline.conf.xml` on top — so no
+original file and no running service is touched.
+
+```bash
+cd docker/freeswitch-custom
+./run.sh                                            # build enjoys-freeswitch:latest first
+docker compose -f docker-compose.test.yml up -d     # start the test FS
+docker compose -f docker-compose.test.yml logs -f   # watch it boot (Ctrl-C to stop tailing)
+```
+
+Verify:
+```bash
+# 1) config parses cleanly (expect +OK, no XML error)
+docker exec freeswitch-piper-test fs_cli -p 'JambonzR0ck$' -x reloadxml
+
+# 2) module loaded?
+docker exec freeswitch-piper-test fs_cli -p 'JambonzR0ck$' -x 'module_exists mod_tts_commandline'
+
+# 3) Piper produces audio via the EXACT command mod_tts_commandline runs
+docker exec freeswitch-piper-test sh -c "echo 'hello from piper' | /opt/piper/piper --model /opt/piper/voices/en_US-amy-medium.onnx --espeak_data /opt/piper/espeak-ng-data --output_file /tmp/t.wav && ls -l /tmp/t.wav"
+```
+
+Tear down when done:
+```bash
+docker compose -f docker-compose.test.yml down
+```
+
+> The test container publishes only ESL on `127.0.0.1:8022` (live FS uses 8021)
+> and no SIP/RTP ports, so it cannot collide with `drachtio-freeswitch`.
+
+## Verify (against the live service, after wiring)
 
 ```bash
 # module loaded?

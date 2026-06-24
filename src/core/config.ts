@@ -62,6 +62,16 @@ export interface AppConfig {
     recordingsDir: string;
     defaultLanguage: 'en' | 'hi';
   };
+  tts: {
+    // Default server-side TTS engine + voice for `say:` prompts (IVR menus,
+    // conference, voicemail greetings). Defaults to Piper neural TTS
+    // (mod_tts_commandline / en_US-amy-medium, baked into the enjoys-freeswitch
+    // image). Per-call callers may override via prepareVoice({ engine, voice }).
+    // Set TTS_ENGINE=flite + TTS_VOICE=slt for the bundled flite voices on a
+    // stock FreeSWITCH without Piper.
+    engine: string;
+    voice: string;
+  };
   voicemail: {
     enabled: boolean;
     // Path FreeSWITCH writes recordings to (inside the FS container).
@@ -321,6 +331,10 @@ export const config: AppConfig = {
     maxVoicemailSec: parseInt(process.env.MAX_VOICEMAIL_SEC || '180'),
     recordingsDir: FS_RECORDINGS_DIR,
     defaultLanguage: (process.env.IVR_DEFAULT_LANG || 'en') as 'en' | 'hi',
+  },
+  tts: {
+    engine: process.env.TTS_ENGINE || 'tts_commandline',
+    voice: process.env.TTS_VOICE || 'en_US-amy-medium',
   },
   voicemail: {
     enabled: process.env.VOICEMAIL_ENABLED !== 'false',

@@ -249,3 +249,4 @@ for production deployment.
 - https://hub.docker.com/r/mlan/asterisk
 - https://github.com/drachtio/docker-drachtio-freeswitch-mrf
 - https://github.com/PatrickBaus/freeswitch-docker
+- https://developer.signalwire.com/freeswitch/
