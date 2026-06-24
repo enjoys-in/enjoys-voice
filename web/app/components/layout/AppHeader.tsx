@@ -1,7 +1,10 @@
 "use client";
 
+import Link from "next/link";
+import { Shield } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import { useAuthStore } from "../../stores";
 
 export function AppHeader() {
@@ -25,7 +28,19 @@ export function AppHeader() {
           <p className="text-[11px] text-muted-foreground mt-0.5">ext. {user.extension}</p>
         </div>
       </div>
-      <Badge variant="secondary" className="text-[10px]">Online</Badge>
+      <div className="flex items-center gap-2">
+        <Link
+          href="/admin"
+          target="_blank"
+          rel="noopener noreferrer"
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+          title="Open the admin dashboard in a new tab"
+        >
+          <Shield />
+          Admin
+        </Link>
+        <Badge variant="secondary" className="text-[10px]">Online</Badge>
+      </div>
     </header>
   );
 }
