@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import { config } from '@/core';
 import { loadApiKeyByPublicKey, type DbApiKey } from './postgres/apikey.repo';
 
 /** A validated, parsed API key ready for use by the widget/originate paths. */
@@ -13,6 +12,7 @@ export interface ResolvedApiKey {
   destination: string;
   callerId: string;
   dailyCap: number;
+  devMode: boolean;
   active: boolean;
 }
 
@@ -65,12 +65,13 @@ export class ApiKeyService {
 
     if (!key.active) return { ok: false, reason: 'inactive' };
 
-    // Dev bypass: when WIDGET_DEV_MODE is on AND the request comes from
-    // localhost/loopback, skip the Origin + IP allow-lists so the widget can be
-    // tested locally without whitelisting a dev origin/IP. Only loopback callers
-    // are exempted (a remote client never matches), so this can't be abused from
-    // the internet; the daily cap below still applies.
-    const devBypass = config.widget.devMode && isLocalRequest(origin, ip);
+    // Per-key dev bypass: when the key has dev mode enabled AND the request
+    // comes from localhost/loopback, skip the Origin + IP allow-lists so the
+    // widget can be tested locally without whitelisting a dev origin/IP. Only
+    // loopback callers are exempted (a remote client never matches), so this is
+    // safe even on a key left in dev mode in production; the daily cap below
+    // still applies.
+    const devBypass = key.devMode && isLocalRequest(origin, ip);
     if (!devBypass) {
       if (!this.originAllowed(key.allowedOrigins, origin)) return { ok: false, reason: 'origin_not_allowed' };
       if (!this.ipAllowed(key.allowedIps, ip)) return { ok: false, reason: 'ip_not_allowed' };
@@ -183,6 +184,7 @@ function parseRow(row: DbApiKey): ResolvedApiKey {
     destination: row.destination_number,
     callerId: row.caller_id || '',
     dailyCap: row.daily_cap || 0,
+    devMode: !!row.dev_mode,
     active: !!row.active,
   };
 }

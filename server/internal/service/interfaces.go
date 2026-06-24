@@ -174,6 +174,7 @@ type APIKeyInput struct {
 	DestinationNumber *string   `json:"destination_number"`
 	CallerID          *string   `json:"caller_id"`
 	DailyCap          *int      `json:"daily_cap"`
+	DevMode           *bool     `json:"dev_mode"`
 	Active            *bool     `json:"active"`
 }
 

@@ -35,7 +35,12 @@ type APIKey struct {
 	// CallerID is the number presented to the destination (BYON / trunk number).
 	CallerID string `gorm:"size:40" json:"caller_id"`
 	// DailyCap limits calls per UTC day (0 = unlimited).
-	DailyCap   int        `gorm:"default:0" json:"daily_cap"`
+	DailyCap int `gorm:"default:0" json:"daily_cap"`
+	// DevMode lets the widget be tested from localhost: when true, requests from
+	// a loopback IP / localhost Origin skip the AllowedOrigins + AllowedIPs checks
+	// (the Node engine still enforces loopback-only, so this is safe in prod and
+	// the DailyCap still applies). Off by default.
+	DevMode    bool       `gorm:"default:false" json:"dev_mode"`
 	Active     bool       `gorm:"default:true" json:"active"`
 	LastUsedAt *time.Time `json:"last_used_at"`
 	CreatedAt  time.Time  `json:"created_at"`
@@ -58,6 +63,7 @@ type APIKeyResponse struct {
 	DestinationNumber string     `json:"destination_number"`
 	CallerID          string     `json:"caller_id"`
 	DailyCap          int        `json:"daily_cap"`
+	DevMode           bool       `json:"dev_mode"`
 	Active            bool       `json:"active"`
 	LastUsedAt        *time.Time `json:"last_used_at"`
 	CreatedAt         time.Time  `json:"created_at"`
@@ -75,6 +81,7 @@ func (k *APIKey) ToResponse() APIKeyResponse {
 		DestinationNumber: k.DestinationNumber,
 		CallerID:          k.CallerID,
 		DailyCap:          k.DailyCap,
+		DevMode:           k.DevMode,
 		Active:            k.Active,
 		LastUsedAt:        k.LastUsedAt,
 		CreatedAt:         k.CreatedAt,

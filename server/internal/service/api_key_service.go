@@ -121,6 +121,9 @@ func applyAPIKeyInput(k *models.APIKey, in *APIKeyInput) {
 	if in.DailyCap != nil {
 		k.DailyCap = *in.DailyCap
 	}
+	if in.DevMode != nil {
+		k.DevMode = *in.DevMode
+	}
 	if in.Active != nil {
 		k.Active = *in.Active
 	}

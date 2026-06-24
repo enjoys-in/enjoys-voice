@@ -81,6 +81,7 @@ export function ApiKeysTab() {
       destination_number: "",
       caller_id: "",
       daily_cap: 0,
+      dev_mode: false,
       active: true,
       last_used_at: null,
       created_at: "",
@@ -215,6 +216,9 @@ function ApiKeyRow({
               {!apiKey.active && (
                 <Badge variant="outline" className="text-[10px]">disabled</Badge>
               )}
+              {apiKey.dev_mode && (
+                <Badge variant="outline" className="text-[10px]">dev mode</Badge>
+              )}
               {apiKey.has_secret && (
                 <Badge variant="outline" className="text-[10px]">secret set</Badge>
               )}
@@ -290,6 +294,7 @@ function ApiKeyDialog({
   const [ips, setIps] = useState("");
   const [dailyCap, setDailyCap] = useState(0);
   const [active, setActive] = useState(true);
+  const [devMode, setDevMode] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -301,6 +306,7 @@ function ApiKeyDialog({
       setIps(draft.allowed_ips.join(", "));
       setDailyCap(draft.daily_cap || 0);
       setActive(draft.active);
+      setDevMode(draft.dev_mode);
     }
   }, [draft]);
 
@@ -316,6 +322,7 @@ function ApiKeyDialog({
       allowed_origins: splitList(origins),
       allowed_ips: splitList(ips),
       daily_cap: Math.max(0, Math.floor(dailyCap) || 0),
+      dev_mode: devMode,
       active,
     };
     try {
@@ -408,6 +415,18 @@ function ApiKeyDialog({
               </p>
             </div>
             <Switch checked={active} onCheckedChange={setActive} />
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-border/50 p-3">
+            <div>
+              <p className="text-sm font-medium">Allow localhost testing (dev mode)</p>
+              <p className="text-xs text-muted-foreground">
+                Skips the allowed-origin & IP checks for requests from
+                localhost/loopback only, so you can test the widget locally
+                without whitelisting a dev origin. The daily cap still applies.
+                Leave off in production.
+              </p>
+            </div>
+            <Switch checked={devMode} onCheckedChange={setDevMode} />
           </div>
         </div>
         <DialogFooter>

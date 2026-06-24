@@ -95,12 +95,6 @@ export interface AppConfig {
     // Embeddable click-to-call widget (developer API). When false, the
     // /api/n/widget/* endpoints return 503 and no capability tokens are minted.
     enabled: boolean;
-    // Dev bypass: when true, requests coming from localhost/loopback skip the
-    // per-key Origin + IP allow-lists so the widget can be tested locally
-    // without whitelisting a dev origin/IP. Only loopback callers are exempted
-    // (a remote client can never benefit), and the daily cap still applies.
-    // MUST stay false in production.
-    devMode: boolean;
     // Public wss:// URL the widget's SIP.js client connects to. Falls back to
     // the SIP-WS public URL, then a wss://<domain> guess.
     sipWsUrl: string;
@@ -358,7 +352,6 @@ export const config: AppConfig = {
   },
   widget: {
     enabled: process.env.WIDGET_ENABLED !== 'false',
-    devMode: process.env.WIDGET_DEV_MODE === 'true',
     sipWsUrl:
       process.env.PUBLIC_SIP_WS_URL ||
       (process.env.DOMAIN ? `wss://${process.env.DOMAIN}` : ''),

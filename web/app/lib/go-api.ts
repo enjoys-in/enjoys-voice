@@ -297,6 +297,7 @@ export interface GoApiKey {
   destination_number: string;
   caller_id: string;
   daily_cap: number;
+  dev_mode: boolean;
   active: boolean;
   last_used_at: string | null;
   created_at: string;
@@ -313,6 +314,7 @@ export interface GoApiKeyInput {
   destination_number?: string;
   caller_id?: string;
   daily_cap?: number;
+  dev_mode?: boolean;
   active?: boolean;
 }
 
