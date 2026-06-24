@@ -1,5 +1,6 @@
 import type { CallContext, RouteHandler, RouteServices } from './types';
 import type { DialResult } from '@/services';
+import { RouteType } from '@/services';
 
 /**
  * WidgetHandler routes calls placed by the embeddable click-to-call widget.
@@ -9,8 +10,13 @@ import type { DialResult } from '@/services';
  * it deliberately bypasses the registered-caller toll-fraud gate that the
  * ExternalHandler enforces. To keep that safe, the token pins exactly one
  * destination and one caller-ID: this handler refuses the call unless the
- * dialed number matches the destination the token was minted for, then bridges
- * to the PSTN trunk presenting the token's caller-ID.
+ * dialed number matches the destination the token was minted for.
+ *
+ * How the call is then routed depends on the key's `routeType`:
+ *   - 'trunk'     → bridge to the PSTN trunk, presenting the token's caller-ID.
+ *   - 'ivr'       → hand off to the internal IVR menu (delegate to the dial plan).
+ *   - 'extension' → ring an internal SIP extension, i.e. browser-to-browser
+ *                   (delegate to the dial plan).
  *
  * It is placed AHEAD of the normal dial-plan handlers, and only ever acts when
  * `ctx.widget` is present, so non-widget calls fall straight through.
@@ -19,11 +25,6 @@ export class WidgetHandler implements RouteHandler {
   async handle(ctx: CallContext, services: RouteServices, route?: DialResult): Promise<boolean> {
     const claims = ctx.widget;
     if (!claims) return false; // not a widget call — let the dial plan handle it
-    if (!services.trunk.isEnabled) {
-      ctx.res.send(503, 'Trunk Unavailable');
-      services.db.updateCall(ctx.callId, { status: 'failed', direction: 'outbound' });
-      return true;
-    }
 
     // The token pins the destination. Compare digit-only forms of what was
     // dialed (and its dial-plan-normalized variant) against the token's
@@ -45,8 +46,39 @@ export class WidgetHandler implements RouteHandler {
       return true;
     }
 
-    // Route to the trunk. Prefer the dial-plan-normalized number when it was the
-    // thing that matched; otherwise dial the token's destination verbatim.
+    const routeType = claims.routeType || 'trunk';
+
+    // ─── Internal route types (ivr / extension) ──────────────────────────
+    // Hand the call to the normal dial-plan handlers (IVR / Internal / etc.).
+    // The destination pin above already restricts it to the key's configured
+    // target. As a safety net, never let a key marked internal reach the PSTN
+    // trunk (which would side-step the per-key trunk gating / billing).
+    if (routeType !== 'trunk') {
+      if (route && route.type === RouteType.External) {
+        console.warn(
+          `🚫 Widget key ${claims.keyId} is '${routeType}' but ${ctx.calledNumber} resolves to the PSTN trunk — refusing`,
+        );
+        services.audit?.log('call_blocked', `widget:${claims.keyId}`, {
+          reason: 'widget_route_type_mismatch', to: ctx.calledNumber, routeType,
+          owner: claims.owner, callId: ctx.callId,
+        }, ctx.req.source_address);
+        services.db.updateCall(ctx.callId, { status: 'failed', direction: 'inbound' });
+        ctx.res.send(403, 'Forbidden');
+        return true;
+      }
+      // Delegate: the subsequent handlers route by the resolved DialResult.
+      return false;
+    }
+
+    // ─── Trunk route type: bridge to the PSTN ────────────────────────────
+    if (!services.trunk.isEnabled) {
+      ctx.res.send(503, 'Trunk Unavailable');
+      services.db.updateCall(ctx.callId, { status: 'failed', direction: 'outbound' });
+      return true;
+    }
+
+    // Prefer the dial-plan-normalized number when it was the thing that matched;
+    // otherwise dial the token's destination verbatim.
     const destination = normalizedDigits && digitsEqual(want, normalizedDigits) && route
       ? route.normalizedNumber
       : claims.destination;

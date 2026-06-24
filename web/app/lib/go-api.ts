@@ -296,6 +296,7 @@ export interface GoApiKey {
   allowed_ips: string[];
   destination_number: string;
   caller_id: string;
+  route_type: GoApiKeyRouteType;
   daily_cap: number;
   dev_mode: boolean;
   active: boolean;
@@ -306,6 +307,14 @@ export interface GoApiKey {
   secret?: string;
 }
 
+/**
+ * How a widget call placed with the key is routed:
+ *   "trunk"     → bridge to the PSTN trunk (destination is a phone number).
+ *   "ivr"       → hand off to an internal IVR menu (destination is its extension).
+ *   "extension" → ring an internal SIP extension (browser-to-browser).
+ */
+export type GoApiKeyRouteType = "trunk" | "ivr" | "extension";
+
 /** Create/update payload for a developer API key. */
 export interface GoApiKeyInput {
   label?: string;
@@ -313,6 +322,7 @@ export interface GoApiKeyInput {
   allowed_ips?: string[];
   destination_number?: string;
   caller_id?: string;
+  route_type?: GoApiKeyRouteType;
   daily_cap?: number;
   dev_mode?: boolean;
   active?: boolean;

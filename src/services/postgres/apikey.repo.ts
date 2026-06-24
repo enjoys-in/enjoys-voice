@@ -15,13 +15,14 @@ export interface DbApiKey {
   allowed_ips: string;
   destination_number: string;
   caller_id: string;
+  route_type: string;
   daily_cap: number;
   dev_mode: boolean;
   active: boolean;
 }
 
 const COLUMNS =
-  'id, owner_extension, label, public_key, secret_hash, allowed_origins, allowed_ips, destination_number, caller_id, daily_cap, dev_mode, active';
+  'id, owner_extension, label, public_key, secret_hash, allowed_origins, allowed_ips, destination_number, caller_id, route_type, daily_cap, dev_mode, active';
 
 /** Load a single API key by its publishable key (pk_…), or null if not found. */
 export async function loadApiKeyByPublicKey(publicKey: string): Promise<DbApiKey | null> {

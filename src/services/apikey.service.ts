@@ -11,6 +11,8 @@ export interface ResolvedApiKey {
   allowedIps: string[];
   destination: string;
   callerId: string;
+  /** How a widget call is routed: PSTN trunk, internal IVR, or internal extension. */
+  routeType: 'trunk' | 'ivr' | 'extension';
   dailyCap: number;
   devMode: boolean;
   active: boolean;
@@ -183,6 +185,8 @@ function parseRow(row: DbApiKey): ResolvedApiKey {
     allowedIps: splitCsv(row.allowed_ips),
     destination: row.destination_number,
     callerId: row.caller_id || '',
+    routeType:
+      row.route_type === 'ivr' || row.route_type === 'extension' ? row.route_type : 'trunk',
     dailyCap: row.daily_cap || 0,
     devMode: !!row.dev_mode,
     active: !!row.active,

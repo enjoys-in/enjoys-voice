@@ -12,12 +12,22 @@ import type { WidgetOptions } from "./types";
 //
 // The widget validates the key before rendering; on an invalid key it shows an
 // error and never becomes callable.
+//
+// The SAME bundle also exposes `EnjoysVoiceWidget.CallWidget` for the
+// programmatic / npm path (`CallWidget.init({...})`). In that case the script is
+// usually injected without data-* attributes, so auto-boot must stay SILENT —
+// see `boot()` below.
+
+// Captured at module-evaluation time (synchronous), when `document.currentScript`
+// still points at OUR <script> tag for a normal embed. For a programmatically
+// injected/loaded bundle it is null, which is how we tell the two paths apart.
+const embedScript: HTMLScriptElement | null =
+  typeof document !== "undefined" && document.currentScript instanceof HTMLScriptElement
+    ? document.currentScript
+    : null;
 
 function findScript(): HTMLScriptElement | null {
-  const current = document.currentScript;
-  if (current instanceof HTMLScriptElement && current.getAttribute("data-enjoys-key")) {
-    return current;
-  }
+  if (embedScript && embedScript.getAttribute("data-enjoys-key")) return embedScript;
   const scripts = document.querySelectorAll<HTMLScriptElement>("script[data-enjoys-key]");
   return scripts.length ? scripts[scripts.length - 1] : null;
 }
@@ -40,8 +50,15 @@ function boot(): void {
   const script = findScript();
   const publicKey = attr(script, "data-enjoys-key") || attr(script, "data-key");
   if (!publicKey) {
-    // eslint-disable-next-line no-console
-    console.error("[EnjoysVoiceWidget] missing data-enjoys-key on the <script> tag");
+    // No key found. Only warn when this bundle was loaded as a real embed
+    // <script> tag (the embedder forgot the attribute). When `embedScript` is
+    // null the bundle was injected/loaded programmatically — that's the
+    // `CallWidget.init({...})` path, so stay silent instead of logging a
+    // misleading error.
+    if (embedScript) {
+      // eslint-disable-next-line no-console
+      console.error("[EnjoysVoiceWidget] missing data-enjoys-key on the <script> tag");
+    }
     return;
   }
 

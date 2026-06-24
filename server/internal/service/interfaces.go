@@ -173,6 +173,7 @@ type APIKeyInput struct {
 	AllowedIPs        *[]string `json:"allowed_ips"`
 	DestinationNumber *string   `json:"destination_number"`
 	CallerID          *string   `json:"caller_id"`
+	RouteType         *string   `json:"route_type"`
 	DailyCap          *int      `json:"daily_cap"`
 	DevMode           *bool     `json:"dev_mode"`
 	Active            *bool     `json:"active"`

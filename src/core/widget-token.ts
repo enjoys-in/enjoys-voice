@@ -21,6 +21,8 @@ export interface WidgetTokenClaims {
   destination: string;
   /** Caller ID to present to the destination (may be empty → trunk default). */
   callerId: string;
+  /** How the SIP layer routes this call: PSTN trunk, internal IVR, or extension. */
+  routeType: 'trunk' | 'ivr' | 'extension';
   iss?: string;
   iat?: number;
   exp?: number;

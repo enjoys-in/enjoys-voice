@@ -304,6 +304,7 @@ export function createRoutes(
       owner: result.key.owner,
       destination: result.key.destination,
       callerId: result.key.callerId,
+      routeType: result.key.routeType,
     });
     created(res, {
       token,
@@ -327,6 +328,7 @@ export function createRoutes(
       owner: result.key.owner,
       destination: result.key.destination,
       callerId: result.key.callerId,
+      routeType: result.key.routeType,
     });
     created(res, {
       token,

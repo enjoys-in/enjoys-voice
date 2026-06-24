@@ -22,6 +22,13 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -33,6 +40,7 @@ import {
   goApi,
   type GoApiKey,
   type GoApiKeyInput,
+  type GoApiKeyRouteType,
 } from "../../lib/go-api";
 
 // ─── API Keys Tab ───────────────────────────────────────
@@ -43,6 +51,26 @@ import {
 // publishable key (pk_…) ships in the website/widget; the secret (sk_…) is for
 // server-to-server use and is shown exactly ONCE at creation. Keys are
 // owner-scoped server-side (the owning extension comes from the JWT).
+
+// Short labels shown on the key row badge.
+const ROUTE_TYPE_LABELS: Record<GoApiKeyRouteType, string> = {
+  trunk: "PSTN",
+  ivr: "IVR",
+  extension: "extension",
+};
+
+// Per-route-type help text for the "Destination" field in the dialog.
+const ROUTE_TYPE_HINTS: Record<GoApiKeyRouteType, string> = {
+  trunk: "The phone number every call dials",
+  ivr: "The IVR menu extension every call reaches",
+  extension: "The internal SIP extension every call rings",
+};
+
+const ROUTE_TYPE_PLACEHOLDERS: Record<GoApiKeyRouteType, string> = {
+  trunk: "+15551234567",
+  ivr: "5000",
+  extension: "1001",
+};
 
 export function ApiKeysTab() {
   const [keys, setKeys] = useState<GoApiKey[] | null>(null);
@@ -80,6 +108,7 @@ export function ApiKeysTab() {
       allowed_ips: [],
       destination_number: "",
       caller_id: "",
+      route_type: "trunk",
       daily_cap: 0,
       dev_mode: false,
       active: true,
@@ -216,6 +245,9 @@ function ApiKeyRow({
               {!apiKey.active && (
                 <Badge variant="outline" className="text-[10px]">disabled</Badge>
               )}
+              <Badge variant="outline" className="text-[10px]">
+                {ROUTE_TYPE_LABELS[apiKey.route_type] ?? apiKey.route_type}
+              </Badge>
               {apiKey.dev_mode && (
                 <Badge variant="outline" className="text-[10px]">dev mode</Badge>
               )}
@@ -290,6 +322,7 @@ function ApiKeyDialog({
   const [label, setLabel] = useState("");
   const [destination, setDestination] = useState("");
   const [callerId, setCallerId] = useState("");
+  const [routeType, setRouteType] = useState<GoApiKeyRouteType>("trunk");
   const [origins, setOrigins] = useState("");
   const [ips, setIps] = useState("");
   const [dailyCap, setDailyCap] = useState(0);
@@ -302,6 +335,7 @@ function ApiKeyDialog({
       setLabel(draft.label);
       setDestination(draft.destination_number);
       setCallerId(draft.caller_id);
+      setRouteType(draft.route_type || "trunk");
       setOrigins(draft.allowed_origins.join(", "));
       setIps(draft.allowed_ips.join(", "));
       setDailyCap(draft.daily_cap || 0);
@@ -319,6 +353,7 @@ function ApiKeyDialog({
       label: label.trim(),
       destination_number: destination.trim(),
       caller_id: callerId.trim(),
+      route_type: routeType,
       allowed_origins: splitList(origins),
       allowed_ips: splitList(ips),
       daily_cap: Math.max(0, Math.floor(dailyCap) || 0),
@@ -361,11 +396,11 @@ function ApiKeyDialog({
             />
           </DialogField>
           <div className="grid grid-cols-2 gap-3">
-            <DialogField label="Destination number" hint="Every call dials this">
+            <DialogField label="Destination number" hint={ROUTE_TYPE_HINTS[routeType]}>
               <Input
                 value={destination}
                 maxLength={40}
-                placeholder="+15551234567"
+                placeholder={ROUTE_TYPE_PLACEHOLDERS[routeType]}
                 onChange={(e) => setDestination(e.target.value)}
               />
             </DialogField>
@@ -378,6 +413,21 @@ function ApiKeyDialog({
               />
             </DialogField>
           </div>
+          <DialogField
+            label="Route type"
+            hint="Where calls placed with this key are sent."
+          >
+            <Select value={routeType} onValueChange={(v) => setRouteType(v as GoApiKeyRouteType)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="trunk">Phone number (PSTN trunk)</SelectItem>
+                <SelectItem value="ivr">IVR menu (internal)</SelectItem>
+                <SelectItem value="extension">Browser → extension (internal)</SelectItem>
+              </SelectContent>
+            </Select>
+          </DialogField>
           <DialogField
             label="Allowed origins"
             hint="Comma-separated site origins that may embed the widget, e.g. https://acme.com, https://app.acme.com"

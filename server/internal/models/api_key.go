@@ -34,6 +34,12 @@ type APIKey struct {
 	DestinationNumber string `gorm:"size:40;not null" json:"destination_number"`
 	// CallerID is the number presented to the destination (BYON / trunk number).
 	CallerID string `gorm:"size:40" json:"caller_id"`
+	// RouteType decides HOW a widget call placed with this key is routed:
+	//   "trunk"     → bridge to the PSTN trunk (DestinationNumber is a phone #).
+	//   "ivr"       → hand off to an internal IVR menu (DestinationNumber is its ext).
+	//   "extension" → ring an internal SIP extension (browser-to-browser).
+	// Defaults to "trunk" so existing keys keep their current behavior.
+	RouteType string `gorm:"size:16;default:'trunk'" json:"route_type"`
 	// DailyCap limits calls per UTC day (0 = unlimited).
 	DailyCap int `gorm:"default:0" json:"daily_cap"`
 	// DevMode lets the widget be tested from localhost: when true, requests from
@@ -49,6 +55,13 @@ type APIKey struct {
 
 func (APIKey) TableName() string { return "api_keys" }
 
+// Valid RouteType values for an APIKey (how a widget call is routed).
+const (
+	RouteTypeTrunk     = "trunk"     // bridge to the PSTN trunk
+	RouteTypeIVR       = "ivr"       // hand off to an internal IVR menu
+	RouteTypeExtension = "extension" // ring an internal SIP extension (browser-to-browser)
+)
+
 // APIKeyResponse is the API view of a key: secret-free, with the CSV columns
 // expanded to arrays and a HasSecret flag. Secret is populated ONLY in the
 // create response (json omitempty) so the plaintext sk_… is shown exactly once.
@@ -62,6 +75,7 @@ type APIKeyResponse struct {
 	AllowedIPs        []string   `json:"allowed_ips"`
 	DestinationNumber string     `json:"destination_number"`
 	CallerID          string     `json:"caller_id"`
+	RouteType         string     `json:"route_type"`
 	DailyCap          int        `json:"daily_cap"`
 	DevMode           bool       `json:"dev_mode"`
 	Active            bool       `json:"active"`
@@ -80,6 +94,7 @@ func (k *APIKey) ToResponse() APIKeyResponse {
 		AllowedIPs:        splitAPIKeyCSV(k.AllowedIPs),
 		DestinationNumber: k.DestinationNumber,
 		CallerID:          k.CallerID,
+		RouteType:         k.RouteType,
 		DailyCap:          k.DailyCap,
 		DevMode:           k.DevMode,
 		Active:            k.Active,

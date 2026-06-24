@@ -118,6 +118,9 @@ func applyAPIKeyInput(k *models.APIKey, in *APIKeyInput) {
 	if in.CallerID != nil {
 		k.CallerID = *in.CallerID
 	}
+	if in.RouteType != nil {
+		k.RouteType = *in.RouteType
+	}
 	if in.DailyCap != nil {
 		k.DailyCap = *in.DailyCap
 	}
@@ -133,6 +136,16 @@ func normalizeAPIKey(k *models.APIKey) {
 	k.DestinationNumber = strings.TrimSpace(k.DestinationNumber)
 	k.CallerID = strings.TrimSpace(k.CallerID)
 	k.Label = strings.TrimSpace(k.Label)
+	// Constrain RouteType to the known set, defaulting to trunk (the legacy
+	// behavior) for empty or unrecognized values.
+	switch strings.ToLower(strings.TrimSpace(k.RouteType)) {
+	case models.RouteTypeIVR:
+		k.RouteType = models.RouteTypeIVR
+	case models.RouteTypeExtension:
+		k.RouteType = models.RouteTypeExtension
+	default:
+		k.RouteType = models.RouteTypeTrunk
+	}
 	if k.DailyCap < 0 {
 		k.DailyCap = 0
 	}
