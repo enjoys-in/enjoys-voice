@@ -286,6 +286,7 @@ export function createRoutes(
     ok(res, {
       destination: result.key.destination,
       label: result.key.label,
+      callerId: result.key.callerId,
       ...widgetConnect(),
     });
   });
@@ -310,6 +311,7 @@ export function createRoutes(
       token,
       expiresIn: WIDGET_TOKEN_TTL_SECONDS,
       destination: result.key.destination,
+      callerId: result.key.callerId,
       ...widgetConnect(),
     });
   });
@@ -334,6 +336,7 @@ export function createRoutes(
       token,
       expiresIn: WIDGET_TOKEN_TTL_SECONDS,
       destination: result.key.destination,
+      callerId: result.key.callerId,
       ...widgetConnect(),
     });
   });

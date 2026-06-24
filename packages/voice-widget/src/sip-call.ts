@@ -6,7 +6,7 @@ import { WidgetConfig, WidgetSession } from "./types";
 export type CallState = "connecting" | "ready" | "ringing" | "in-call" | "ended" | "failed";
 
 /** Transport-level fields shared by {@link WidgetConfig} and {@link WidgetSession}. */
-type ConnectParams = Pick<WidgetConfig, "sipWsUrl" | "domain" | "iceServers">;
+type ConnectParams = Pick<WidgetConfig, "sipWsUrl" | "domain" | "iceServers" | "callerId">;
 
 // Minimal sip.js wrapper for an outbound, guest (un-registered) WebRTC call.
 //
@@ -55,7 +55,13 @@ export class SipCall {
 
     // 2) Open the SIP transport (WebSocket to drachtio). No token is needed
     //    yet — the capability token is only attached to the INVITE below.
-    const localUri = UserAgent.makeURI(`sip:widget@${params.domain}`);
+    //    Present the key's caller-ID (the owner's own extension) as the SIP
+    //    From so the callee sees who is calling; fall back to a "widget" guest
+    //    identity when the key has none. The user part is sanitized to safe SIP
+    //    URI characters so a bad value can't break the URI.
+    const rawFrom = params.callerId ?? "";
+    const fromUser = /^[A-Za-z0-9._-]{1,40}$/.test(rawFrom) ? rawFrom : "widget";
+    const localUri = UserAgent.makeURI(`sip:${fromUser}@${params.domain}`);
     const ua = new UserAgent({
       uri: localUri ?? undefined,
       transportOptions: { server: params.sipWsUrl },

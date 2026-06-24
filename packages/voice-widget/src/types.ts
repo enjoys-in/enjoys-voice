@@ -43,6 +43,8 @@ export interface WidgetOptions {
 export interface WidgetConfig {
   destination: string;
   label?: string;
+  /** SIP From identity to present (the key owner's extension). */
+  callerId?: string;
   sipWsUrl: string;
   domain: string;
   iceServers: RTCIceServer[];
@@ -53,6 +55,8 @@ export interface WidgetSession {
   token: string;
   expiresIn: number;
   destination: string;
+  /** SIP From identity to present (the key owner's extension). */
+  callerId?: string;
   sipWsUrl: string;
   domain: string;
   iceServers: RTCIceServer[];

@@ -134,8 +134,12 @@ func applyAPIKeyInput(k *models.APIKey, in *APIKeyInput) {
 
 func normalizeAPIKey(k *models.APIKey) {
 	k.DestinationNumber = strings.TrimSpace(k.DestinationNumber)
-	k.CallerID = strings.TrimSpace(k.CallerID)
 	k.Label = strings.TrimSpace(k.Label)
+	// Caller-ID is LOCKED to the key owner's own extension: a key may only ever
+	// present its owner's identity to the callee, never an arbitrary number.
+	// Whatever the client sent is ignored in favor of the owner extension, so
+	// the SIP From the widget uses and the stored caller-ID always match.
+	k.CallerID = strings.TrimSpace(k.OwnerExtension)
 	// Constrain RouteType to the known set, defaulting to trunk (the legacy
 	// behavior) for empty or unrecognized values.
 	switch strings.ToLower(strings.TrimSpace(k.RouteType)) {

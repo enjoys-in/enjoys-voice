@@ -22,8 +22,19 @@ export class InternalHandler implements RouteHandler {
     // ─── Internal extension is NOT registered (offline) ───────────────
     const targetUser = services.db.getUser(route.target);
 
-    // Unknown extension → let the dial plan fall through to other handlers.
-    if (!targetUser) return false;
+    // Unknown extension → normally fall through to the other handlers so a
+    // misdial/scan ends in a plain 480. A WIDGET call is the exception: its
+    // destination is admin-pinned to exactly this extension (route_type
+    // "extension"), so even when that target isn't a provisioned user we still
+    // send the caller to voicemail via the unreachable chain rather than a bare
+    // 480.
+    if (!targetUser) {
+      if (ctx.widget?.routeType === 'extension') {
+        await services.routeUnreachable(ctx.req, ctx.res, route.target, ctx.callId, ctx.callingNumber);
+        return true;
+      }
+      return false;
+    }
 
     // Known user but offline: run the shared unreachable fallback chain
     // (PSTN → forward → voicemail → "unavailable" announcement → missed). This

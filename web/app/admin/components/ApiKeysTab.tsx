@@ -352,7 +352,6 @@ function ApiKeyDialog({
     const payload: GoApiKeyInput = {
       label: label.trim(),
       destination_number: destination.trim(),
-      caller_id: callerId.trim(),
       route_type: routeType,
       allowed_origins: splitList(origins),
       allowed_ips: splitList(ips),
@@ -404,12 +403,12 @@ function ApiKeyDialog({
                 onChange={(e) => setDestination(e.target.value)}
               />
             </DialogField>
-            <DialogField label="Caller ID" hint="Presented to the destination (optional)">
+            <DialogField label="Caller ID" hint="Always your own extension — set automatically">
               <Input
                 value={callerId}
-                maxLength={40}
-                placeholder="+15557654321"
-                onChange={(e) => setCallerId(e.target.value)}
+                disabled
+                readOnly
+                placeholder="Your extension"
               />
             </DialogField>
           </div>

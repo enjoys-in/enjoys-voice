@@ -240,7 +240,6 @@ export class SipServer {
 
         const calledMatch = req.uri?.match(/sip:([^@]+)/);
         const calledNumber = calledMatch ? calledMatch[1] : req.calledNumber;
-        const callingNumber = req.callingNumber || 'unknown';
 
         // ─── Widget capability token ─────────────────────────────────────
         // The embeddable click-to-call widget can't be a registered SIP user,
@@ -250,6 +249,14 @@ export class SipServer {
         // legitimacy screen below, and the WidgetHandler later pins the call to
         // exactly the destination + caller-ID the token was issued for.
         const widgetClaims = this.parseWidgetToken(req);
+
+        // The widget dials as a guest SIP user ("widget"); its AUTHORITATIVE
+        // caller identity is the key's caller-ID (always the key owner's own
+        // extension) carried in the signed token. Attribute the call to it so
+        // the callee, call history and voicemail all show the owner's extension
+        // rather than the guest placeholder From — and a tampered widget can't
+        // present some other number on an internal call.
+        const callingNumber = widgetClaims?.callerId || req.callingNumber || 'unknown';
 
         // ─── Anti-spoof / anti-scan screen ───────────────────────────────
         // Decide if this INVITE is even worth processing BEFORE we create a
@@ -450,9 +457,10 @@ export class SipServer {
           console.log(`↪️ Forwarding on busy to ${forwarding.busy}`);
           await this.forwardCall(req, res, forwarding.busy, callId, callingNumber);
         } else {
+          // No busy-forward rule: don't just reject with a 486 — run the
+          // unreachable fallback chain so the caller can leave a voicemail.
           this.notifyFn?.(callingNumber, 'declined', { reason: 'busy', callId });
-          this.db.updateCall(callId, { status: 'missed' });
-          if (!res.finalResponseSent) res.send(SipStatus.BusyHere, 'Busy Here');
+          await this.routeUnreachable(req, res, calledExt, callId, callingNumber);
         }
       } else if (status === SipStatus.RequestTimeout || err.message?.includes('timeout')) {
         // No answer (timeout)
@@ -461,9 +469,10 @@ export class SipServer {
           console.log(`↪️ Forwarding on no-answer to ${forwarding.noAnswer}`);
           await this.forwardCall(req, res, forwarding.noAnswer, callId, callingNumber);
         } else {
+          // No no-answer forward rule: fall through to the unreachable chain so
+          // the caller lands on voicemail instead of hearing a bare 480.
           this.notifyFn?.(callingNumber, 'no_answer', { callId });
-          this.db.updateCall(callId, { status: 'missed' });
-          if (!res.finalResponseSent) res.send(SipStatus.TemporarilyUnavailable, 'No Answer');
+          await this.routeUnreachable(req, res, calledExt, callId, callingNumber);
         }
       } else if (status === SipStatus.RequestTerminated) {
         // Caller cancelled
