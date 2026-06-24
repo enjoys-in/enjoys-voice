@@ -71,9 +71,17 @@ if [[ "${PUSH_LATEST}" == "1" ]]; then
 fi
 
 # 5) Optional: sync README.md to the Docker Hub repo page.
-if [[ -f README.md ]] && command -v docker-pushrm >/dev/null 2>&1; then
-  echo "▶ Updating Docker Hub README via docker-pushrm"
-  docker pushrm "${REPO}" -f README.md || echo "⚠️  README push failed (non-fatal)"
+#    Supports both the standalone binary (docker-pushrm) and the Docker CLI
+#    plugin (docker pushrm).
+if [[ -f README.md ]]; then
+  if command -v docker-pushrm >/dev/null 2>&1; then
+    echo "▶ Updating Docker Hub README via docker-pushrm"
+    docker-pushrm "${REPO}" -f README.md || echo "⚠️  README push failed (non-fatal)"
+  elif docker pushrm "${REPO}" -f README.md 2>/dev/null; then
+    echo "▶ Updated Docker Hub README via 'docker pushrm' plugin"
+  else
+    echo "ℹ️  Skipping README sync (install docker-pushrm to enable)"
+  fi
 fi
 
 echo
