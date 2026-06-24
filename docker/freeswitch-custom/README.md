@@ -7,6 +7,89 @@ engine — so IVR/voicemail prompts sound natural instead of the robotic stock
 
 > Fully **internal**: no cloud, no API keys, no per-character cost.
 
+## Run straight from Docker Hub
+
+The image is published as `mullayam06/freeswitch-piper`. You don't need to build
+anything — just pull and run.
+
+```bash
+docker pull mullayam06/freeswitch-piper:latest
+```
+
+### With `docker run` (all ports mapped)
+
+```bash
+docker run -d \
+  --name drachtio-freeswitch \
+  --cap-add SYS_NICE \
+  --add-host host.docker.internal:host-gateway \
+  -e SOUND_RATES=8000:16000 \
+  -e SOUND_TYPES=music:en-us-callie \
+  -p 8021:8021 \
+  -p 5090:5090/udp \
+  -p 5090:5090/tcp \
+  -p 16384-16403:16384-16403/udp \
+  -v "$(pwd)/../freeswitch_configs:/etc/freeswitch" \
+  -v "$(pwd)/../freeswitch_sounds:/usr/share/freeswitch/sounds" \
+  -v "$(pwd)/../recordings:/usr/local/freeswitch/recordings" \
+  mullayam06/freeswitch-piper:latest
+```
+
+### Ports
+
+| Host → Container | Proto | Purpose |
+|------------------|-------|---------|
+| `8021:8021` | tcp | ESL (Event Socket) — control/CLI |
+| `5090:5090` | udp + tcp | MRF SIP (`drachtio_mrf` profile) |
+| `16384-16403:16384-16403` | udp | RTP media |
+
+> If you run FreeSWITCH **standalone** (without the drachtio front-end) and need
+> its own SIP edge, also publish `-p 5060:5060/udp -p 5060:5060/tcp`. In this
+> stack SIP `5060` lives on the `drachtio-server` container, so it's not mapped
+> here.
+
+### Or with Docker Compose
+
+```yaml
+services:
+  drachtio-freeswitch:
+    image: mullayam06/freeswitch-piper:latest
+    container_name: drachtio-freeswitch
+    cap_add:
+      - SYS_NICE
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - SOUND_RATES=8000:16000
+      - SOUND_TYPES=music:en-us-callie
+    ports:
+      - "8021:8021"                   # ESL (Event Socket)
+      - "5090:5090/udp"               # MRF SIP (drachtio_mrf profile)
+      - "5090:5090/tcp"
+      - "16384-16403:16384-16403/udp" # RTP media
+    volumes:
+      - ./freeswitch_configs:/etc/freeswitch
+      - ./freeswitch_sounds:/usr/share/freeswitch/sounds
+      - ./recordings:/usr/local/freeswitch/recordings
+    restart: unless-stopped
+```
+
+The bind-mounts are optional but recommended: they supply your dialplan/SIP
+profiles, sound files and recording output. Without them the image boots with
+its baked-in defaults (Piper TTS still works out of the box).
+
+> **Don't have the repo?** Grab the `freeswitch_configs` from GitHub:
+> <https://github.com/enjoys-in/enjoys-voice/tree/main/docker/freeswitch_configs>
+>
+> ```bash
+> # sparse-clone just the config dir
+> git clone --depth 1 --filter=blob:none --sparse \
+>   https://github.com/enjoys-in/enjoys-voice.git
+> cd enjoys-voice
+> git sparse-checkout set docker/freeswitch_configs
+> # then mount docker/freeswitch_configs into the container at /etc/freeswitch
+> ```
+
 ## Why this exists
 
 The stock image's only usable TTS is `mod_flite` (low quality, no real prosody
