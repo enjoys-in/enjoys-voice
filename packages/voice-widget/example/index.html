@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Enjoys Voice — Widget local test</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: #0a0a0a;
+        color: #e7e7e7;
+        padding: 32px 20px 120px;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      p.sub { color: #9a9a9a; margin: 0 0 24px; }
+      .card {
+        background: #141414;
+        border: 1px solid #262626;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+      }
+      label { display: block; font-size: 12px; color: #9a9a9a; margin: 14px 0 4px; }
+      label:first-child { margin-top: 0; }
+      input {
+        width: 100%;
+        background: #0d0d0d;
+        border: 1px solid #2e2e2e;
+        border-radius: 8px;
+        color: #fff;
+        padding: 10px 12px;
+        font: inherit;
+      }
+      input:focus { outline: none; border-color: #4f46e5; }
+      .row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px; }
+      button {
+        background: #4f46e5;
+        color: #fff;
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 18px;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.secondary { background: #262626; }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      code { background: #0d0d0d; padding: 1px 6px; border-radius: 5px; border: 1px solid #262626; }
+      ol { padding-left: 20px; color: #c9c9c9; }
+      ol li { margin: 6px 0; }
+      .origin { color: #34d399; font-weight: 600; }
+      #log {
+        background: #0d0d0d;
+        border: 1px solid #262626;
+        border-radius: 8px;
+        padding: 12px;
+        height: 200px;
+        overflow: auto;
+        font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre-wrap;
+      }
+      .log-state { color: #60a5fa; }
+      .log-err { color: #f87171; }
+      .log-ok { color: #34d399; }
+      .warn {
+        background: #2a1a00;
+        border: 1px solid #7c5300;
+        color: #f5c558;
+        padding: 10px 12px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Enjoys Voice — Widget local test</h1>
+      <p class="sub">Loads <code>widget.js</code> and boots the click-to-call widget against your local API.</p>
+
+      <div id="file-warning" class="warn" hidden>
+        You opened this with <code>file://</code>, so the browser sends
+        <code>Origin: null</code> and the API will reject the key. Serve this
+        folder over HTTP instead — e.g. <code>python -m http.server 5500</code> —
+        and open <code>http://localhost:5500/index.html</code>.
+      </div>
+
+      <div class="card">
+        <strong>Before you start</strong>
+        <ol>
+          <li>Node API running on <code>:3001</code>, web app on <code>:4500</code>, and the dev coturn up (for media).</li>
+          <li>In <em>Admin → API Keys</em>, create a key with a <strong>destination</strong> (your phone number or extension).</li>
+          <li>Add this page's origin <span class="origin" id="origin">—</span> to that key's <strong>Allowed Origins</strong>.</li>
+          <li>Paste the publishable key (<code>pk_…</code>) below and click <em>Load widget</em>.</li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <label for="key">Publishable key (pk_…)</label>
+        <input id="key" placeholder="pk_live_xxxxxxxxxxxx" autocomplete="off" spellcheck="false" />
+
+        <label for="apiBase">API base (Node API)</label>
+        <input id="apiBase" value="http://localhost:3001" autocomplete="off" spellcheck="false" />
+
+        <label for="widgetUrl">Widget script URL</label>
+        <input id="widgetUrl" value="http://localhost:4500/widget.js" autocomplete="off" spellcheck="false" />
+
+        <div class="row">
+          <button id="load">Load widget</button>
+          <button id="reset" class="secondary" type="button">Reload page</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <label style="margin:0 0 8px">Log</label>
+        <div id="log"></div>
+      </div>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const logEl = $("log");
+
+      function log(msg, cls) {
+        const line = document.createElement("div");
+        if (cls) line.className = cls;
+        line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        logEl.appendChild(line);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      // Show this page's origin (what must be whitelisted on the API key).
+      const origin = window.location.origin;
+      $("origin").textContent = origin === "null" ? "null (file://)" : origin;
+      if (window.location.protocol === "file:") $("file-warning").hidden = false;
+
+      // Remember the inputs between reloads.
+      const FIELDS = ["key", "apiBase", "widgetUrl"];
+      for (const id of FIELDS) {
+        const saved = localStorage.getItem("evw_" + id);
+        if (saved) $(id).value = saved;
+        $(id).addEventListener("input", () => localStorage.setItem("evw_" + id, $(id).value));
+      }
+
+      let scriptLoaded = false;
+
+      function loadScript(url) {
+        return new Promise((resolve, reject) => {
+          if (scriptLoaded) return resolve();
+          const s = document.createElement("script");
+          s.src = url;
+          s.onload = () => { scriptLoaded = true; resolve(); };
+          s.onerror = () => reject(new Error("Could not load " + url));
+          document.head.appendChild(s);
+        });
+      }
+
+      $("load").addEventListener("click", async () => {
+        const publicKey = $("key").value.trim();
+        const apiBase = $("apiBase").value.trim();
+        const widgetUrl = $("widgetUrl").value.trim();
+        if (!publicKey) { log("Enter a publishable key first.", "log-err"); return; }
+
+        $("load").disabled = true;
+        try {
+          log("Loading widget script…", "log-state");
+          await loadScript(widgetUrl);
+
+          const api = window.EnjoysVoiceWidget && window.EnjoysVoiceWidget.CallWidget;
+          if (!api) throw new Error("EnjoysVoiceWidget global not found — check the script URL.");
+
+          log("Initializing widget (validating key + origin)…", "log-state");
+          api.init({
+            publicKey,
+            apiBase,
+            onState: (state) => log("state → " + state, "log-state"),
+            onError: (err) => log("error: " + (err && err.message ? err.message : err), "log-err"),
+          }).ready
+            .then(() => log("Key valid — floating button is live (bottom-right). Click it to call.", "log-ok"))
+            .catch((err) => {
+              log("Key rejected: " + (err && err.message ? err.message : err), "log-err");
+              $("load").disabled = false;
+            });
+        } catch (err) {
+          log(err.message || String(err), "log-err");
+          $("load").disabled = false;
+        }
+      });
+
+      $("reset").addEventListener("click", () => window.location.reload());
+    </script>
+  </body>
+</html>

@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { config } from '@/core';
 import { loadApiKeyByPublicKey, type DbApiKey } from './postgres/apikey.repo';
 
 /** A validated, parsed API key ready for use by the widget/originate paths. */
@@ -63,8 +64,17 @@ export class ApiKeyService {
     const { key } = resolved;
 
     if (!key.active) return { ok: false, reason: 'inactive' };
-    if (!this.originAllowed(key.allowedOrigins, origin)) return { ok: false, reason: 'origin_not_allowed' };
-    if (!this.ipAllowed(key.allowedIps, ip)) return { ok: false, reason: 'ip_not_allowed' };
+
+    // Dev bypass: when WIDGET_DEV_MODE is on AND the request comes from
+    // localhost/loopback, skip the Origin + IP allow-lists so the widget can be
+    // tested locally without whitelisting a dev origin/IP. Only loopback callers
+    // are exempted (a remote client never matches), so this can't be abused from
+    // the internet; the daily cap below still applies.
+    const devBypass = config.widget.devMode && isLocalRequest(origin, ip);
+    if (!devBypass) {
+      if (!this.originAllowed(key.allowedOrigins, origin)) return { ok: false, reason: 'origin_not_allowed' };
+      if (!this.ipAllowed(key.allowedIps, ip)) return { ok: false, reason: 'ip_not_allowed' };
+    }
     if (this.capReached(key)) return { ok: false, reason: 'daily_cap_reached' };
 
     return { ok: true, key };
@@ -185,6 +195,26 @@ function normalizeOrigin(origin: string): string {
     return `${u.protocol}//${u.host}`.toLowerCase();
   } catch {
     return trimmed.toLowerCase();
+  }
+}
+
+/**
+ * Whether a request originates from the local machine — either a loopback
+ * client IP (127.0.0.1 / ::1, incl. IPv4-mapped) or a localhost browser Origin
+ * (http://localhost:* / http://127.0.0.1:* / [::1]). Used only to gate the
+ * dev-mode bypass, so it must stay strict: anything non-loopback returns false.
+ */
+function isLocalRequest(origin: string | undefined, ip: string): boolean {
+  const cleanIp = stripV4Mapped((ip || '').trim());
+  const loopbackIp = cleanIp === '127.0.0.1' || cleanIp === '::1' || cleanIp.startsWith('127.');
+  if (loopbackIp) return true;
+
+  if (!origin) return false;
+  try {
+    const host = new URL(origin).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  } catch {
+    return false;
   }
 }
 
