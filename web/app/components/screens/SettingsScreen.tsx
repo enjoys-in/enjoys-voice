@@ -28,6 +28,8 @@ import { getCachedSoundUrl, invalidateSoundCache } from "../../lib/sound-cache";
 import { goApi, type GoSound } from "../../lib/go-api";
 import { CallerIdPanel } from "./CallerIdPanel";
 import { BalancePanel } from "./BalancePanel";
+import { GithubIcon } from "../ui/GithubIcon";
+import { APP_VERSION, REPO_URL } from "../../lib/app-meta";
 
 const CALLER_TUNES = [
   { id: "caller_tune.wav", name: "Default Tune" },
@@ -718,6 +720,18 @@ export function SettingsScreen() {
               </Card>
             </>
           )}
+
+          {/* ─── About ──────────────────────────────────────── */}
+          <a
+            href={REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 px-1 py-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <GithubIcon className="h-4 w-4" />
+            <span>View source on GitHub</span>
+            <span className="ml-auto font-mono text-xs opacity-70">v{APP_VERSION}</span>
+          </a>
 
         </div>
       </ScrollArea>

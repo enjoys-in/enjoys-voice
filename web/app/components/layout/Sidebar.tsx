@@ -4,6 +4,8 @@ import { Phone, Clock, Users, Hash, Settings, Voicemail, LogOut } from "lucide-r
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "../../stores";
 import { useBranding } from "../../hooks/useBranding";
+import { GithubIcon } from "../ui/GithubIcon";
+import { APP_VERSION, REPO_URL } from "../../lib/app-meta";
 import type { TabId } from "./BottomNav";
 
 interface SidebarProps {
@@ -66,7 +68,7 @@ export function Sidebar({ activeTab, onTabChange, voicemailUnread = 0 }: Sidebar
       </nav>
 
       {/* Footer */}
-      <div className="p-2 border-t border-border/50">
+      <div className="p-2 border-t border-border/50 space-y-1">
         <button
           onClick={logout}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
@@ -74,6 +76,16 @@ export function Sidebar({ activeTab, onTabChange, voicemailUnread = 0 }: Sidebar
           <LogOut className="h-4 w-4" />
           Sign Out
         </button>
+        <a
+          href={REPO_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+        >
+          <GithubIcon className="h-4 w-4" />
+          <span>Source</span>
+          <span className="ml-auto font-mono text-[10px] opacity-70">v{APP_VERSION}</span>
+        </a>
       </div>
     </aside>
   );

@@ -1,0 +1,16 @@
+#!/bin/sh
+# Auto-bump the web app's patch version whenever a commit touches web/, so the
+# version shown in the UI (sidebar + Settings) always tracks the latest change.
+#
+# Enable once per clone:
+#   git config core.hooksPath .githooks
+#
+# (Dependency-free: uses Node, which the project already requires.)
+
+# Only bump when this commit actually includes web/ changes.
+if git diff --cached --name-only | grep -q '^web/'; then
+  node web/scripts/bump-version.mjs || exit 0
+  git add web/package.json
+fi
+
+exit 0
