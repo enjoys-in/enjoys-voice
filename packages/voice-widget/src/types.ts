@@ -33,6 +33,23 @@ export interface WidgetOptions {
   buttonLabel?: string;
   /** Heading shown in the call panel. Defaults to the key's label/destination. */
   title?: string;
+  /**
+   * Show playful reaction GIFs behind the floating button: a happy GIF when the
+   * visitor's cursor comes near it, an angry GIF as they move away. Default true
+   * (only renders if at least one GIF URL is supplied). Disable with `false`.
+   */
+  gifs?: boolean;
+  /** GIF shown when the cursor is near the button. */
+  happyGif?: string;
+  /** GIF shown when the cursor moves away from the button. */
+  angryGif?: string;
+  /**
+   * CSS blend mode for the reaction GIFs. GIFs can't carry a soft alpha
+   * background, so to visually drop a solid-color background use "multiply" on a
+   * light page (drops white) or "screen" on a dark page (drops black). Default
+   * "normal" (no blending).
+   */
+  gifBlend?: "normal" | "multiply" | "screen";
   /** Called on every state transition. */
   onState?: (state: WidgetState) => void;
   /** Called when validation or a call fails. */

@@ -11,6 +11,10 @@ export interface UIOptions {
   accentColor?: string;
   buttonLabel?: string;
   title?: string;
+  gifs?: boolean;
+  happyGif?: string;
+  angryGif?: string;
+  gifBlend?: "normal" | "multiply" | "screen";
   onCall: () => void;
   onHangup: () => void;
   onDtmf: (tone: string) => void;
@@ -50,6 +54,9 @@ export class WidgetUI {
   private actionBtn: HTMLButtonElement;
   private keypad: HTMLDivElement;
   private toastEl: HTMLDivElement;
+  private gifEl?: HTMLImageElement;
+  private gifTimer?: number;
+  private gifMove?: (e: PointerEvent) => void;
   private open = false;
   private active = false; // a call is connecting/ringing/in progress
   private disabled = false;
@@ -119,7 +126,26 @@ export class WidgetUI {
 
     this.toastEl = el("div", "evw-toast");
 
-    this.root.append(this.panel, this.toastEl, this.fab);
+    // Optional playful reaction GIFs that peek out from behind the button: a
+    // happy GIF as the cursor approaches, an angry one as it leaves. Only wired
+    // up when enabled and at least one GIF URL is supplied.
+    const gifsOn = opts.gifs !== false && Boolean(opts.happyGif || opts.angryGif);
+    let fabNode: HTMLElement = this.fab;
+    if (gifsOn) {
+      const wrap = el("div", "evw-fabwrap");
+      this.gifEl = el("img", "evw-gif") as HTMLImageElement;
+      this.gifEl.setAttribute("alt", "");
+      this.gifEl.setAttribute("aria-hidden", "true");
+      this.gifEl.setAttribute("draggable", "false");
+      if (opts.gifBlend && opts.gifBlend !== "normal") {
+        this.gifEl.style.mixBlendMode = opts.gifBlend;
+      }
+      wrap.append(this.gifEl, this.fab);
+      fabNode = wrap;
+      this.initReactionGifs();
+    }
+
+    this.root.append(this.panel, this.toastEl, fabNode);
     document.body.appendChild(this.root);
   }
 
@@ -203,12 +229,87 @@ export class WidgetUI {
 
   destroy(): void {
     this.stopTimer();
+    if (this.gifMove) window.removeEventListener("pointermove", this.gifMove);
+    if (this.gifTimer) window.clearTimeout(this.gifTimer);
     this.root.remove();
+  }
+
+  /**
+   * Swap the reaction GIF based on cursor proximity to the button: happy when
+   * the pointer comes within ~170px, an angry flash (that fades out) as it
+   * leaves. getBoundingClientRect reads are throttled to one per animation frame
+   * and the listener is passive, so this stays cheap on the host page.
+   */
+  private initReactionGifs(): void {
+    const { happyGif, angryGif } = this.opts;
+    let mood: "happy" | "angry" | null = null;
+    let near = false;
+    let queued = false;
+    let px = -1e4;
+    let py = -1e4;
+
+    const show = (next: "happy" | "angry"): void => {
+      const src = next === "happy" ? happyGif : angryGif;
+      if (!this.gifEl || !src) {
+        this.gifEl?.classList.remove("evw-gif--show");
+        return;
+      }
+      if (mood !== next) {
+        this.gifEl.src = src;
+        mood = next;
+      }
+      this.gifEl.classList.add("evw-gif--show");
+    };
+    const hide = (): void => this.gifEl?.classList.remove("evw-gif--show");
+
+    const evaluate = (): void => {
+      queued = false;
+      // Never compete with the open call panel for the same space.
+      if (this.open) {
+        if (near) {
+          near = false;
+          hide();
+        }
+        return;
+      }
+      const r = this.fab.getBoundingClientRect();
+      const dist = Math.hypot(px - (r.left + r.width / 2), py - (r.top + r.height / 2));
+      const isNear = dist < 170;
+      if (isNear === near) return;
+      near = isNear;
+      if (this.gifTimer) {
+        window.clearTimeout(this.gifTimer);
+        this.gifTimer = undefined;
+      }
+      if (near) {
+        show("happy");
+      } else {
+        show("angry");
+        this.gifTimer = window.setTimeout(hide, 1500);
+      }
+    };
+
+    this.gifMove = (e: PointerEvent): void => {
+      px = e.clientX;
+      py = e.clientY;
+      if (!queued) {
+        queued = true;
+        window.requestAnimationFrame(evaluate);
+      }
+    };
+    window.addEventListener("pointermove", this.gifMove, { passive: true });
   }
 
   private toggle(force?: boolean): void {
     this.open = force ?? !this.open;
     this.root.classList.toggle("evw-open", this.open);
+    if (this.open && this.gifEl) {
+      if (this.gifTimer) {
+        window.clearTimeout(this.gifTimer);
+        this.gifTimer = undefined;
+      }
+      this.gifEl.classList.remove("evw-gif--show");
+    }
   }
 }
 
@@ -243,6 +344,13 @@ function injectStyles(accent?: string): void {
 .evw-fab::after{content:"";position:absolute;inset:0;border-radius:50%;pointer-events:none}
 .evw-connected .evw-fab:not(.evw-fab--active)::after{animation:evw-pulse 2.4s ease-out infinite}
 @keyframes evw-pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,${color} 55%,transparent)}70%{box-shadow:0 0 0 16px transparent}100%{box-shadow:0 0 0 0 transparent}}
+
+/* Reaction GIFs — peek out from behind the button on cursor proximity */
+.evw-fabwrap{position:relative;width:60px;height:60px;align-self:flex-end}
+.evw-bottom-left .evw-fabwrap{align-self:flex-start}
+.evw-fabwrap .evw-fab{position:relative;z-index:1;align-self:auto}
+.evw-gif{position:absolute;left:50%;bottom:6px;width:120px;height:120px;max-width:none;object-fit:contain;border:none;border-radius:0;background:transparent;pointer-events:none;user-select:none;z-index:0;opacity:0;transform:translate(-50%,0) scale(.55);transform-origin:bottom center;transition:opacity .25s ease,transform .3s cubic-bezier(.34,1.56,.64,1)}
+.evw-gif--show{opacity:1;transform:translate(-50%,0) scale(1)}
 
 /* Panel */
 .evw-panel{width:300px;background:#fff;color:#0f172a;border-radius:18px;box-shadow:0 18px 50px rgba(2,6,23,.28),0 2px 8px rgba(2,6,23,.12);border:1px solid rgba(2,6,23,.06);padding:18px;opacity:0;transform:translateY(14px) scale(.97);transform-origin:bottom right;pointer-events:none;transition:opacity .2s ease,transform .22s cubic-bezier(.34,1.4,.64,1)}

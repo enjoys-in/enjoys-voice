@@ -46,6 +46,12 @@ function attr(script: HTMLScriptElement | null, name: string): string | undefine
   return value && value.trim() ? value.trim() : undefined;
 }
 
+/** Treat absent / "no" / "false" / "off" / "0" as disabled. */
+function isOff(value: string | undefined): boolean {
+  if (!value) return false;
+  return ["no", "false", "off", "0"].includes(value.toLowerCase());
+}
+
 function boot(): void {
   const script = findScript();
   const publicKey = attr(script, "data-enjoys-key") || attr(script, "data-key");
@@ -63,6 +69,7 @@ function boot(): void {
   }
 
   const position = attr(script, "data-position");
+  const gifBlend = attr(script, "data-gif-blend");
   const options: WidgetOptions = {
     publicKey,
     apiBase: attr(script, "data-api-base") || originOf(script?.src),
@@ -70,6 +77,10 @@ function boot(): void {
     buttonLabel: attr(script, "data-label"),
     title: attr(script, "data-title"),
     position: position === "bottom-left" ? "bottom-left" : "bottom-right",
+    gifs: !isOff(attr(script, "data-gifs")),
+    happyGif: attr(script, "data-happy-gif"),
+    angryGif: attr(script, "data-angry-gif"),
+    gifBlend: gifBlend === "multiply" || gifBlend === "screen" ? gifBlend : undefined,
   };
 
   const widget = new CallWidget(options);
