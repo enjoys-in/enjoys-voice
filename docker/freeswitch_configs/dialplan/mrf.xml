@@ -24,7 +24,10 @@
         <action application="set" data="hangup_after_bridge=false"/>
         <action application="set" data="park_after_bridge=true"/>
         <action application="set" data="playback_terminators=none"/>
-        <action application="socket" data="172.17.0.1:8085 async full"/>
+        <!-- DEV: the Node ESL server runs on the Windows HOST, not in a container.
+             FS reaches it via host.docker.internal (host-gateway). 172.17.0.1 is
+             the docker0 bridge gateway, which this voipnet container can't route to. -->
+        <action application="socket" data="host.docker.internal:8085 async full"/>
       </condition>
     </extension>
   </context>

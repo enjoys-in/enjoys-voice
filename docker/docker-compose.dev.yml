@@ -43,6 +43,26 @@ services:
       - voipnet
     restart: unless-stopped
 
+  # TURN/STUN relay so the Windows-host browser and the containerized
+  # FreeSWITCH can exchange WebRTC media. FS advertises its container IP
+  # (172.21.0.3) which the host browser can't reach; coturn is reachable by
+  # both (published 3478 + relay range from the host, voipnet to reach FS).
+  # The relay range is small on purpose (Docker Desktop = 1 userland proxy per
+  # UDP port). Must match min-port/max-port in coturn/turnserver.dev.conf.
+  coturn:
+    image: coturn/coturn:latest
+    container_name: callnet-coturn
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "49160-49200:49160-49200/udp" # relay range (matches turnserver.dev.conf)
+    volumes:
+      - ./coturn/turnserver.dev.conf:/etc/coturn/turnserver.conf:ro
+    networks:
+      - voipnet
+    restart: unless-stopped
+
   postgres:
     image: postgres:16-alpine
     container_name: callnet-postgres

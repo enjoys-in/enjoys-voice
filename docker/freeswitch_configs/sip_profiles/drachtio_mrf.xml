@@ -16,7 +16,16 @@
     <param name="rtp-ip" value="$${local_ip_v4}"/>
     <param name="sip-ip" value="$${local_ip_v4}"/>
     <param name="sip-port" value="5090"/>
-    <param name="ext-rtp-ip" value="$${local_ip_v4}"/>
+    <!-- Browser RTP must reach FreeSWITCH from the Windows host. The container's
+         internal IP ($${local_ip_v4}) is NOT routable from the host browser, so
+         advertise the host LAN IP; the dev compose publishes 16384-16403/udp +
+         5090, so media sent to 192.168.1.48:<rtp> forwards into the container.
+         >>> Update 192.168.1.48 if your host LAN IP changes (run `ipconfig`). <<< -->
+    <param name="ext-rtp-ip" value="192.168.1.48"/>
+    <!-- SIP only ever talks to drachtio INSIDE the docker network, so keep the
+         internal container IP. A host/public IP here makes drachtio send the
+         endpoint INVITE to 192.168.1.48:5090, which hairpins through the published
+         port and FS returns 404 Not Found (verified 2026-06-24). -->
     <param name="ext-sip-ip" value="$${local_ip_v4}"/>
     <param name="auth-calls" value="false"/>
     <param name="enable-timer" value="false"/>
