@@ -384,7 +384,7 @@ function ApiKeyDialog({
             (and IPs) you allow.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-2">
+        <div className="grid gap-3 py-1 max-h-[65vh] overflow-y-auto px-0.5">
           <DialogField label="Label" hint="A name to recognize this key">
             <Input
               autoFocus
@@ -395,7 +395,7 @@ function ApiKeyDialog({
             />
           </DialogField>
           <div className="grid grid-cols-2 gap-3">
-            <DialogField label="Destination number" hint={ROUTE_TYPE_HINTS[routeType]}>
+            <DialogField label="Destination" hint={ROUTE_TYPE_HINTS[routeType]}>
               <Input
                 value={destination}
                 maxLength={40}
@@ -403,7 +403,7 @@ function ApiKeyDialog({
                 onChange={(e) => setDestination(e.target.value)}
               />
             </DialogField>
-            <DialogField label="Caller ID" hint="Always your own extension — set automatically">
+            <DialogField label="Caller ID" hint="Your extension — automatic">
               <Input
                 value={callerId}
                 disabled
@@ -412,24 +412,31 @@ function ApiKeyDialog({
               />
             </DialogField>
           </div>
-          <DialogField
-            label="Route type"
-            hint="Where calls placed with this key are sent."
-          >
-            <Select value={routeType} onValueChange={(v) => setRouteType(v as GoApiKeyRouteType)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="trunk">Phone number (PSTN trunk)</SelectItem>
-                <SelectItem value="ivr">IVR menu (internal)</SelectItem>
-                <SelectItem value="extension">Browser → extension (internal)</SelectItem>
-              </SelectContent>
-            </Select>
-          </DialogField>
+          <div className="grid grid-cols-2 gap-3">
+            <DialogField label="Route type" hint="Where calls are sent">
+              <Select value={routeType} onValueChange={(v) => setRouteType(v as GoApiKeyRouteType)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="trunk">Phone number (PSTN trunk)</SelectItem>
+                  <SelectItem value="ivr">IVR menu (internal)</SelectItem>
+                  <SelectItem value="extension">Browser → extension</SelectItem>
+                </SelectContent>
+              </Select>
+            </DialogField>
+            <DialogField label="Daily call cap" hint="0 = unlimited">
+              <Input
+                type="number"
+                min={0}
+                value={dailyCap}
+                onChange={(e) => setDailyCap(Number(e.target.value) || 0)}
+              />
+            </DialogField>
+          </div>
           <DialogField
             label="Allowed origins"
-            hint="Comma-separated site origins that may embed the widget, e.g. https://acme.com, https://app.acme.com"
+            hint="Comma-separated site origins allowed to embed the widget."
           >
             <Input
               value={origins}
@@ -439,7 +446,7 @@ function ApiKeyDialog({
           </DialogField>
           <DialogField
             label="Allowed IPs"
-            hint="Optional comma-separated IPs or CIDRs. Leave blank to allow any source IP (origin is still enforced)."
+            hint="Optional comma-separated IPs / CIDRs. Blank = any source IP."
           >
             <Input
               value={ips}
@@ -447,35 +454,21 @@ function ApiKeyDialog({
               onChange={(e) => setIps(e.target.value)}
             />
           </DialogField>
-          <DialogField label="Daily call cap" hint="0 = unlimited">
-            <Input
-              type="number"
-              min={0}
-              className="w-32"
-              value={dailyCap}
-              onChange={(e) => setDailyCap(Number(e.target.value) || 0)}
-            />
-          </DialogField>
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-border/50 p-3">
-            <div>
-              <p className="text-sm font-medium">Active</p>
-              <p className="text-xs text-muted-foreground">
-                Inactive keys are rejected — no calls can be placed.
-              </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-border/50 p-2.5">
+              <div>
+                <p className="text-sm font-medium">Active</p>
+                <p className="text-[11px] text-muted-foreground">Off = calls rejected.</p>
+              </div>
+              <Switch checked={active} onCheckedChange={setActive} />
             </div>
-            <Switch checked={active} onCheckedChange={setActive} />
-          </div>
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-border/50 p-3">
-            <div>
-              <p className="text-sm font-medium">Allow localhost testing (dev mode)</p>
-              <p className="text-xs text-muted-foreground">
-                Skips the allowed-origin & IP checks for requests from
-                localhost/loopback only, so you can test the widget locally
-                without whitelisting a dev origin. The daily cap still applies.
-                Leave off in production.
-              </p>
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-border/50 p-2.5">
+              <div>
+                <p className="text-sm font-medium">Dev mode</p>
+                <p className="text-[11px] text-muted-foreground">Allow localhost; skips origin/IP.</p>
+              </div>
+              <Switch checked={devMode} onCheckedChange={setDevMode} />
             </div>
-            <Switch checked={devMode} onCheckedChange={setDevMode} />
           </div>
         </div>
         <DialogFooter>

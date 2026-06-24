@@ -348,10 +348,98 @@ edited the wrong ICE source).
 - 🔑 Always trace **which** ICE config the client actually loaded before assuming a server
   change took effect.
 
-> Prod parity (deferred): wire the same coturn service into `docker-compose.prod.yml`
-> (`prod/coturn/turnserver.conf` already exists with `external-ip=77.237.241.24`) and set
-> the TURN entry in **both** prod ICE sources. On a Linux VPS, `network_mode: host` for FS
-> is an alternative — but TURN is the uniform fix across environments.
+> Prod parity (DONE): coturn is now wired into `docker/docker-compose.prod.yml` as the
+> `coturn` service (`image: coturn/coturn`, publishes `3478/udp+tcp` + relay range
+> `49152-49199/udp`, joins `voipnet`, mounts `prod/coturn/turnserver.conf` with
+> `external-ip=77.237.241.24`). The TURN entry is set in **both** prod ICE sources via the
+> shared `x-ice-servers` YAML anchor (`username: callnet`, the password must equal coturn's
+> `user=`). On a Linux VPS, `network_mode: host` for FS is an alternative — but TURN is the
+> uniform fix across environments.
+
+---
+
+## 8.2 Where coturn lives in the code (the ICE-server flow)
+
+A surprise for newcomers: **the Node app never connects to coturn.** TURN is a *browser*
+concern. The server's only job is to **hand the browser a list of ICE servers** (a STUN
+URL + your TURN URL with credentials); the browser's `RTCPeerConnection` is what actually
+allocates a relay on coturn. So "using coturn" in the backend means "serving the right ICE
+config".
+
+**The chain (config → response → browser):**
+
+```
+PUBLIC_ICE_SERVERS (env, JSON)
+   │  parseIceServers()                       src/core/config.ts        → config.widget.iceServers
+   ▼
+buildIceServers()                             src/core/turn.ts          → static or ephemeral creds
+   │
+   ▼
+widgetConnect() → POST /config, /session      src/http/routes/api.routes.ts  → { iceServers, ... }
+   │  (HTTP response to the browser)
+   ▼
+RTCPeerConnection({ iceServers })             packages/voice-widget/src/sip-call.ts
+   │                                          (web dialer: web/app/lib/runtime-config.ts)
+   ▼
+browser ⇄ coturn (STUN discover / TURN relay)
+```
+
+1. **Parse** — `PUBLIC_ICE_SERVERS` (the JSON with `turn:77.237.241.24:3478`, `callnet`,
+   `devsecret123`) is parsed once at startup by `parseIceServers()` into
+   `config.widget.iceServers` (`src/core/config.ts`).
+2. **Build per request** — `buildIceServers()` (`src/core/turn.ts`) returns that list. If
+   `TURN_STATIC_AUTH_SECRET` is empty (**Mode A**, our case) the static `devsecret123`
+   credentials pass through unchanged. If the secret is set (**Mode B**),
+   `mintTurnCredential()` replaces every `turn:`/`turns:` credential with a short-lived
+   `username = <expiry>`, `credential = base64(HMAC-SHA1(secret, username))` so the
+   long-term secret never reaches the browser.
+3. **Serve** — `widgetConnect()` embeds `iceServers: buildIceServers()` in the widget
+   `POST /config` and `POST /session` responses (`src/http/routes/api.routes.ts`).
+4. **Use** — the browser feeds them to `RTCPeerConnection` (voice-widget:
+   `packages/voice-widget/src/sip-call.ts`; Next.js dialer reads
+   `window.__RUNTIME_CONFIG__.ICE_SERVERS`). Only now does anything touch coturn.
+
+> 🔑 Because the server just forwards the credential, **the `credential` in
+> `PUBLIC_ICE_SERVERS` MUST equal coturn's `user=callnet:<pwd>`** — they're the same secret
+> read by two different processes (the browser, via the API; and coturn, from its config).
+
+### 8.2.1 War story: TURN works locally but 401s on the VPS — the polluted `realm`
+
+**Symptom.** STUN reachability to the VPS coturn was fine (a `scripts/turn-test.mjs` STUN
+Binding returned the public reflexive address), but **TURN `Allocate` always failed with
+`400`** after the `401` challenge — so no relay candidate, no media on IVR/voicemail.
+
+**Root cause.** `prod/coturn/turnserver.conf` had an **inline comment** on the realm line:
+
+```ini
+realm=voice.enjoys.in              # REPLACE_ME with your domain   ← WRONG
+```
+
+**coturn config files do NOT support same-line comments** — the entire trailing text
+becomes part of the value. The realm silently became
+`voice.enjoys.in              # REPLACE_ME with your domain`. Long-term-credential auth
+hashes `key = MD5(username : realm : password)`, so a polluted realm means the server and
+client compute **different keys** → every authenticated `Allocate` is rejected. The test
+client confirmed it: the `401` challenge echoed back `realm="voice.enjoys.in   # REPLACE_ME
+with your domain"`.
+
+**Fix.** Put `realm=` (and `user=`) on their **own clean lines**:
+
+```ini
+user=callnet:devsecret123
+realm=voice.enjoys.in
+```
+
+**Takeaways**
+- 🔑 coturn `.conf` rejects inline comments — pollutes the value. Same trap applies to
+  `.env` files consumed by entrypoints (clean `TURN_REALM=…` too).
+- 🔑 The **realm is server-chosen**: coturn advertises it in the `401`, the client echoes
+  it back. You never set it on the client; the `turn:` URL host (IP vs domain) is
+  irrelevant to the realm.
+- 🔑 **STUN Binding is auth-free** (no realm) — it succeeding tells you only that coturn is
+  *reachable*, NOT that credentials work. Always test an authenticated `Allocate`.
+- 🔑 Only the **password** must match between `turnserver.conf` (`user=`) and the ICE
+  `credential`; the realm need not match local dev's `realm=localhost`.
 
 ---
 
