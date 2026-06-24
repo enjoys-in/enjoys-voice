@@ -18,6 +18,25 @@ optionally, IPs), and locked to a single destination.
 Optional attributes: `data-position` (`bottom-right` | `bottom-left`),
 `data-accent` (CSS color), `data-label`, `data-title`, `data-api-base`.
 
+### From a CDN (jsDelivr / unpkg)
+
+The package is published to npm, so jsDelivr and unpkg serve the self-initializing
+`dist/widget.js` bundle directly. When loading from a third-party CDN you **must** set
+`data-api-base` to your voice API origin — otherwise the widget derives it from the
+script's origin (the CDN), which is wrong:
+
+```html
+<script
+  src="https://cdn.jsdelivr.net/npm/@enjoys/voice-widget@0.1.1/dist/widget.js"
+  data-enjoys-key="pk_live_xxxxxxxx"
+  data-api-base="https://voice.yourdomain.com"
+  defer
+></script>
+```
+
+unpkg is equivalent — `https://unpkg.com/@enjoys/voice-widget@0.1.1/dist/widget.js`. Pin
+a version (`@0.1.1`) rather than `@latest` so the CDN can cache aggressively.
+
 ## npm
 
 ```bash

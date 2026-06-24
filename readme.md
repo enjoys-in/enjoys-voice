@@ -4,6 +4,28 @@ Real browser-based phone calls with microphone audio, an IVR flow builder, voice
 call recording, and SIP trunking for PSTN. Third-party sites can embed an API-key-gated
 **click-to-call widget** (`@enjoys/voice-widget`) for browser WebRTC calls to a fixed destination.
 
+## Screenshots
+
+**Admin Dashboard** — live engine metrics (active calls, max concurrency, peak inbound channels, outbound CPS) plus last-N-days call volume, connection / abandon rates, spend, and the Calls-Over-Time and Status-Breakdown charts.
+
+![Admin Dashboard](images/dashbord.png)
+
+**IVR Flow Builder** — drag-and-drop call-flow canvas, persisted in Postgres. Shown here with the experimental **Send email** node that fires an email through a connector when a call reaches the block.
+
+![IVR Flow Builder](images/ivr.png)
+
+**Settings** — per-user profile, display name, Do Not Disturb, and audio preferences (caller tune, ringtone, DTMF tones).
+
+![Settings](images/settings.png)
+
+**Dial Pad** — DTMF keypad for placing WebRTC calls to extensions or PSTN numbers, with audio and video call buttons.
+
+![Dial Pad](images/keypad.png)
+
+**Recents** — recent call history grouped by day, with direction / voicemail icons and timestamps.
+
+![Recents](images/recents.png)
+
 ## Architecture
 
 A **hybrid backend**: a Bun/TypeScript SIP engine owns the live telephony, a Go REST
@@ -181,6 +203,44 @@ New accounts can be created via the signup screen or `POST :3003/api/auth/signup
 | GET    | `/trunk` · `/trunk/twilio` | Trunk status |
 | GET    | `/config` | Engine config (domain, ports, IVR) |
 | GET    | `/voicemails/:ext` · `/voicemails/:ext/:id/audio` | Voicemail list + WAV stream |
+
+## Embed the click-to-call widget
+
+Third-party sites add browser WebRTC calling with a single script tag. The bundle
+auto-boots from its `data-enjoys-key` (a publishable `pk_…` key), validates the key
+server-side, and only then renders — gated by the origins you allow for that key.
+
+**From your own voice domain** — `apiBase` is auto-derived from the script's origin, so
+nothing else is required:
+
+```html
+<script
+  src="https://voice.yourdomain.com/widget.js"
+  data-enjoys-key="pk_live_xxxxxxxx"
+  defer
+></script>
+```
+
+**From a public CDN** — the package is published as
+[`@enjoys/voice-widget`](https://www.npmjs.com/package/@enjoys/voice-widget), so jsDelivr
+and unpkg serve the bundle directly. You **must** add `data-api-base`, because the embed
+otherwise derives the API origin from the script's origin (which would be the CDN):
+
+```html
+<script
+  src="https://cdn.jsdelivr.net/npm/@enjoys/voice-widget@0.1.1/dist/widget.js"
+  data-enjoys-key="pk_live_xxxxxxxx"
+  data-api-base="https://voice.yourdomain.com"
+  defer
+></script>
+```
+
+Optional attributes: `data-position` (`bottom-right` | `bottom-left`), `data-accent`,
+`data-label`, `data-title`, plus reaction GIFs `data-happy-gif` / `data-angry-gif`
+(`data-gifs` off-toggle, `data-gif-blend` = `multiply` | `screen`). The server-to-server
+secret (`sk_…`) must never appear in browser code. See
+[packages/voice-widget/README.md](packages/voice-widget/README.md) for the npm /
+programmatic API.
 
 ## SIP Trunk (PSTN)
 
