@@ -273,6 +273,86 @@ getUserMedia (mic)  →  RTCPeerConnection  →  DTLS-SRTP/Opus media
    SIP.js (SDP offer/answer over WSS)  →  drachtio  →  routing/B2BUA
 ```
 
+### 8.1 War story: "Connection timeout" on IVR/voicemail — and the coturn fix
+
+> A real debugging saga from this repo (2026-06). Worth studying because the symptom,
+> the dead-ends, and the actual fix are all classic WebRTC-behind-NAT lessons.
+
+**The setup.** Local dev runs the browser on the **Windows host** while FreeSWITCH (FS)
+runs in a **Docker Desktop** container on a bridge network (`voipnet`, e.g. FS at
+`172.21.0.3`). drachtio relays SIP between them.
+
+**The symptom.** Browser-to-browser calls worked perfectly, but **any call that routes
+through the FS media server** — IVR, voicemail, conference, queue — failed ~4 s after
+answering with `Error: Connection timeout` and no audio.
+
+**Why those calls and not 1:1?** Browser↔browser media is peer-to-peer (FS isn't in the
+media path). IVR/voicemail put **FS in the media path**, so the browser must exchange
+DTLS-SRTP media *with the container*. FS answers the SIP leg, then advertises its
+**container-internal IP** (`c=IN IP4 172.21.0.3 … a=candidate … typ host`) as the media
+address. The host browser **cannot route to a container-internal IP**, so DTLS/ICE never
+completes → FS's media timer fires → "Connection timeout".
+
+**Dead-ends (each one *looks* right but doesn't apply):**
+
+| Attempt | Why it failed |
+|---|---|
+| `ext-rtp-ip = host LAN IP` | **Ignored.** FS only substitutes `ext-rtp-ip` when the SIP peer is *non-local*. Here the peer (drachtio) is on the **same /16** as FS, so FS decides "local call, no NAT" and advertises the real bound container IP anyway. FS has no idea the real media endpoint (the browser) is off-box, because drachtio relays the SDP. |
+| `ext-sip-ip = host IP` | **Caused a 404.** drachtio-fsmrf builds the endpoint INVITE from the address FS advertises; the host IP made it hairpin through the published `5090` port and FS's `mrf` context returned `404`. **Never change `ext-sip-ip` — keep it `$${local_ip_v4}`.** |
+| `network_mode: host` for FS | **Linux-only.** On Docker Desktop (Windows) host mode binds the **WSL2 VM**, not the Windows LAN, so the browser still can't reach FS. (This *is* the right fix on a Linux VPS.) |
+
+**The fix — a TURN relay (coturn).** A TURN server is a relay reachable by **both** sides,
+which sidesteps the container-IP problem entirely:
+
+```
+browser ──▶ coturn (published 3478 + relay range, host-reachable)
+                 │
+                 └──▶ FS 172.21.0.3   (coturn is ON voipnet, so it CAN reach the container)
+```
+
+Key placement decisions:
+- coturn joins **`voipnet`** so it can relay *to* FS's container IP.
+- coturn **publishes** `3478` + a small relay port range to the host so the **browser**
+  can reach it. (On Docker Desktop each published UDP port = one userland proxy, so keep
+  the dev relay range small, e.g. `49160-49200`.)
+- Its config must **NOT** deny the RFC1918 range FS lives in (a hardening default in the
+  prod config), or it can't relay to `172.21.0.3`.
+- `external-ip` and the `turn:` URL credential must match the ICE config the browser uses.
+
+**The gotcha that cost a whole test cycle — there are TWO ICE-config sources:**
+
+1. **Embeddable voice-widget** (`packages/voice-widget/`): gets ICE servers from the
+   **API connect response**, driven by `PUBLIC_ICE_SERVERS` in the root `.env`
+   (`parseIceServers` in `src/core/config.ts`).
+2. **Next.js web dialer** (`web/app/hooks/useSipPhone.ts`): gets ICE servers
+   **client-side** from `getIceServers()` in `web/app/lib/runtime-config.ts`, which reads
+   `window.__RUNTIME_CONFIG__.ICE_SERVERS` from `web/public/runtime-config.js`.
+
+Editing `.env` alone did **nothing** for the dialer — the browser kept offering only
+`typ host` candidates and coturn logged **zero** allocations. The fix added
+`web/scripts/gen-runtime-config.mjs` (a `predev` step) that regenerates
+`runtime-config.js` from the `PUBLIC_*` env, mirroring what `web/docker-entrypoint.sh`
+does in production. **Set both sources.**
+
+**How to confirm TURN is actually used:** the browser's SDP must contain `typ relay`
+candidates **and** `docker logs callnet-coturn` must show `allocation`/`permission`/`relay`
+activity. A missing relay candidate = the client never received the TURN config (you
+edited the wrong ICE source).
+
+**Takeaways**
+- 🔑 *"STUN discovers, TURN relays, ICE decides"* — when media must cross a boundary the
+  endpoints can't address directly (container ↔ host, symmetric NAT), **TURN is the
+  reliable answer**, not media-IP config knobs.
+- 🔑 FS only honours `ext-rtp-ip` for **non-local** SIP peers; a relayed-SDP topology
+  defeats it.
+- 🔑 Always trace **which** ICE config the client actually loaded before assuming a server
+  change took effect.
+
+> Prod parity (deferred): wire the same coturn service into `docker-compose.prod.yml`
+> (`prod/coturn/turnserver.conf` already exists with `external-ip=77.237.241.24`) and set
+> the TURN entry in **both** prod ICE sources. On a Linux VPS, `network_mode: host` for FS
+> is an alternative — but TURN is the uniform fix across environments.
+
 ---
 
 ## 9. PSTN & SIP trunks

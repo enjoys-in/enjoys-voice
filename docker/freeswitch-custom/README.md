@@ -1,0 +1,108 @@
+# FreeSWITCH (custom) — Piper neural TTS
+
+A thin image built **on top of** `safarov/freeswitch:latest` that adds
+[Piper](https://github.com/rhasspy/piper) — a self-hosted, neural Text‑To‑Speech
+engine — so IVR/voicemail prompts sound natural instead of the robotic stock
+`mod_flite` voice.
+
+> Fully **internal**: no cloud, no API keys, no per-character cost.
+
+## Why this exists
+
+The stock image's only usable TTS is `mod_flite` (low quality, no real prosody
+or rate control). `mod_tts_commandline` is **already loaded** in
+`../freeswitch_configs/autoload_configs/modules.conf.xml`, so we don't rebuild
+FreeSWITCH — we just install Piper and point `mod_tts_commandline` at it.
+
+## What's in here
+
+| File | Purpose |
+|------|---------|
+| `Dockerfile` | `FROM safarov/freeswitch:latest` + Piper binary + one voice model. Includes a build‑time smoke test that fails the build if Piper can't synthesize. |
+| `run.sh` | Builds the image (and, with `--up`, recreates the compose service and verifies Piper). |
+
+## What you can do
+
+### 1. Build the image
+```bash
+cd docker/freeswitch-custom
+./run.sh                 # build only
+./run.sh --up            # build + recreate the compose service
+```
+
+### 2. Pick the CPU architecture (only if not x86_64)
+```bash
+PIPER_ARCH=aarch64 ./run.sh     # Apple Silicon / ARM VPS
+PIPER_ARCH=armv7l  ./run.sh     # 32-bit ARM
+```
+
+### 3. Choose a different voice
+Browse voices at <https://huggingface.co/rhasspy/piper-voices>. Pass the voice
+name and its HF path:
+```bash
+PIPER_VOICE=en_US-ryan-high \
+PIPER_VOICE_PATH=en/en_US/ryan/high \
+./run.sh
+```
+The voice file lands in the image at `/opt/piper/voices/<PIPER_VOICE>.onnx`.
+
+### 4. Add extra voices (e.g. Hindi)
+The `tts_commandline` command uses `${voice}` as the model name, so you can ship
+multiple `.onnx` files and switch per call by setting `tts_voice`:
+```bash
+# build a second image layer or extend the Dockerfile to also pull e.g.
+#   hi/hi_IN/<voice>/medium/hi_IN-<voice>-medium.onnx(.json)
+```
+
+### 5. Override the image tag / compose target
+```bash
+IMAGE_TAG=my-fs:dev COMPOSE_FILE=../docker-compose.prod.yml SERVICE=drachtio-freeswitch ./run.sh --up
+```
+
+## Wiring it in (one-time)
+
+After the first build, point the FreeSWITCH service at this image. In
+`../docker-compose.dev.yml` replace:
+```yaml
+    image: safarov/freeswitch:latest
+```
+with:
+```yaml
+    image: callnet-freeswitch-piper:latest
+```
+then `./run.sh --up`.
+
+The remaining config lives outside this folder (bind-mounted, no rebuild needed):
+
+1. **Point `mod_tts_commandline` at Piper** —
+   `../freeswitch_configs/autoload_configs/tts_commandline.conf.xml`:
+   ```xml
+   <param name="command"
+          value="echo ${text} | /opt/piper/piper --model /opt/piper/voices/${voice}.onnx --espeak_data /opt/piper/espeak-ng-data --output_file ${file}"/>
+   ```
+2. **Make Piper the default engine** —
+   `../freeswitch_configs/vars.xml`: `tts_engine=tts_commandline`,
+   `tts_voice=en_US-amy-medium`.
+3. **App gotcha** — `src/sip/ivr.system.ts` `prepareVoice()` re-sets the engine
+   to `flite` on every call; change it to `tts_commandline` /
+   `en_US-amy-medium` or vars.xml is overridden.
+
+## Verify
+
+```bash
+# module loaded?
+docker exec drachtio-freeswitch fs_cli -p 'JambonzR0ck$' -x 'module_exists mod_tts_commandline'
+# Piper present?
+docker exec drachtio-freeswitch /opt/piper/piper --help | head -n1
+# synth a test file inside the container
+docker exec drachtio-freeswitch sh -c "echo 'hello from piper' | /opt/piper/piper --model /opt/piper/voices/en_US-amy-medium.onnx --espeak_data /opt/piper/espeak-ng-data --output_file /tmp/t.wav && ls -l /tmp/t.wav"
+```
+
+## Notes
+
+- **Latency:** first synth of a phrase is ~100–400 ms; cache WAVs per phrase if
+  you need it instant.
+- **Sample rate:** Piper medium voices output 22 050 Hz mono WAV with a proper
+  header; FreeSWITCH resamples to the call rate automatically.
+- **Pinned version:** downloads use Piper `2023.11.14-2`. If that release tag
+  404s, bump `PIPER_VERSION` (build-arg in the `Dockerfile`).

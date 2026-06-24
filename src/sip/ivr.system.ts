@@ -714,7 +714,6 @@ export class IVRSystem {
    * abort the whole call, so we log which file failed and carry on.
    */
   private async playSafe(endpoint: Mrf.Endpoint, file: string): Promise<void> {
-    console.log(`   ▶️ play: ${file}`);
     try {
       await endpoint.play(file);
     } catch (err: any) {
@@ -769,7 +768,6 @@ export class IVRSystem {
     await endpoint.execute('set', 'playback_terminators=0123456789*#');
 
     for (let attempt = 1; attempt <= tries; attempt++) {
-      console.log(`   🎚️ ${label}: prompt attempt ${attempt}/${tries}`);
       const digit = await new Promise<string>((resolve) => {
         let settled = false;
         let timer: ReturnType<typeof setTimeout> | undefined;

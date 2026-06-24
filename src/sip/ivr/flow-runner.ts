@@ -181,7 +181,6 @@ export async function runFlow(
   for (let hop = 0; hop < MAX_HOPS && current; hop++) {
     const node = current;
     const kind = nodeKind(node);
-    console.log(`   🔢 IVR flow: ${kind} [${node.id}] (hop ${hop + 1}) [${ctx.callId}]`);
 
     switch (kind) {
       case 'start': {
