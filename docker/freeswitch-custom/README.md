@@ -20,6 +20,7 @@ FreeSWITCH — we just install Piper and point `mod_tts_commandline` at it.
 |------|---------|
 | `Dockerfile` | `FROM safarov/freeswitch:latest` + Piper binary + one voice model. Includes a build‑time smoke test that fails the build if Piper can't synthesize. |
 | `run.sh` | Builds the image (and, with `--up`, recreates the compose service and verifies Piper). |
+| `add-voice.sh` | Downloads ANY Piper voice from the [catalog](https://rhasspy.github.io/piper-samples/voices.json) and live-installs it into the running container (no rebuild). Caches models under `voices/`. |
 | `config/tts_commandline.conf.xml` | Piper override for `mod_tts_commandline`, used **only** by the test container. The original under `../freeswitch_configs/` is never touched. |
 | `docker-compose.test.yml` | Standalone, isolated test container (`freeswitch-piper-test`) using `enjoys-freeswitch:latest` with the override layered on read‑only originals. |
 
@@ -48,13 +49,52 @@ PIPER_VOICE_PATH=en/en_US/ryan/high \
 ```
 The voice file lands in the image at `/opt/piper/voices/<PIPER_VOICE>.onnx`.
 
-### 4. Add extra voices (e.g. Hindi)
-The `tts_commandline` command uses `${voice}` as the model name, so you can ship
-multiple `.onnx` files and switch per call by setting `tts_voice`:
+### 4. Add extra voices (any language) with `add-voice.sh`
+Piper ships hundreds of voices. Instead of rebuilding, fetch one and drop it
+straight into the running container. The key format is
+`<language>-<voice>-<quality>` (quality defaults to `medium`).
+
+**Run it** (from `docker/freeswitch-custom`):
 ```bash
-# build a second image layer or extend the Dockerfile to also pull e.g.
-#   hi/hi_IN/<voice>/medium/hi_IN-<voice>-medium.onnx(.json)
+cd docker/freeswitch-custom
+chmod +x add-voice.sh        # first time only (already executable in git)
+./add-voice.sh --list en_US                 # browse English (US) voices
+./add-voice.sh -l en_US -v ryan             # download + live-install en_US-ryan-medium
+./add-voice.sh -l hi_IN -v pratham          # Hindi
+./add-voice.sh es_ES davefx medium          # positional shorthand
 ```
+> On Windows, run it from **git-bash** (`bash add-voice.sh -l en_US -v ryan`).
+> It needs `curl` and `docker` on `PATH`; `python3`/`python` is optional (only
+> used for `--list`, catalog validation and multi-speaker id lookup).
+
+**Options:**
+
+| Flag | Meaning | Default |
+|------|---------|---------|
+| `-l, --language CODE` | Language code, e.g. `en_US`, `hi_IN`, `fr_FR` **(required)** | — |
+| `-v, --voice NAME` | Voice/model name, e.g. `amy`, `ryan` **(required)** | — |
+| `-q, --quality Q` | `x_low` \| `low` \| `medium` \| `high` | `medium` |
+| `-s, --speaker NAME` | Speaker for multi-speaker models | `default` |
+| `-c, --container NAME` | Running FS container to live-install into (`-c ''` = download only) | `freeswitch-piper-test` |
+| `-d, --dir DIR` | Local download/cache dir | `./voices` |
+| `--list CODE` | List catalog voices for a language and exit | — |
+| `--force` | Re-download even if files already exist | — |
+| `-h, --help` | Show help and exit | — |
+
+It downloads `<key>.onnx` + `<key>.onnx.json` into `voices/`, `docker cp`s them
+into `freeswitch-piper-test:/opt/piper/voices/`, and smoke-tests Piper. Then
+select it via the env-driven TTS in the repo `.env`:
+```bash
+TTS_ENGINE=tts_commandline
+TTS_VOICE=en_US-ryan-medium
+```
+For multi-speaker models pass `-s <speaker>`; the script resolves the speaker id
+and tells you how to pin it. `docker cp` is live but **ephemeral** (lost when the
+container is recreated). To make it permanent, either bake it into the image —
+```bash
+PIPER_VOICE=en_US-ryan-medium PIPER_VOICE_PATH=en/en_US/ryan/medium ./run.sh
+```
+— or bind-mount `voices/` into the container at `/opt/piper/voices`.
 
 ### 5. Override the image tag / compose target
 ```bash

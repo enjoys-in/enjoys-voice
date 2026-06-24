@@ -1,0 +1,4 @@
+# Downloaded Piper voice models live here (fetched by add-voice.sh).
+# They are large binaries (~60–130 MB each) — do NOT commit them.
+*
+!.gitignore
