@@ -5,82 +5,206 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Enjoys Voice — Widget local test</title>
     <style>
-      :root { color-scheme: dark; }
-      * { box-sizing: border-box; }
+      :root {
+        color-scheme: dark;
+        --bg: #0a0a0a;
+        --card: #141414;
+        --border: #262626;
+        --border-strong: #2e2e2e;
+        --text: #e7e7e7;
+        --muted: #9a9a9a;
+        --accent: #4f46e5;
+        --ok: #34d399;
+        --err: #f87171;
+        --state: #60a5fa;
+      }
+      * {
+        box-sizing: border-box;
+        min-width: 0;
+      }
+      html,
+      body {
+        max-width: 100%;
+        overflow-x: hidden;
+      }
       body {
         margin: 0;
-        font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-        background: #0a0a0a;
-        color: #e7e7e7;
-        padding: 32px 20px 120px;
+        font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        padding: clamp(20px, 5vw, 40px) clamp(14px, 4vw, 24px) 100px;
       }
-      .wrap { max-width: 720px; margin: 0 auto; }
-      h1 { font-size: 20px; margin: 0 0 4px; }
-      p.sub { color: #9a9a9a; margin: 0 0 24px; }
-      .card {
-        background: #141414;
-        border: 1px solid #262626;
-        border-radius: 12px;
-        padding: 20px;
+      .wrap {
+        max-width: 1080px;
+        margin: 0 auto;
+      }
+      .head {
         margin-bottom: 20px;
       }
-      label { display: block; font-size: 12px; color: #9a9a9a; margin: 14px 0 4px; }
-      label:first-child { margin-top: 0; }
+      /* Responsive layout: single column on mobile, two columns on wider
+         screens (config on the left, log on the right). auto-handled by the
+         media query below. */
+      .grid {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: 1fr;
+        align-items: start;
+      }
+      .col {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        min-width: 0;
+      }
+      .col > .card {
+        margin-bottom: 0;
+      }
+      @media (min-width: 860px) {
+        .grid {
+          grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+        }
+        .log-card {
+          position: sticky;
+          top: 24px;
+        }
+      }
+      h1 {
+        font-size: clamp(18px, 4vw, 22px);
+        margin: 0 0 4px;
+        letter-spacing: -0.01em;
+      }
+      p.sub {
+        color: var(--muted);
+        margin: 0 0 24px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: clamp(16px, 4vw, 22px);
+        margin-bottom: 18px;
+      }
+      .card > strong {
+        display: block;
+        margin-bottom: 10px;
+        font-size: 14px;
+      }
+      label {
+        display: block;
+        font-size: 12px;
+        color: var(--muted);
+        margin: 14px 0 5px;
+      }
+      label:first-child {
+        margin-top: 0;
+      }
       input {
         width: 100%;
+        max-width: 100%;
         background: #0d0d0d;
-        border: 1px solid #2e2e2e;
+        border: 1px solid var(--border-strong);
         border-radius: 8px;
         color: #fff;
         padding: 10px 12px;
         font: inherit;
       }
-      input:focus { outline: none; border-color: #4f46e5; }
-      .row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px; }
+      input:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 18px;
+      }
       button {
-        background: #4f46e5;
+        flex: 1 1 auto;
+        min-width: 140px;
+        background: var(--accent);
         color: #fff;
         border: 0;
         border-radius: 8px;
-        padding: 10px 18px;
+        padding: 11px 18px;
         font: inherit;
         font-weight: 600;
         cursor: pointer;
+        transition: opacity 0.15s ease, filter 0.15s ease;
       }
-      button.secondary { background: #262626; }
-      button:disabled { opacity: 0.5; cursor: not-allowed; }
-      code { background: #0d0d0d; padding: 1px 6px; border-radius: 5px; border: 1px solid #262626; }
-      ol { padding-left: 20px; color: #c9c9c9; }
-      ol li { margin: 6px 0; }
-      .origin { color: #34d399; font-weight: 600; }
+      button:hover:not(:disabled) {
+        filter: brightness(1.08);
+      }
+      button.secondary {
+        background: #262626;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      code {
+        background: #0d0d0d;
+        padding: 1px 6px;
+        border-radius: 5px;
+        border: 1px solid var(--border);
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+      ol {
+        padding-left: 20px;
+        margin: 0;
+        color: #c9c9c9;
+      }
+      ol li {
+        margin: 6px 0;
+        overflow-wrap: anywhere;
+      }
+      .origin {
+        color: var(--ok);
+        font-weight: 600;
+        overflow-wrap: anywhere;
+      }
       #log {
         background: #0d0d0d;
-        border: 1px solid #262626;
+        border: 1px solid var(--border);
         border-radius: 8px;
         padding: 12px;
-        height: 200px;
+        height: clamp(240px, 52vh, 520px);
         overflow: auto;
         font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
         white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
-      .log-state { color: #60a5fa; }
-      .log-err { color: #f87171; }
-      .log-ok { color: #34d399; }
+      #log > div {
+        overflow-wrap: anywhere;
+      }
+      .log-state {
+        color: var(--state);
+      }
+      .log-err {
+        color: var(--err);
+      }
+      .log-ok {
+        color: var(--ok);
+      }
       .warn {
         background: #2a1a00;
         border: 1px solid #7c5300;
         color: #f5c558;
-        padding: 10px 12px;
+        padding: 12px 14px;
         border-radius: 8px;
         margin-bottom: 20px;
         font-size: 13px;
+        overflow-wrap: anywhere;
       }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <h1>Enjoys Voice — Widget local test</h1>
-      <p class="sub">Loads <code>widget.js</code> and boots the click-to-call widget against your local API.</p>
+      <header class="head">
+        <h1>Enjoys Voice — Widget local test</h1>
+        <p class="sub">Loads <code>widget.js</code> and boots the click-to-call widget against your local API.</p>
+      </header>
 
       <div id="file-warning" class="warn" hidden>
         You opened this with <code>file://</code>, so the browser sends
@@ -89,35 +213,41 @@
         and open <code>http://localhost:5500/index.html</code>.
       </div>
 
-      <div class="card">
-        <strong>Before you start</strong>
-        <ol>
-          <li>Node API running on <code>:3001</code>, web app on <code>:4500</code>, and the dev coturn up (for media).</li>
-          <li>In <em>Admin → API Keys</em>, create a key with a <strong>destination</strong> (your phone number or extension).</li>
-          <li>Add this page's origin <span class="origin" id="origin">—</span> to that key's <strong>Allowed Origins</strong>.</li>
-          <li>Paste the publishable key (<code>pk_…</code>) below and click <em>Load widget</em>.</li>
-        </ol>
-      </div>
+      <div class="grid">
+        <div class="col">
+          <div class="card">
+            <strong>Before you start</strong>
+            <ol>
+              <li>Node API running on <code>:3001</code>, web app on <code>:4500</code>, and the dev coturn up (for media).</li>
+              <li>In <em>Admin → API Keys</em>, create a key with a <strong>destination</strong> (your phone number or extension).</li>
+              <li>Add this page's origin <span class="origin" id="origin">—</span> to that key's <strong>Allowed Origins</strong>.</li>
+              <li>Paste the publishable key (<code>pk_…</code>) below and click <em>Load widget</em>.</li>
+            </ol>
+          </div>
 
-      <div class="card">
-        <label for="key">Publishable key (pk_…)</label>
-        <input id="key" placeholder="pk_live_xxxxxxxxxxxx" autocomplete="off" spellcheck="false" />
+          <div class="card">
+            <label for="key">Publishable key (pk_…)</label>
+            <input id="key" placeholder="pk_live_xxxxxxxxxxxx" autocomplete="off" spellcheck="false" />
 
-        <label for="apiBase">API base (Node API)</label>
-        <input id="apiBase" value="http://localhost:3001" autocomplete="off" spellcheck="false" />
+            <label for="apiBase">API base (Node API)</label>
+            <input id="apiBase" value="http://localhost:3001" autocomplete="off" spellcheck="false" />
 
-        <label for="widgetUrl">Widget script URL</label>
-        <input id="widgetUrl" value="http://localhost:4500/widget.js" autocomplete="off" spellcheck="false" />
+            <label for="widgetUrl">Widget script URL</label>
+            <input id="widgetUrl" value="http://localhost:4500/widget.js" autocomplete="off" spellcheck="false" />
 
-        <div class="row">
-          <button id="load">Load widget</button>
-          <button id="reset" class="secondary" type="button">Reload page</button>
+            <div class="row">
+              <button id="load">Load widget</button>
+              <button id="reset" class="secondary" type="button">Reload page</button>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <div class="card">
-        <label style="margin:0 0 8px">Log</label>
-        <div id="log"></div>
+        <div class="col">
+          <div class="card log-card">
+            <label style="margin:0 0 8px">Log</label>
+            <div id="log"></div>
+          </div>
+        </div>
       </div>
     </div>
 

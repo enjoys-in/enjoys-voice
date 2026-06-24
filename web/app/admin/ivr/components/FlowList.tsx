@@ -20,6 +20,15 @@ import {
 import { ivrApi } from "../ivr.api";
 import type { IvrFlowSummary } from "../ivr.types";
 
+/**
+ * The seeded demo IVR on extension 5000 is the always-available example flow
+ * (see server/migrations/002_seed_demo_ivr.sql). It must not be deletable, so
+ * its delete button is hidden in the list.
+ */
+function isProtectedFlow(f: IvrFlowSummary): boolean {
+  return f.id === "demo-ivr-5000" || f.extension === "5000";
+}
+
 export function FlowList({
   onOpen,
   onCreate,
@@ -119,15 +128,17 @@ export function FlowList({
                   >
                     <Pencil className="h-4 w-4" />
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                    onClick={() => handleDelete(f.id)}
-                    title="Delete"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  {!isProtectedFlow(f) && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                      onClick={() => handleDelete(f.id)}
+                      title="Delete"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>

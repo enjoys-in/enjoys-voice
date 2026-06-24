@@ -42,6 +42,21 @@ function newFlowId(): string {
 }
 
 /**
+ * React Flow hard-crashes ("Cannot read properties of undefined (reading 'x')")
+ * if any node lacks a numeric `position`. Flows persisted without layout — e.g.
+ * the seeded demo IVR, or graphs authored via the API — come back position-less,
+ * so backfill a tidy diagonal cascade the user can rearrange and re-save.
+ */
+function withSafePosition(node: IvrNode, index: number): IvrNode {
+  const p = node.position as XYPosition | undefined;
+  if (p && typeof p.x === "number" && typeof p.y === "number") return node;
+  return {
+    ...node,
+    position: { x: 80 + index * 240, y: 80 + index * 140 },
+  } as IvrNode;
+}
+
+/**
  * Deep-clone node data for copy/paste/duplicate. Menu options get fresh handle
  * ids so a pasted menu never shares a source-handle id with its origin.
  */
@@ -152,9 +167,12 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       name: flow.name,
       extension: flow.extension,
       enabled: flow.enabled,
-      nodes: flow.nodes.map((n) =>
-        n.type === "start" ? ({ ...n, deletable: false } as IvrNode) : n,
-      ),
+      nodes: flow.nodes.map((n, i) => {
+        const node = withSafePosition(n, i);
+        return node.type === "start"
+          ? ({ ...node, deletable: false } as IvrNode)
+          : node;
+      }),
       edges: flow.edges,
       selectedNodeId: null,
       dirty: false,
