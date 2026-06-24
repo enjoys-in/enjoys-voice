@@ -19,6 +19,8 @@ import {
   removeVoicemail,
   countUnreadVoicemails,
   loadIvrFlowByExtension,
+  loadConnectorById,
+  type ConnectorRecord,
   type ForwardingRow,
 } from './postgres';
 import type { IvrFlowGraph } from '@/sip/ivr/flow.types';
@@ -49,6 +51,13 @@ export class DatabaseService extends EventEmitter {
    * `ivr_flows` NOTIFY and cleared wholesale on listener reconnect.
    */
   private ivrFlows = new Map<string, IvrFlowGraph | null>();
+  /**
+   * Per-id connector cache (email / webhook integrations the IVR builder
+   * triggers). A present value is the loaded row; `null` is a negative cache.
+   * Invalidated per-id on a `connectors` NOTIFY and cleared on listener
+   * reconnect, exactly like the IVR-flow cache above.
+   */
+  private connectors = new Map<number, ConnectorRecord | null>();
   /**
    * Optional call rater. Injected (not imported) to avoid a module cycle with
    * the rating service. When set, a call transitioning to `ended` is priced here
@@ -558,5 +567,41 @@ export class DatabaseService extends EventEmitter {
   /** Drop all cached flows (on listener reconnect, to catch missed changes). */
   clearIvrFlowCache(): void {
     this.ivrFlows.clear();
+  }
+
+  // ─── Connectors ──────────────────────────────────────
+  // Reusable email/webhook integrations authored in the dashboard and persisted
+  // by the Go API in the shared `connectors` table. The SIP runtime only READS
+  // them (to send an email / call a webhook from an IVR flow), keyed by id, with
+  // a small in-memory cache kept fresh by the connector-sync LISTEN/NOTIFY
+  // listener (see invalidateConnector / clearConnectorCache).
+
+  /**
+   * The connector with this id, or undefined when none exists. Caches both hits
+   * and misses; a DB error returns undefined (the caller skips the action) and
+   * is NOT cached.
+   */
+  async getConnector(id: number): Promise<ConnectorRecord | undefined> {
+    if (this.connectors.has(id)) {
+      return this.connectors.get(id) ?? undefined;
+    }
+    try {
+      const connector = await loadConnectorById(id);
+      this.connectors.set(id, connector ?? null);
+      return connector;
+    } catch (err: any) {
+      console.warn(`⚠️ Connector: lookup failed for ${id}: ${err?.message}`);
+      return undefined;
+    }
+  }
+
+  /** Drop one connector's cache entry (on a `connectors` change NOTIFY). */
+  invalidateConnector(id: number): void {
+    this.connectors.delete(id);
+  }
+
+  /** Drop all cached connectors (on listener reconnect, to catch missed changes). */
+  clearConnectorCache(): void {
+    this.connectors.clear();
   }
 }

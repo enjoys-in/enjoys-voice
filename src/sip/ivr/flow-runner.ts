@@ -17,6 +17,7 @@
 import { config } from '@/core';
 import type {
   ConditionNodeData,
+  EmailNodeData,
   IvrFlowGraph,
   IvrGraphEdge,
   IvrGraphNode,
@@ -49,6 +50,8 @@ export interface FlowRunnerHandlers {
   voicemail(mailbox: string, opts: { greeting?: string; maxSeconds?: number }): Promise<void>;
   /** Route the caller to a department queue and/or a specific extension. */
   transfer(opts: { department?: string; extension?: string; ringSeconds?: number }): Promise<void>;
+  /** EXPERIMENTAL — send an email via a configured connector (best-effort). */
+  sendEmail(opts: { connectorId: string; to: string; subject: string; body: string }): Promise<void>;
 }
 
 export type FlowResult =
@@ -71,6 +74,11 @@ export function findStart(nodes: IvrGraphNode[]): IvrGraphNode | undefined {
 
 export function nodeKind(node: IvrGraphNode): string | undefined {
   return node?.data?.kind ?? node?.type;
+}
+
+/** Substitute ${var} placeholders from a flat facts map; unknown vars are left intact. */
+export function substituteVars(template: string, vars: Record<string, string>): string {
+  return template.replace(/\$\{(\w+)\}/g, (_m, k: string) => (k in vars ? vars[k] : `\${${k}}`));
 }
 
 /** First edge leaving `nodeId` (optionally filtered by sourceHandle). */
@@ -267,6 +275,28 @@ export async function runFlow(
 
       case 'hangup':
         return 'hangup';
+
+      case 'email': {
+        const data = node.data as EmailNodeData;
+        const vars: Record<string, string> = {
+          caller_id: ctx.callerNumber,
+          caller_number: ctx.callerNumber,
+          destination_number: ctx.dialedNumber,
+          dialed_number: ctx.dialedNumber,
+          last_digit: lastDigit,
+          digits,
+        };
+        // Best-effort: the handler swallows send errors so a misconfigured
+        // connector never breaks the call — the flow continues to the next node.
+        await h.sendEmail({
+          connectorId: data.connectorId ?? '',
+          to: substituteVars(data.to ?? '', vars),
+          subject: substituteVars(data.subject ?? '', vars),
+          body: substituteVars(data.body ?? '', vars),
+        });
+        current = byId.get(edgeFrom(flow.edges, node.id)?.target ?? '');
+        break;
+      }
 
       default:
         console.warn(`⚠️ IVR flow: unknown node kind "${kind}" [${node.id}] [${ctx.callId}]`);

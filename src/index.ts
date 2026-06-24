@@ -8,6 +8,7 @@ import {
   UserSyncListener,
   SettingsSyncListener,
   RateSyncListener,
+  ConnectorSyncListener,
   RatingService,
   WriteQueue,
   ensureCallSchema,
@@ -40,6 +41,7 @@ class Application {
   private userSync: UserSyncListener;
   private settingsSync: SettingsSyncListener;
   private rateSync: RateSyncListener;
+  private connectorSync: ConnectorSyncListener;
   private rating: RatingService;
   private writeQueue: WriteQueue;
   private conference: ConferenceService;
@@ -136,6 +138,14 @@ class Application {
         await this.rating.reload();
       },
     });
+    // Live-reconcile email/webhook connectors the moment they're created/edited/
+    // deleted in the dashboard (written by the Go API), so the IVR `email` block
+    // always sends with current SMTP settings without a restart. Per-id
+    // invalidation on change; full clear on reconnect to catch missed NOTIFYs.
+    this.connectorSync = new ConnectorSyncListener({
+      onConnectorChanged: (id) => this.db.invalidateConnector(id),
+      onReconnect: () => this.db.clearConnectorCache(),
+    });
     // Write-behind queue: call-record upserts are emitted as events, enqueued to
     // Valkey, and applied to the shared Postgres by a worker. This keeps the SIP
     // path off the DB write latency. (Voicemails write to Postgres directly.)
@@ -189,7 +199,10 @@ class Application {
     this.rateSync.start().catch((err: any) =>
       console.warn(`   Sync:   ⚠️  rate-sync listener failed to start (${err?.message})`),
     );
-
+    // And for email/webhook connectors used by the IVR `email` block.
+    this.connectorSync.start().catch((err: any) =>
+      console.warn(`   Sync:   ⚠️  connector-sync listener failed to start (${err?.message})`),
+    );
     // Start the write-behind queue worker (voicemail → Postgres). Best-effort:
     // if Valkey is unreachable, voicemails still record (in memory + on disk),
     // they just aren't mirrored to the shared DB until it recovers.

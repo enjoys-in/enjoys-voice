@@ -21,6 +21,7 @@ export type IvrNodeKind =
   | 'condition'
   | 'transfer'
   | 'voicemail'
+  | 'email'
   | 'hangup';
 
 /** What the caller hears: synthesized speech or a pre-uploaded audio file. */
@@ -115,6 +116,21 @@ export interface HangupNodeData {
   label?: string;
 }
 
+/**
+ * EXPERIMENTAL — sends an outbound email through an `email`-type connector when
+ * the call reaches this block, then continues. `to`/`subject`/`body` may carry
+ * ${var} placeholders (caller_id, destination_number, last_digit, digits).
+ */
+export interface EmailNodeData {
+  kind: 'email';
+  label?: string;
+  /** Id of the email connector to send through (string from the builder). */
+  connectorId?: string;
+  to?: string;
+  subject?: string;
+  body?: string;
+}
+
 export type IvrNodeData =
   | StartNodeData
   | MenuNodeData
@@ -122,6 +138,7 @@ export type IvrNodeData =
   | ConditionNodeData
   | TransferNodeData
   | VoicemailNodeData
+  | EmailNodeData
   | HangupNodeData;
 
 /** A graph node as persisted (React Flow shape — only the fields we need). */

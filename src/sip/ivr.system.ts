@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { config, IVRCallState, Department } from '@/core';
 import { DatabaseService } from '@/services';
+import { sendConnectorEmail } from '@/services';
 import { runFlow, type FlowRunnerContext, type FlowRunnerHandlers, type FlowResult } from './ivr/flow-runner';
 import type { IvrFlowGraph } from './ivr/flow.types';
 
@@ -836,8 +837,48 @@ export class IVRSystem {
         await this.captureVoicemail(endpoint, mailbox, state.callerNumber, fromName, opts);
       },
       transfer: (opts) => this.flowTransfer(endpoint, state, opts),
+      sendEmail: (opts) => this.flowSendEmail(state, opts),
     };
     return runFlow(flow, ctx, handlers);
+  }
+
+  /**
+   * IVR flow `email` node (experimental): send an email through a configured
+   * `email` connector. Best-effort — a missing/disabled/non-email connector or
+   * an SMTP error is logged and swallowed so the call flow continues uninterrupted.
+   */
+  private async flowSendEmail(
+    state: IVRCallState,
+    opts: { connectorId: string; to: string; subject: string; body: string },
+  ): Promise<void> {
+    const id = Number(opts.connectorId);
+    if (!Number.isFinite(id) || id <= 0) {
+      console.warn(`✉️  IVR email: no connector selected — skipping [${state.callId}]`);
+      return;
+    }
+    const connector = await this.db.getConnector(id);
+    if (!connector) {
+      console.warn(`✉️  IVR email: connector ${id} not found [${state.callId}]`);
+      return;
+    }
+    if (connector.type !== 'email') {
+      console.warn(`✉️  IVR email: connector ${id} is "${connector.type}", not email [${state.callId}]`);
+      return;
+    }
+    if (!connector.enabled) {
+      console.warn(`✉️  IVR email: connector "${connector.name}" disabled [${state.callId}]`);
+      return;
+    }
+    try {
+      await sendConnectorEmail(connector.config, {
+        to: opts.to,
+        subject: opts.subject,
+        body: opts.body,
+      });
+      console.log(`✉️  IVR email sent via "${connector.name}" → ${opts.to} [${state.callId}]`);
+    } catch (err: any) {
+      console.warn(`⚠️ IVR email send failed (connector ${id}): ${err?.message} [${state.callId}]`);
+    }
   }
 
   /**

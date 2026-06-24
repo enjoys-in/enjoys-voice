@@ -19,6 +19,7 @@
     "drachtio-srf": "^5.0.10",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^6.9.14",
     "pg": "^8.21.0",
     "redis": "^6.0.0",
     "ws": "^8.18.3"
@@ -30,6 +31,7 @@
     "@types/express": "^5.0.3",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.0.15",
+    "@types/nodemailer": "^6.4.15",
     "@types/pg": "^8.20.0",
     "@types/ws": "^8.18.1",
     "typescript": "^5.8.3"

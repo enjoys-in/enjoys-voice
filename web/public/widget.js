@@ -64,9 +64,13 @@
 .evw-root{position:fixed;z-index:2147483000;bottom:22px;display:flex;flex-direction:column;gap:14px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
 .evw-bottom-right{right:22px;align-items:flex-end}
 .evw-bottom-left{left:22px;align-items:flex-start}
+/* Reset host-page button styles so a global button{} on the embedding site
+   (min-width, flex, padding, appearance, text-transform\u2026) can't deform any of
+   the widget's controls. Each control re-declares the few props it needs. */
+.evw-root button{box-sizing:border-box;min-width:0;margin:0;font:inherit;text-transform:none;-webkit-appearance:none;appearance:none}
 
 /* Floating action button */
-.evw-fab{position:relative;width:60px;height:60px;border-radius:50%;border:none;cursor:pointer;color:#fff;background:linear-gradient(135deg,${e},color-mix(in srgb,${e} 65%,#000));box-shadow:0 10px 26px color-mix(in srgb,${e} 45%,transparent),0 2px 6px rgba(0,0,0,.2);display:flex;align-items:center;justify-content:center;align-self:flex-end;transition:transform .18s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,background .2s ease}
+.evw-fab{box-sizing:border-box;position:relative;width:60px;height:60px;min-width:60px;max-width:60px;min-height:60px;max-height:60px;flex:0 0 auto;padding:0;margin:0;-webkit-appearance:none;appearance:none;font:inherit;border-radius:50%;border:none;cursor:pointer;color:#fff;background:linear-gradient(135deg,${e},color-mix(in srgb,${e} 65%,#000));box-shadow:0 10px 26px color-mix(in srgb,${e} 45%,transparent),0 2px 6px rgba(0,0,0,.2);display:flex;align-items:center;justify-content:center;align-self:flex-end;transition:transform .18s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,background .2s ease}
 .evw-bottom-left .evw-fab{align-self:flex-start}
 .evw-fab:hover{transform:translateY(-2px) scale(1.05)}
 .evw-fab:active{transform:scale(.96)}
