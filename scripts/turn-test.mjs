@@ -6,8 +6,8 @@ import crypto from 'node:crypto';
 const HOST = process.argv[2] || '77.237.241.24';
 const PORT = Number(process.argv[3] || 3478);
 const USER = process.argv[4] || 'callnet';
-const PASS = process.argv[5] || 'REPLACE_ME_turn_password';
-
+const PASS = process.argv[5] || 'devsecret123';
+ 
 const MAGIC = 0x2112a442;
 const T = { BIND_REQ: 0x0001, ALLOC_REQ: 0x0003 };
 const A = {

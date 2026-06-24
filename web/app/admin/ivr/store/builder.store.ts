@@ -71,6 +71,29 @@ function cloneNodeData(data: IvrNodeData): IvrNodeData {
   return cloned;
 }
 
+// ─── undo / redo history ────────────────────────────────
+
+type HistorySnapshot = { nodes: IvrNode[]; edges: IvrEdge[] };
+
+const HISTORY_LIMIT = 50;
+
+/**
+ * True while a node is mid-drag, so a continuous drag pushes exactly one
+ * history entry (captured at drag-start) instead of one per pointer move.
+ */
+let dragActive = false;
+
+/**
+ * Returns the `past`/`future` patch that records the current graph as an undo
+ * checkpoint. Spread into a `set` patch BEFORE mutating nodes/edges.
+ */
+function pushHistory(s: BuilderState): Pick<BuilderState, "past" | "future"> {
+  return {
+    past: [...s.past, { nodes: s.nodes, edges: s.edges }].slice(-HISTORY_LIMIT),
+    future: [],
+  };
+}
+
 // ─── factory: a brand-new flow with a single start node ─
 
 export function createEmptyFlow(name: string, extension: string): IvrFlow {
@@ -105,6 +128,8 @@ interface BuilderState {
   edges: IvrEdge[];
   selectedNodeId: string | null;
   clipboard: IvrNodeData | null;
+  past: HistorySnapshot[];
+  future: HistorySnapshot[];
   dirty: boolean;
   saving: boolean;
 
@@ -135,6 +160,8 @@ interface BuilderState {
   pasteNode: (position?: XYPosition) => void;
   duplicateNode: (id: string) => void;
   clearAll: () => void;
+  undo: () => void;
+  redo: () => void;
 
   // menu-option ops (keep handles + edges in sync)
   addMenuOption: (nodeId: string, digit: DtmfDigit) => void;
@@ -158,6 +185,8 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   edges: [],
   selectedNodeId: null,
   clipboard: null,
+  past: [],
+  future: [],
   dirty: false,
   saving: false,
 
@@ -175,6 +204,8 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       }),
       edges: flow.edges,
       selectedNodeId: null,
+      past: [],
+      future: [],
       dirty: false,
     }),
 
@@ -188,6 +219,8 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       nodes: flow.nodes,
       edges: flow.edges,
       selectedNodeId: null,
+      past: [],
+      future: [],
       dirty: true,
     });
   },
@@ -225,6 +258,8 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       nodes: [],
       edges: [],
       selectedNodeId: null,
+      past: [],
+      future: [],
       dirty: false,
       saving: false,
     }),
@@ -232,10 +267,34 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   setMeta: (patch) => set((s) => ({ ...s, ...patch, dirty: true })),
 
   onNodesChange: (changes) =>
-    set((s) => ({ nodes: applyNodeChanges(changes, s.nodes), dirty: true })),
+    set((s) => {
+      // Record one undo checkpoint per discrete edit: at the start of a drag
+      // (so undo restores the pre-drag layout) and on any node removal.
+      const hasRemove = changes.some((c) => c.type === "remove");
+      const dragStart = changes.some(
+        (c) => c.type === "position" && c.dragging === true,
+      );
+      const dragEnd = changes.some(
+        (c) => c.type === "position" && c.dragging === false,
+      );
+      let hist: Partial<Pick<BuilderState, "past" | "future">> = {};
+      if (hasRemove) {
+        hist = pushHistory(s);
+      } else if (dragStart && !dragActive) {
+        hist = pushHistory(s);
+        dragActive = true;
+      }
+      if (dragEnd) dragActive = false;
+      return { ...hist, nodes: applyNodeChanges(changes, s.nodes), dirty: true };
+    }),
 
   onEdgesChange: (changes) =>
-    set((s) => ({ edges: applyEdgeChanges(changes, s.edges), dirty: true })),
+    set((s) => {
+      const hist = changes.some((c) => c.type === "remove")
+        ? pushHistory(s)
+        : {};
+      return { ...hist, edges: applyEdgeChanges(changes, s.edges), dirty: true };
+    }),
 
   onConnect: (connection) =>
     set((s) => {
@@ -248,7 +307,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
             (e.sourceHandle ?? null) === (connection.sourceHandle ?? null)
           ),
       );
-      return { edges: addEdge(connection, filtered), dirty: true };
+      return { ...pushHistory(s), edges: addEdge(connection, filtered), dirty: true };
     }),
 
   addNode: (kind, position) =>
@@ -259,7 +318,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
         position: position ?? { x: 360, y: 80 + s.nodes.length * 40 },
         data: defaultNodeData(kind, s.extension),
       } as IvrNode;
-      return { nodes: [...s.nodes, node], selectedNodeId: node.id, dirty: true };
+      return { ...pushHistory(s), nodes: [...s.nodes, node], selectedNodeId: node.id, dirty: true };
     }),
 
   updateNodeData: (id, patch) =>
@@ -278,6 +337,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       // The start node is the flow entry and cannot be deleted.
       if (node?.type === "start") return s;
       return {
+        ...pushHistory(s),
         nodes: s.nodes.filter((n) => n.id !== id),
         edges: s.edges.filter((e) => e.source !== id && e.target !== id),
         selectedNodeId: s.selectedNodeId === id ? null : s.selectedNodeId,
@@ -286,7 +346,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     }),
 
   removeEdge: (id) =>
-    set((s) => ({ edges: s.edges.filter((e) => e.id !== id), dirty: true })),
+    set((s) => ({ ...pushHistory(s), edges: s.edges.filter((e) => e.id !== id), dirty: true })),
 
   selectNode: (id) => set({ selectedNodeId: id }),
 
@@ -315,7 +375,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
         position: position ?? { x: 380, y: 120 + s.nodes.length * 28 },
         data,
       } as IvrNode;
-      return { nodes: [...s.nodes, node], selectedNodeId: id, dirty: true };
+      return { ...pushHistory(s), nodes: [...s.nodes, node], selectedNodeId: id, dirty: true };
     }),
 
   duplicateNode: (id) =>
@@ -330,15 +390,44 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
         position: { x: node.position.x + 48, y: node.position.y + 48 },
         data,
       } as IvrNode;
-      return { nodes: [...s.nodes, copy], selectedNodeId: newId, dirty: true };
+      return { ...pushHistory(s), nodes: [...s.nodes, copy], selectedNodeId: newId, dirty: true };
     }),
 
   clearAll: () =>
     set((s) => {
       const start = s.nodes.find((n) => n.type === "start");
       return {
+        ...pushHistory(s),
         nodes: start ? [start] : [],
         edges: [],
+        selectedNodeId: null,
+        dirty: true,
+      };
+    }),
+
+  undo: () =>
+    set((s) => {
+      if (s.past.length === 0) return s;
+      const previous = s.past[s.past.length - 1];
+      return {
+        past: s.past.slice(0, -1),
+        future: [{ nodes: s.nodes, edges: s.edges }, ...s.future].slice(0, HISTORY_LIMIT),
+        nodes: previous.nodes,
+        edges: previous.edges,
+        selectedNodeId: null,
+        dirty: true,
+      };
+    }),
+
+  redo: () =>
+    set((s) => {
+      if (s.future.length === 0) return s;
+      const next = s.future[0];
+      return {
+        past: [...s.past, { nodes: s.nodes, edges: s.edges }].slice(-HISTORY_LIMIT),
+        future: s.future.slice(1),
+        nodes: next.nodes,
+        edges: next.edges,
         selectedNodeId: null,
         dirty: true,
       };
@@ -347,6 +436,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
   addMenuOption: (nodeId, digit) =>
     set((s) => ({
+      ...pushHistory(s),
       nodes: s.nodes.map((n) => {
         if (n.id !== nodeId || n.data.kind !== "menu") return n;
         const data = n.data as MenuNodeData;
@@ -378,6 +468,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
   removeMenuOption: (nodeId, optionId) =>
     set((s) => ({
+      ...pushHistory(s),
       nodes: s.nodes.map((n) => {
         if (n.id !== nodeId || n.data.kind !== "menu") return n;
         const data = n.data as MenuNodeData;

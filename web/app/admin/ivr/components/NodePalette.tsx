@@ -41,7 +41,14 @@ export function NodePalette() {
             >
               <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", accentText)} />
               <span className="min-w-0">
-                <span className="block text-sm font-medium">{meta.title}</span>
+                <span className="flex items-center gap-1.5">
+                  <span className="text-sm font-medium">{meta.title}</span>
+                  {meta.experimental && (
+                    <span className="rounded bg-amber-500/15 px-1 py-px text-[8px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                      exp
+                    </span>
+                  )}
+                </span>
                 <span className="block text-[11px] leading-tight text-muted-foreground">
                   {meta.description}
                 </span>

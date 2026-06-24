@@ -25,6 +25,7 @@ type Handlers struct {
 	Balance        *handler.BalanceHandler
 	Trunk          *handler.TrunkHandler
 	APIKey         *handler.APIKeyHandler
+	Connector      *handler.ConnectorHandler
 }
 
 func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
@@ -86,6 +87,14 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 			protected.GET("/ivr/flows/:id", h.Ivr.Get)
 			protected.PUT("/ivr/flows/:id", h.Ivr.Save)
 			protected.DELETE("/ivr/flows/:id", h.Ivr.Delete)
+
+			// Outbound integration connectors (email / webhook) the IVR builder
+			// can trigger. Secrets are redacted on read.
+			protected.GET("/connectors", h.Connector.List)
+			protected.POST("/connectors", h.Connector.Create)
+			protected.GET("/connectors/:id", h.Connector.Get)
+			protected.PUT("/connectors/:id", h.Connector.Update)
+			protected.DELETE("/connectors/:id", h.Connector.Delete)
 
 			// PSTN call forwarding
 			protected.GET("/pstn-forward/:ext", h.Settings.GetPstnForward)

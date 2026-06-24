@@ -2,7 +2,7 @@
 
 import { useState, useEffect, type ReactNode } from "react";
 import Link from "next/link";
-import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming, Palette, Save, RotateCcw, Check, Receipt, ScrollText, Radio, Headphones, KeyRound } from "lucide-react";
+import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming, Palette, Save, RotateCcw, Check, Receipt, ScrollText, Radio, Headphones, KeyRound, Link2 } from "lucide-react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -39,11 +39,12 @@ import { AuditTab } from "./components/AuditTab";
 import { TrunksTab } from "./components/TrunksTab";
 import { QueuesTab } from "./components/QueuesTab";
 import { ApiKeysTab } from "./components/ApiKeysTab";
+import { ConnectorsTab } from "./components/ConnectorsTab";
 import { useLiveMetrics } from "../hooks/useLiveMetrics";
 import { useBranding } from "../hooks/useBranding";
 import { CallRecordStatus, type CallRecord } from "../types";
 
-type Tab = "overview" | "users" | "calls" | "customization" | "rates" | "trunks" | "queues" | "apikeys" | "audit" | "config";
+type Tab = "overview" | "users" | "calls" | "customization" | "rates" | "trunks" | "queues" | "apikeys" | "connectors" | "audit" | "config";
 
 // Selectable stats windows (days) for the dashboard aggregate metrics/charts.
 const RANGE_OPTIONS = [7, 14, 30] as const;
@@ -109,6 +110,7 @@ export default function AdminPage() {
     { id: "trunks", label: "Trunks", icon: Radio },
     { id: "queues", label: "Queues", icon: Headphones },
     { id: "apikeys", label: "API Keys", icon: KeyRound },
+    { id: "connectors", label: "Connectors", icon: Link2 },
     { id: "audit", label: "Activity", icon: ScrollText },
     { id: "config", label: "Config", icon: Settings },
   ];
@@ -190,6 +192,7 @@ export default function AdminPage() {
             {tab === "trunks" && <TrunksTab />}
             {tab === "queues" && <QueuesTab />}
             {tab === "apikeys" && <ApiKeysTab />}
+            {tab === "connectors" && <ConnectorsTab />}
             {tab === "audit" && <AuditTab />}
             {tab === "config" && <ConfigTab />}
           </div>

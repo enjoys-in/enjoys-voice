@@ -256,6 +256,14 @@ services:
       DRACHTIO_SECRET: siprocks
       FREESWITCH_HOST: drachtio-freeswitch
       FREESWITCH_PORT: "8021"
+      # TTS engine for IVR `say:` prompts. The prod FreeSWITCH image
+      # (safarov/freeswitch) ships mod_flite but NOT Piper/mod_tts_commandline,
+      # so the code default (tts_commandline) tells FreeSWITCH to use an engine
+      # that is not loaded → say: synthesizes nothing → silent IVR (caller hears
+      # only a tone). flite is built in, so use it here. Only switch back to
+      # tts_commandline on a CUSTOM image that actually bundles Piper.
+      TTS_ENGINE: flite
+      TTS_VOICE: slt
       # ESL-OUTBOUND callback target (advertisedAddress / X-esl-outbound). After
       # answering the MRF INVITE, FreeSWITCH connects BACK to the fsmrf listener
       # on :8085 to drive IVR/voicemail media. In prod the Node app runs INSIDE

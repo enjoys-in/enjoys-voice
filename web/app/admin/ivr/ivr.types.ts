@@ -32,6 +32,7 @@ export const IVR_NODE_KINDS = [
   "condition",
   "transfer",
   "voicemail",
+  "email",
   "hangup",
 ] as const;
 
@@ -180,6 +181,25 @@ export type HangupNodeData = {
   label: string;
 };
 
+/**
+ * EXPERIMENTAL — triggers an outbound email via a configured "email" connector
+ * when the call reaches this block, then continues. Does nothing if no connector
+ * is selected/configured. `to`/`subject`/`body` may reference channel variables
+ * like ${caller_id}.
+ */
+export type EmailNodeData = {
+  kind: "email";
+  label: string;
+  /** Id of the email-type connector used to send ("" until one is picked). */
+  connectorId: string;
+  /** Recipient address(es), comma-separated. */
+  to: string;
+  /** Email subject line. */
+  subject: string;
+  /** Email body (plain text). */
+  body: string;
+};
+
 export type IvrNodeData =
   | StartNodeData
   | MenuNodeData
@@ -187,6 +207,7 @@ export type IvrNodeData =
   | ConditionNodeData
   | TransferNodeData
   | VoicemailNodeData
+  | EmailNodeData
   | HangupNodeData;
 
 // ─── React Flow node/edge aliases ───────────────────────
@@ -197,6 +218,7 @@ export type PlayNode = Node<PlayNodeData, "play">;
 export type ConditionNode = Node<ConditionNodeData, "condition">;
 export type TransferNode = Node<TransferNodeData, "transfer">;
 export type VoicemailNode = Node<VoicemailNodeData, "voicemail">;
+export type EmailNode = Node<EmailNodeData, "email">;
 export type HangupNode = Node<HangupNodeData, "hangup">;
 
 export type IvrNode =
@@ -206,6 +228,7 @@ export type IvrNode =
   | ConditionNode
   | TransferNode
   | VoicemailNode
+  | EmailNode
   | HangupNode;
 
 export type IvrEdge = Edge;

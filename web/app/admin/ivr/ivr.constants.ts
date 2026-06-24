@@ -11,6 +11,7 @@ import {
   GitBranch,
   PhoneForwarded,
   Voicemail,
+  Mail,
   PhoneOff,
   type LucideIcon,
 } from "lucide-react";
@@ -36,6 +37,8 @@ export type NodeMeta = {
   accent: string;
   /** Whether the user may add this from the palette (start is auto-created). */
   addable: boolean;
+  /** Flags a preview/experimental block (shown with an “experimental” badge). */
+  experimental?: boolean;
 };
 
 export const NODE_META: Record<IvrNodeKind, NodeMeta> = {
@@ -87,6 +90,15 @@ export const NODE_META: Record<IvrNodeKind, NodeMeta> = {
     accent: "text-pink-500 border-pink-500/40",
     addable: true,
   },
+  email: {
+    kind: "email",
+    title: "Send email",
+    description: "Trigger an email via a connector (subject, body, to).",
+    icon: Mail,
+    accent: "text-teal-500 border-teal-500/40",
+    addable: true,
+    experimental: true,
+  },
   hangup: {
     kind: "hangup",
     title: "Hang up",
@@ -104,6 +116,7 @@ export const PALETTE_KINDS: IvrNodeKind[] = [
   "condition",
   "transfer",
   "voicemail",
+  "email",
   "hangup",
 ];
 
@@ -194,6 +207,15 @@ export function defaultNodeData(kind: IvrNodeKind, extension = ""): IvrNodeData 
         label: "Voicemail",
         maxSeconds: DEFAULT_VOICEMAIL_MAX_SECONDS,
         greeting: emptyPrompt("Please leave a message after the tone."),
+      };
+    case "email":
+      return {
+        kind: "email",
+        label: "Send email",
+        connectorId: "",
+        to: "",
+        subject: "New IVR call",
+        body: "A caller reached this step in the IVR flow.",
       };
     case "hangup":
       return { kind: "hangup", label: "Hang up" };

@@ -437,6 +437,57 @@ export interface GoLookupResponse {
   mobile: string;
 }
 
+// ─── Connectors (email / webhook integrations) ──────────
+
+export type GoConnectorType = "email" | "webhook";
+
+/** SMTP email connector settings. `password` is write-only — never returned by
+ * the API; leave it blank on update to keep the stored one. */
+export interface GoEmailConnectorConfig {
+  host?: string;
+  port?: number;
+  secure?: boolean;
+  username?: string;
+  password?: string;
+  fromEmail?: string;
+  fromName?: string;
+}
+
+/** HTTP webhook connector settings. `secret` is write-only (HMAC signing). */
+export interface GoWebhookConnectorConfig {
+  url?: string;
+  method?: string;
+  headers?: Record<string, string>;
+  secret?: string;
+}
+
+export type GoConnectorConfig = GoEmailConnectorConfig & GoWebhookConnectorConfig;
+
+/**
+ * A reusable outbound integration the IVR flow builder can trigger. Secret
+ * config fields are stripped from reads — `has_secret` reports only whether one
+ * is stored.
+ */
+export interface GoConnector {
+  id: number;
+  name: string;
+  type: GoConnectorType;
+  enabled: boolean;
+  config: GoConnectorConfig;
+  has_secret: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Partial create/update of a connector. `config` is a full replacement of the
+ * type-specific settings (blank secret fields keep the stored value). */
+export interface GoConnectorInput {
+  name?: string;
+  type?: GoConnectorType;
+  enabled?: boolean;
+  config?: GoConnectorConfig;
+}
+
 // ─── Dashboard stats ────────────────────────────────────
 
 /** One status slice of the call-status breakdown. */
@@ -866,6 +917,33 @@ export const goApi = {
         `/ivr/flows/${encodeURIComponent(id)}`,
         { method: "DELETE" }
       );
+    },
+  },
+
+  // Outbound integration connectors (email / webhook) the IVR builder triggers.
+  connectors: {
+    list(): Promise<GoConnector[]> {
+      return goRequest<GoConnector[]>(`/connectors`);
+    },
+    get(id: number): Promise<GoConnector> {
+      return goRequest<GoConnector>(`/connectors/${id}`);
+    },
+    create(input: GoConnectorInput): Promise<GoConnector> {
+      return goRequest<GoConnector>(`/connectors`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(id: number, input: GoConnectorInput): Promise<GoConnector> {
+      return goRequest<GoConnector>(`/connectors/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(id: number): Promise<void> {
+      return goRequest<unknown>(`/connectors/${id}`, {
+        method: "DELETE",
+      }).then(() => undefined);
     },
   },
 };

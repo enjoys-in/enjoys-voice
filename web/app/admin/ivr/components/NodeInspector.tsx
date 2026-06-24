@@ -7,9 +7,11 @@
  */
 "use client";
 
+import { useEffect, useState } from "react";
 import { Trash2, Plus } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
+import { goApi, type GoConnector } from "../../../lib/go-api";
 import { useBuilderStore } from "../store/builder.store";
 import {
   NODE_META,
@@ -34,6 +37,7 @@ import {
   type ConditionOperator,
   type ConditionVariable,
   type DtmfDigit,
+  type EmailNodeData,
   type IvrNode,
 } from "../ivr.types";
 import { PromptEditor } from "./PromptEditor";
@@ -455,6 +459,15 @@ function NodeFields({
         </>
       );
 
+    case "email":
+      return (
+        <EmailFields
+          nodeId={node.id}
+          data={data}
+          updateNodeData={updateNodeData}
+        />
+      );
+
     case "hangup":
       return (
         <p className="text-sm text-muted-foreground">
@@ -462,4 +475,114 @@ function NodeFields({
         </p>
       );
   }
+}
+
+// ─── email (experimental) ───────────────────────────────
+
+function EmailFields({
+  nodeId,
+  data,
+  updateNodeData,
+}: {
+  nodeId: string;
+  data: EmailNodeData;
+  updateNodeData: (id: string, patch: Record<string, unknown>) => void;
+}) {
+  const [connectors, setConnectors] = useState<GoConnector[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    goApi.connectors
+      .list()
+      .then((all) => {
+        if (active) setConnectors(all.filter((c) => c.type === "email"));
+      })
+      .catch((e) => {
+        if (active)
+          setError(e instanceof Error ? e.message : "Failed to load connectors");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return (
+    <>
+      <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] leading-snug text-amber-700 dark:text-amber-400">
+        Experimental — sends an email through the selected connector when a call
+        reaches this block, then continues the flow.
+      </p>
+
+      <Field label="Email connector">
+        <Select
+          value={data.connectorId || undefined}
+          onValueChange={(connectorId) =>
+            updateNodeData(nodeId, { connectorId })
+          }
+          disabled={loading || connectors.length === 0}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue
+              placeholder={
+                loading
+                  ? "Loading…"
+                  : connectors.length === 0
+                    ? "No email connectors"
+                    : "Select a connector"
+              }
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {connectors.map((c) => (
+              <SelectItem key={c.id} value={String(c.id)}>
+                {c.name}
+                {!c.enabled && " (disabled)"}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {error && (
+          <p className="text-[11px] text-destructive">{error}</p>
+        )}
+        {!loading && !error && connectors.length === 0 && (
+          <p className="text-[11px] text-muted-foreground/70">
+            Add an email connector under Admin → Connectors first.
+          </p>
+        )}
+      </Field>
+
+      <Field label="To">
+        <Input
+          value={data.to}
+          placeholder="ops@example.com, ${caller_id}"
+          onChange={(e) => updateNodeData(nodeId, { to: e.target.value })}
+          className="text-sm"
+        />
+      </Field>
+
+      <Field label="Subject">
+        <Input
+          value={data.subject}
+          placeholder="New IVR call"
+          onChange={(e) => updateNodeData(nodeId, { subject: e.target.value })}
+          className="text-sm"
+        />
+      </Field>
+
+      <Field label="Body">
+        <Textarea
+          value={data.body}
+          rows={4}
+          placeholder="Message body. You can reference ${caller_id}, ${destination_number}…"
+          onChange={(e) => updateNodeData(nodeId, { body: e.target.value })}
+          className="text-sm"
+        />
+      </Field>
+    </>
+  );
 }

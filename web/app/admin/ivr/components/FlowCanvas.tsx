@@ -90,12 +90,29 @@ export function FlowCanvas() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return;
-      const mod = e.ctrlKey || e.metaKey;
-      if (!mod) return;
       const s = useBuilderStore.getState();
       const sel = s.selectedNodeId;
       const key = e.key.toLowerCase();
-      if (key === "c" && sel) {
+
+      // Delete / Backspace → remove the selected node (start node is protected).
+      if (key === "delete" || key === "backspace") {
+        if (sel) {
+          e.preventDefault();
+          s.removeNode(sel);
+        }
+        return;
+      }
+
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      if (key === "z") {
+        e.preventDefault();
+        if (e.shiftKey) s.redo();
+        else s.undo();
+      } else if (key === "y") {
+        e.preventDefault();
+        s.redo();
+      } else if (key === "c" && sel) {
         s.copyNode(sel);
       } else if (key === "x" && sel) {
         s.cutNode(sel);
@@ -131,6 +148,9 @@ export function FlowCanvas() {
         onMoveStart={closeMenu}
         colorMode={"system" as ColorMode}
         fitView
+        fitViewOptions={{ maxZoom: 0.85, padding: 0.3 }}
+        minZoom={0.2}
+        deleteKeyCode={null}
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{ animated: true }}
       >

@@ -9,6 +9,7 @@ import { PlayNode } from "./PlayNode";
 import { ConditionNode } from "./ConditionNode";
 import { TransferNode } from "./TransferNode";
 import { VoicemailNode } from "./VoicemailNode";
+import { EmailNode } from "./EmailNode";
 import { HangupNode } from "./HangupNode";
 
 export const ivrNodeTypes = {
@@ -18,5 +19,6 @@ export const ivrNodeTypes = {
   condition: ConditionNode,
   transfer: TransferNode,
   voicemail: VoicemailNode,
+  email: EmailNode,
   hangup: HangupNode,
 } as unknown as NodeTypes;
