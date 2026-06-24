@@ -25,6 +25,14 @@
          the drachtio relay. -->
     <extension name="socket">
       <condition field="${sip_user_agent}" expression="^drachtio-fsmrf:(.*)$">
+        <!-- DIAGNOSTIC: confirm this extension matched and show the exact
+             ESL-outbound callback FreeSWITCH will dial back to. ERR level so it
+             surfaces in `docker logs drachtio-freeswitch`. If you place a call
+             and this line does NOT appear, the INVITE never reached the mrf
+             context / the User-Agent did not match -> a SIP-routing problem, not
+             an ESL one. If it DOES appear but connectCaller still times out, the
+             failure is on the answer/media or the outbound-socket leg. -->
+        <action application="log" data="ERR HIT SOCKET DIALPLAN ua=${sip_user_agent} esl=${sip_h_X-esl-outbound}"/>
         <!-- optional = negotiate SRTP only if the peer offers it; let a DTLS
              (WebRTC) offer fall through to DTLS auto-negotiation from the
              a=fingerprint instead of requiring an a=crypto suite. -->
@@ -37,7 +45,7 @@
         <action application="set" data="playback_terminators=none"/>
         <!-- Update this IP if the api service ipv4_address in
              docker-compose.prod.yml changes. -->
-        <action application="socket" data="10.89.0.10:8085 async full"/>
+        <action application="socket" data="host.docker.internal:8085 async full"/>
       </condition>
     </extension>
   </context>
