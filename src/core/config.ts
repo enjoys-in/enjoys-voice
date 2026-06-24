@@ -113,6 +113,14 @@ export interface AppConfig {
     // ICE servers handed to the widget for WebRTC (PUBLIC_ICE_SERVERS as a JSON
     // array). Defaults to a public STUN server when unset.
     iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }>;
+    // TURN REST-API shared secret (must equal coturn's `static-auth-secret`).
+    // When set, the API hands the browser SHORT-LIVED HMAC TURN credentials
+    // instead of the static username/credential from PUBLIC_ICE_SERVERS, so the
+    // long-term secret never reaches the client. Empty = keep static creds.
+    turnSecret: string;
+    // Lifetime (seconds) of a minted TURN credential. Must comfortably exceed
+    // the longest expected call so a relay allocation isn't dropped mid-call.
+    turnTtlSec: number;
   };
   database: {
     // Postgres connection string for the SHARED database the Go API owns. Node
@@ -376,6 +384,9 @@ export const config: AppConfig = {
       process.env.PUBLIC_SIP_WS_URL ||
       `ws://${process.env.PUBLIC_IP || '127.0.0.1'}:${process.env.SIP_WS_PORT || '5065'}`,
     iceServers: parseIceServers(process.env.PUBLIC_ICE_SERVERS),
+    // Set to coturn's `static-auth-secret` to switch on ephemeral TURN creds.
+    turnSecret: process.env.TURN_STATIC_AUTH_SECRET || '',
+    turnTtlSec: parseInt(process.env.TURN_CRED_TTL || '3600'),
   },
   database: {
     url:

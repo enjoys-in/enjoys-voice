@@ -5,7 +5,7 @@ import { DatabaseService, TrunkService } from '@/services';
 import type { CallMetricsService, ApiKeyService, ApiKeyDenyReason } from '@/services';
 import { SipServer } from '@/sip';
 import type { ITrunkProvider, MediaStreamTrack } from '@/trunk';
-import { config, signWidgetToken, WIDGET_TOKEN_TTL_SECONDS } from '@/core';
+import { config, signWidgetToken, WIDGET_TOKEN_TTL_SECONDS, buildIceServers } from '@/core';
 import { requireAuth, requireSelfExtension } from '../middleware/auth';
 import { ok, created, fail } from '../response';
 
@@ -269,10 +269,12 @@ export function createRoutes(
   };
 
   // Connect config every widget response shares (where/how to reach the SIP-WS).
+  // iceServers are built per-request so ephemeral TURN credentials (when the
+  // TURN_STATIC_AUTH_SECRET secret is set) are freshly minted for each client.
   const widgetConnect = () => ({
     sipWsUrl: config.widget.sipWsUrl,
     domain: config.server.domain,
-    iceServers: config.widget.iceServers,
+    iceServers: buildIceServers(),
   });
 
   widget.post('/config', async (req: Request, res: Response) => {
