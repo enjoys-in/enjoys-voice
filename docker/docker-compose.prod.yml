@@ -11,6 +11,14 @@ x-logging: &default-logging
     max-size: "50k"
     max-file: "2"
 
+# Shared ICE server list handed to BOTH the Node API (embeddable widget path,
+# config.widget.iceServers) AND the web dialer (runtime-config.js written by the
+# web entrypoint). They are TWO separate ICE sources — both MUST carry the TURN
+# entry or the browser keeps offering only host candidates and media fails.
+# >>> The TURN `credential` MUST match user=callnet:<pwd> in
+#     prod/coturn/turnserver.conf, and the IP must be the VPS public IP. <<<
+x-ice-servers: &ice-servers '[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:77.237.241.24:3478?transport=udp","username":"callnet","credential":"REPLACE_ME_turn_password"}]'
+
 services:
   drachtio-server:
     image: drachtio/drachtio-server
@@ -85,6 +93,32 @@ services:
       start_period: 40s
     networks:
       # No static IP needed: reached by service name "drachtio-freeswitch" (FREESWITCH_HOST).
+      - voipnet
+    restart: unless-stopped
+
+  coturn:
+    image: coturn/coturn:latest
+    container_name: callnet-coturn
+    logging: *default-logging
+    # TURN/STUN relay for WebRTC media. On a VPS the remote browser can't reach
+    # FreeSWITCH's container IP directly, so voicemail/IVR/conference/queue audio
+    # is relayed: browser -> coturn (VPS public IP, published ports) -> FS (over
+    # voipnet). Runs in BRIDGE mode (NOT host) so coturn sits ON voipnet and CAN
+    # reach the FS container IP; turnserver.conf allow-lists the 10.89.0.0/24
+    # peer subnet. Do NOT add `-n` to the command — it makes coturn ignore -c.
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    ports:
+      - "3478:3478/udp" # STUN/TURN
+      - "3478:3478/tcp" # TURN over TCP
+      # Relay port range — MUST exactly match min-port/max-port in
+      # turnserver.conf and be opened in the VPS firewall (UDP). Widen all three
+      # together if you need more concurrent relayed calls (~1 port per leg).
+      - "49152-49199:49152-49199/udp"
+    volumes:
+      # compose cwd = docker/, so ../prod reaches the repo prod/ folder (same as
+      # the freeswitch overrides above). Read-only.
+      - ../prod/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    networks:
       - voipnet
     restart: unless-stopped
 
@@ -209,6 +243,10 @@ services:
       # which a remote browser cannot reach. /sip -> drachtio (wss) via Caddy.
       PUBLIC_SIP_WS_URL: "wss://voice.enjoys.in/sip"
       PUBLIC_WS_URL: "wss://voice.enjoys.in/signal"
+      # ICE servers for the embeddable click-to-call widget (Node serves these
+      # in the widget connect response). MUST include the coturn TURN relay or
+      # widget calls into FS (voicemail/IVR/conference) have no audio on a VPS.
+      PUBLIC_ICE_SERVERS: *ice-servers
       # Origins allowed to open the signaling WebSocket (CSWSH defense). Without
       # this, only localhost is allowed and the prod browser handshake at
       # wss://voice.enjoys.in/signal is REJECTED before connecting.
@@ -266,7 +304,7 @@ services:
       # Optional: browser-bridge WS + token (only if streaming/bridge is used).
       # PUBLIC_BRIDGE_URL: "wss://voice.enjoys.in/bridge"
       # PUBLIC_BRIDGE_TOKEN: ""
-      PUBLIC_ICE_SERVERS: '[{"urls":"stun:stun.l.google.com:19302"}]'
+      PUBLIC_ICE_SERVERS: *ice-servers
       # Server-side JWT verification (middleware + Server Components reading the
       # httpOnly cookie). MUST match the go-api/api JWT_SECRET above so prod
       # fully verifies token signatures; without it the web falls back to an
