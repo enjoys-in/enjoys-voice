@@ -11,7 +11,6 @@ import { Sidebar } from "./layout/Sidebar";
 import { AppHeader } from "./layout/AppHeader";
 import { LoginScreen } from "./screens/LoginScreen";
 import { ActiveCallScreen } from "./screens/ActiveCallScreen";
-import { IncomingCallSheet } from "./call/IncomingCallSheet";
 import { IncomingConferenceSheet } from "./call/IncomingConferenceSheet";
 import { SplashScreen } from "./SplashScreen";
 import {
@@ -419,7 +418,6 @@ export function AppShell({ initialExtension }: AppShellProps) {
   // DTMF / recording don't apply to bridge calls, so they're no-ops there.
   const callIsBridge = activeCall?.source === "bridge";
   const onAnswerCall = callIsBridge ? bridge.answer : answer;
-  const onDeclineCall = callIsBridge ? bridge.hangup : hangUp;
   const onHangUpCall = callIsBridge ? bridge.hangup : handleHangUp;
   const onSendDtmfCall = callIsBridge ? () => {} : sendDtmf;
   const onToggleRecordingCall = callIsBridge ? () => {} : handleToggleRecording;
@@ -432,20 +430,6 @@ export function AppShell({ initialExtension }: AppShellProps) {
     return <LoginScreen />;
   }
 
-  // Full-screen call overlay
-  if (activeCall && activeCall.status !== "ended") {
-    return (
-      <ActiveCallScreen
-        onHangUp={onHangUpCall}
-        onAnswer={onAnswerCall}
-        onSendDtmf={onSendDtmfCall}
-        onToggleRecording={onToggleRecordingCall}
-        isRecording={callIsBridge ? false : isRecording}
-        onAddParticipant={callIsBridge ? undefined : onAddParticipant}
-      />
-    );
-  }
-
   return (
     <div className="flex h-dvh bg-background">
       {/* Desktop sidebar */}
@@ -456,8 +440,17 @@ export function AppShell({ initialExtension }: AppShellProps) {
         {/* Header */}
         <AppHeader />
 
-        {/* Incoming call toast/sheet */}
-        <IncomingCallSheet onAnswer={onAnswerCall} onDecline={onDeclineCall} />
+        {/* Active call — docked floating widget (calling, ringing & in-call). */}
+        {activeCall && activeCall.status !== "ended" && (
+          <ActiveCallScreen
+            onHangUp={onHangUpCall}
+            onAnswer={onAnswerCall}
+            onSendDtmf={onSendDtmfCall}
+            onToggleRecording={onToggleRecordingCall}
+            isRecording={callIsBridge ? false : isRecording}
+            onAddParticipant={callIsBridge ? undefined : onAddParticipant}
+          />
+        )}
 
         {/* Incoming conference invitation */}
         <IncomingConferenceSheet onAccept={onAcceptConferenceInvite} onDecline={onDeclineConferenceInvite} />
@@ -505,8 +498,8 @@ export function AppShell({ initialExtension }: AppShellProps) {
           )}
         </main>
 
-        {/* Floating dial button */}
-        {activeTab !== "keypad" && (
+        {/* Floating dial button — hidden while a call is docked in the corner. */}
+        {activeTab !== "keypad" && !(activeCall && activeCall.status !== "ended") && (
           <button
             onClick={() => handleTabChange("keypad")}
             className="fixed right-5 bottom-20 lg:bottom-6 z-40 h-14 w-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/30 flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
