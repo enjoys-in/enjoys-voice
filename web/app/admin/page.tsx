@@ -2,7 +2,7 @@
 
 import { useState, useEffect, type ReactNode } from "react";
 import Link from "next/link";
-import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming, Palette, Save, RotateCcw, Check, Receipt, ScrollText, Radio, Headphones, KeyRound, Link2, Clock } from "lucide-react";
+import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming, Palette, Save, RotateCcw, Check, Receipt, ScrollText, Radio, Headphones, KeyRound, Link2, Clock, Voicemail } from "lucide-react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -43,12 +43,18 @@ import { ConnectorsTab } from "./components/ConnectorsTab";
 import { HoursTab } from "./components/HoursTab";
 import { useLiveMetrics } from "../hooks/useLiveMetrics";
 import { useBranding } from "../hooks/useBranding";
+import { useAuthStore } from "../stores";
+import { VoicemailScreen } from "../components/screens/VoicemailScreen";
 import { CallRecordStatus, type CallRecord } from "../types";
 
-type Tab = "overview" | "users" | "calls" | "customization" | "rates" | "trunks" | "queues" | "hours" | "apikeys" | "connectors" | "audit" | "config";
+type Tab = "overview" | "users" | "calls" | "voicemail" | "customization" | "rates" | "trunks" | "queues" | "hours" | "apikeys" | "connectors" | "audit" | "config";
 
 // Selectable stats windows (days) for the dashboard aggregate metrics/charts.
 const RANGE_OPTIONS = [7, 14, 30] as const;
+
+// Tabs a non-admin (read-only) user is allowed to see in the Control Plane.
+// Everything else is admin-only and hidden from regular users.
+const USER_TABS: Tab[] = ["overview", "calls", "voicemail", "audit"];
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("overview");
@@ -60,10 +66,16 @@ export default function AdminPage() {
   const [statsDays, setStatsDays] = useState<number>(7);
   const [statsLoading, setStatsLoading] = useState(true);
   const { brandName } = useBranding();
+  const { user } = useAuthStore();
+  const isAdmin = !!user?.isAdmin;
+  const myExt = user?.extension ?? "";
 
   useEffect(() => {
     loadData();
-  }, []);
+    // Re-run once the persisted user hydrates / role resolves so admins fetch
+    // the system-wide datasets and users stay on their own.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
 
   // Aggregate stats reload whenever the selected range changes (independent of
   // the health/users/calls load so switching ranges only re-hits /stats).
@@ -87,16 +99,22 @@ export default function AdminPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [h, u, c] = await Promise.all([
-        api.health(),
-        api.getUsers(),
-        goApi.getCalls(),
-      ]);
-      setHealth(h);
-      setUsers(u);
-      setCalls(c);
+      if (isAdmin) {
+        const [h, u, c] = await Promise.all([
+          api.health(),
+          api.getUsers(),
+          goApi.getCalls(),
+        ]);
+        setHealth(h);
+        setUsers(u);
+        setCalls(c);
+      } else {
+        // Regular users may only read their own call history; the health and
+        // user-directory endpoints are admin-only (would 403).
+        setCalls(await goApi.getCalls());
+      }
     } catch (err) {
-      console.error("Failed to load admin data:", err);
+      console.error("Failed to load Control Plane data:", err);
     } finally {
       setLoading(false);
     }
@@ -106,6 +124,7 @@ export default function AdminPage() {
     { id: "overview", label: "Overview", icon: Activity },
     { id: "users", label: "Users", icon: Users },
     { id: "calls", label: "Call Logs", icon: Phone },
+    { id: "voicemail", label: "Voicemail", icon: Voicemail },
     { id: "customization", label: "Customization", icon: Palette },
     { id: "rates", label: "Rates", icon: Receipt },
     { id: "trunks", label: "Trunks", icon: Radio },
@@ -117,7 +136,16 @@ export default function AdminPage() {
     { id: "config", label: "Config", icon: Settings },
   ];
 
-  const currentLabel = navItems.find((n) => n.id === tab)?.label ?? "Admin";
+  // Non-admins get a read-only subset; admins get the full panel.
+  const visibleNav = isAdmin ? navItems : navItems.filter((n) => USER_TABS.includes(n.id));
+
+  // Guard so a non-admin can never land on an admin-only tab.
+  const selectTab = (t: Tab) => {
+    if (!isAdmin && !USER_TABS.includes(t)) return;
+    setTab(t);
+  };
+
+  const currentLabel = navItems.find((n) => n.id === tab)?.label ?? "Control Plane";
 
   return (
     <div className="flex h-dvh">
@@ -126,14 +154,14 @@ export default function AdminPage() {
         <div className="p-4 border-b border-border/50">
           <h1 className="text-lg font-bold flex items-center gap-2">
             <Shield className="h-5 w-5 text-primary" />
-            Admin Panel
+            Control Plane
           </h1>
         </div>
         <nav className="flex-1 p-2 space-y-1">
-          {navItems.map(({ id, label, icon: Icon }) => (
+          {visibleNav.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
-              onClick={() => setTab(id)}
+              onClick={() => selectTab(id)}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
                 tab === id
                   ? "bg-accent text-accent-foreground font-medium"
@@ -170,7 +198,7 @@ export default function AdminPage() {
           </div>
           <div className="flex items-center gap-2">
             <span className="hidden sm:inline text-xs text-muted-foreground">{brandName}</span>
-            <Badge variant="secondary" className="text-[10px]">Admin</Badge>
+            <Badge variant="secondary" className="text-[10px]">{isAdmin ? "Admin" : "Read-only"}</Badge>
           </div>
         </header>
         <ScrollArea className="flex-1 min-h-0">
@@ -185,10 +213,12 @@ export default function AdminPage() {
                 statsDays={statsDays}
                 statsLoading={statsLoading}
                 onRangeChange={setStatsDays}
+                isAdmin={isAdmin}
               />
             )}
             {tab === "users" && <UsersTab users={users} loading={loading} onRefresh={loadData} />}
             {tab === "calls" && <CallsTab calls={calls} loading={loading} />}
+            {tab === "voicemail" && <VoicemailScreen />}
             {tab === "customization" && <CustomizationTab />}
             {tab === "rates" && <RatesTab />}
             {tab === "trunks" && <TrunksTab />}
@@ -196,7 +226,7 @@ export default function AdminPage() {
             {tab === "hours" && <HoursTab users={users} />}
             {tab === "apikeys" && <ApiKeysTab />}
             {tab === "connectors" && <ConnectorsTab />}
-            {tab === "audit" && <AuditTab />}
+            {tab === "audit" && <AuditTab extension={isAdmin ? undefined : myExt} />}
             {tab === "config" && <ConfigTab />}
           </div>
         </ScrollArea>
@@ -216,6 +246,7 @@ function OverviewTab({
   statsDays,
   statsLoading,
   onRangeChange,
+  isAdmin,
 }: {
   health: HealthResponse | null;
   users: UserResponse[];
@@ -225,6 +256,7 @@ function OverviewTab({
   statsDays: number;
   statsLoading: boolean;
   onRangeChange: (days: number) => void;
+  isAdmin: boolean;
 }) {
   // Live engine metrics (active concurrency / peak CPS). Hook is called before
   // any early return to satisfy the rules of hooks.
@@ -243,11 +275,15 @@ function OverviewTab({
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <h2 className="text-2xl font-bold">Dashboard</h2>
         <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground/40"}`} />
-            {connected ? "Live" : "Offline"}
-          </span>
-          <Separator orientation="vertical" className="h-5" />
+          {isAdmin && (
+            <>
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground/40"}`} />
+                {connected ? "Live" : "Offline"}
+              </span>
+              <Separator orientation="vertical" className="h-5" />
+            </>
+          )}
           <div className="flex rounded-lg border border-border/50 p-0.5">
             {RANGE_OPTIONS.map((d) => (
               <button
@@ -267,24 +303,26 @@ function OverviewTab({
       </div>
 
       {/* Live engine metrics */}
-      <div>
-        <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Live</p>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            title="Active Calls"
-            value={live ? live.activeTotal.toString() : "-"}
-            sub={live ? `${live.activeInbound} in · ${live.activeOutbound} out` : "in / out"}
-            color={live && live.activeTotal > 0 ? "text-emerald-500" : undefined}
-          />
-          <StatCard title="Max Concurrent" value={live ? live.maxConcurrent.toString() : "-"} sub="since start" />
-          <StatCard title="Peak Inbound Channels" value={live ? live.peakInboundConcurrent.toString() : "-"} sub="concurrent" />
-          <StatCard
-            title="Outbound CPS"
-            value={live ? live.outboundCurrentCps.toString() : "-"}
-            sub={live ? `peak ${live.outboundPeakCps}/s` : "calls / sec"}
-          />
+      {isAdmin && (
+        <div>
+          <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Live</p>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard
+              title="Active Calls"
+              value={live ? live.activeTotal.toString() : "-"}
+              sub={live ? `${live.activeInbound} in · ${live.activeOutbound} out` : "in / out"}
+              color={live && live.activeTotal > 0 ? "text-emerald-500" : undefined}
+            />
+            <StatCard title="Max Concurrent" value={live ? live.maxConcurrent.toString() : "-"} sub="since start" />
+            <StatCard title="Peak Inbound Channels" value={live ? live.peakInboundConcurrent.toString() : "-"} sub="concurrent" />
+            <StatCard
+              title="Outbound CPS"
+              value={live ? live.outboundCurrentCps.toString() : "-"}
+              sub={live ? `peak ${live.outboundPeakCps}/s` : "calls / sec"}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Aggregate metrics (last N days) */}
       <div>
@@ -372,19 +410,21 @@ function OverviewTab({
 
       {/* System + recent calls */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="border-border/50 bg-card/50">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">System</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <Row label="Status" value={health?.status === "ok" ? "Online" : "Offline"} />
-            <Row label="SIP Connected" value={health?.sipConnected ? "Yes" : "No"} />
-            <Row label="IVR Active" value={health?.ivrActive ? "Yes" : "No"} />
-            <Row label="Trunk Enabled" value={health?.trunkEnabled ? "Yes" : "No"} />
-            <Row label="Users Online" value={`${online} / ${users.length}`} />
-            <Row label="Uptime" value={health ? formatUptime(health.uptime) : "-"} />
-          </CardContent>
-        </Card>
+        {isAdmin && (
+          <Card className="border-border/50 bg-card/50">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">System</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <Row label="Status" value={health?.status === "ok" ? "Online" : "Offline"} />
+              <Row label="SIP Connected" value={health?.sipConnected ? "Yes" : "No"} />
+              <Row label="IVR Active" value={health?.ivrActive ? "Yes" : "No"} />
+              <Row label="Trunk Enabled" value={health?.trunkEnabled ? "Yes" : "No"} />
+              <Row label="Users Online" value={`${online} / ${users.length}`} />
+              <Row label="Uptime" value={health ? formatUptime(health.uptime) : "-"} />
+            </CardContent>
+          </Card>
+        )}
         <Card className="border-border/50 bg-card/50">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">Recent Calls</CardTitle>

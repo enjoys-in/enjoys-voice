@@ -619,6 +619,15 @@ export interface CallStats {
   series: CallStatsBucket[];
 }
 
+// A single persisted audit-log row, as returned by the Go `/audit` API.
+export interface GoAuditLog {
+  id: number;
+  extension: string;
+  event: string;
+  detail: string;
+  createdAt: string;
+}
+
 // ─── Client ─────────────────────────────────────────────
 
 export const goApi = {
@@ -985,6 +994,14 @@ export const goApi = {
   // (default 7). Read-only; computed on demand by the Go API.
   getStats(days = 7): Promise<CallStats> {
     return goRequest<CallStats>(`/stats?days=${encodeURIComponent(days)}`);
+  },
+
+  // Persisted audit history for one extension (read-only). Self-or-admin on the
+  // server, so a regular user can read their own activity.
+  getAudit(ext: string, limit = 50): Promise<GoAuditLog[]> {
+    return goRequest<GoAuditLog[]>(
+      `/audit/${encodeURIComponent(ext)}?limit=${encodeURIComponent(limit)}`
+    );
   },
 
   // IVR flows

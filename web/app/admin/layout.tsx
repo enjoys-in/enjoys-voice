@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Admin",
-  description: "Admin panel for Enjoys Voice",
+  title: "Control Plane",
+  description: "Control Plane for Enjoys Voice",
   robots: { index: false, follow: false },
 };
 
