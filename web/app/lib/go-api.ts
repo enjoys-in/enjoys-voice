@@ -492,6 +492,27 @@ export interface GoConnectorInput {
   config?: GoConnectorConfig;
 }
 
+// ─── Personal contacts (per-user address book) ──────────
+
+/** A user's personal address-book entry. Owner-scoped: the API only ever
+ * returns the caller's own contacts (not the global SIP directory). */
+export interface GoContact {
+  id: number;
+  ownerExtension: string;
+  name: string;
+  extension: string;
+  username?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Partial create/update of a personal contact. */
+export interface GoContactInput {
+  name?: string;
+  extension?: string;
+  username?: string;
+}
+
 // ─── Routing schedules (business hours + per-user availability) ──────────
 
 /** One open interval on a weekday (0 = Sun … 6 = Sat), minutes from midnight. */
@@ -1010,6 +1031,30 @@ export const goApi = {
     },
     remove(id: number): Promise<void> {
       return goRequest<unknown>(`/connectors/${id}`, {
+        method: "DELETE",
+      }).then(() => undefined);
+    },
+  },
+
+  // Personal address book: each user's own contacts (owner-scoped CRUD).
+  contacts: {
+    list(): Promise<GoContact[]> {
+      return goRequest<GoContact[]>(`/contacts`);
+    },
+    create(input: GoContactInput): Promise<GoContact> {
+      return goRequest<GoContact>(`/contacts`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(id: number, input: GoContactInput): Promise<GoContact> {
+      return goRequest<GoContact>(`/contacts/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(id: number): Promise<void> {
+      return goRequest<unknown>(`/contacts/${id}`, {
         method: "DELETE",
       }).then(() => undefined);
     },

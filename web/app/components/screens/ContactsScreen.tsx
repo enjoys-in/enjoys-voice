@@ -18,29 +18,30 @@ interface ContactsScreenProps {
 }
 
 export function ContactsScreen({ onCall }: ContactsScreenProps) {
-  const { searchQuery, setSearch, filteredContacts, addContact, updateContact, removeContact, fetchContacts, loading } = useContactStore();
+  const { searchQuery, setSearch, filteredMyContacts, addContact, updateContact, removeContact, fetchMyContacts, fetchContacts, myLoading, contacts: directory } = useContactStore();
   const { addBlockedNumber, settings } = useSettingsStore();
-  const contacts = filteredContacts();
+  const contacts = filteredMyContacts();
   const [blockTarget, setBlockTarget] = useState<{ ext: string; name: string } | null>(null);
-  const [editContact, setEditContact] = useState<{ extension: string; name: string } | null>(null);
+  const [editContact, setEditContact] = useState<{ id: number; name: string; extension: string } | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<{ ext: string; name: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
   const [pulling, setPulling] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const startY = useRef(0);
 
-  // Seed the directory once on first open. No-op if WebSocket presence already
-  // populated it (or it was fetched earlier) — opening this tab never re-hits
-  // the API. Only the refresh button / pull-to-refresh below force a re-fetch.
+  // Load the user's own contacts on first open. Also seed the live directory so
+  // the online badges + caller-name resolution stay accurate. Both are cached;
+  // only the refresh button / pull-to-refresh force a re-fetch.
   useEffect(() => {
+    void fetchMyContacts();
     void fetchContacts();
-  }, [fetchContacts]);
+  }, [fetchMyContacts, fetchContacts]);
 
   const handleRefresh = useCallback(async () => {
     setPulling(true);
-    await fetchContacts(true);
+    await Promise.all([fetchMyContacts(true), fetchContacts(true)]);
     setPulling(false);
-  }, [fetchContacts]);
+  }, [fetchMyContacts, fetchContacts]);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     startY.current = e.touches[0].clientY;
@@ -60,29 +61,40 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
     }
   }, [blockTarget, addBlockedNumber]);
 
-  const handleAdd = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAdd = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
     const name = (form.elements.namedItem("name") as HTMLInputElement).value.trim();
     const ext = (form.elements.namedItem("extension") as HTMLInputElement).value.trim();
     if (!name || !ext) return;
-    addContact({ extension: ext, name, username: ext, online: false, registered: false });
-    setShowAddDialog(false);
+    try {
+      await addContact({ name, extension: ext });
+      setShowAddDialog(false);
+    } catch {
+      /* keep the dialog open so the user can retry */
+    }
   };
 
-  const handleEdit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleEdit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editContact) return;
     const form = e.currentTarget;
     const name = (form.elements.namedItem("name") as HTMLInputElement).value.trim();
-    if (!name) return;
-    updateContact(editContact.extension, { name });
-    setEditContact(null);
+    const ext = (form.elements.namedItem("extension") as HTMLInputElement).value.trim();
+    if (!name || !ext) return;
+    try {
+      await updateContact(editContact.id, { name, extension: ext });
+      setEditContact(null);
+    } catch {
+      /* keep the dialog open so the user can retry */
+    }
   };
 
-  const handleDelete = () => {
-    if (deleteTarget) {
-      removeContact(deleteTarget.ext);
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await removeContact(deleteTarget.id);
+    } finally {
       setDeleteTarget(null);
     }
   };
@@ -99,10 +111,10 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
               variant="ghost"
               className="h-8 w-8"
               onClick={handleRefresh}
-              disabled={loading || pulling}
+              disabled={myLoading || pulling}
               title="Refresh contacts"
             >
-              <RefreshCw className={`h-4 w-4 ${loading || pulling ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-4 w-4 ${myLoading || pulling ? "animate-spin" : ""}`} />
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowAddDialog(true)}>
               <Plus className="h-4 w-4 mr-1" /> Add
@@ -136,13 +148,17 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
         >
           {contacts.length === 0 ? (
             <EmptyState
-              title={searchQuery ? "No contacts found" : "No users online"}
-              description="Users will appear as they connect"
+              title={searchQuery ? "No contacts found" : "No contacts yet"}
+              description={searchQuery ? "Try a different search" : "Tap Add to save your first contact"}
             />
           ) : (
-            contacts.map((contact) => (
+            contacts.map((contact) => {
+              // Personal contacts carry no presence of their own — show the live
+              // online state only when the saved extension matches a directory user.
+              const online = directory.some((d) => d.extension === contact.extension && d.online);
+              return (
               <ListItem
-                key={contact.extension}
+                key={contact.id}
                 onLongPress={() => setBlockTarget({ ext: contact.extension, name: contact.name })}
                 onClick={() => onCall(contact.extension, contact.name)}
                 leading={
@@ -152,7 +168,7 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
                         {contact.name.slice(0, 2).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
-                    {contact.online && (
+                    {online && (
                       <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-background" />
                     )}
                   </div>
@@ -161,14 +177,14 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
                 subtitle={`ext. ${contact.extension}${settings.blockedNumbers.includes(contact.extension) ? " · blocked" : ""}`}
                 trailing={
                   <div className="flex items-center gap-1">
-                    <Badge variant={contact.online ? "default" : "secondary"} className="text-[10px] px-1.5 py-0">
-                      {contact.online ? "online" : "offline"}
+                    <Badge variant={online ? "default" : "secondary"} className="text-[10px] px-1.5 py-0">
+                      {online ? "online" : "offline"}
                     </Badge>
                     <Button
                       size="icon"
                       variant="ghost"
                       className="h-7 w-7"
-                      onClick={(e) => { e.stopPropagation(); setEditContact({ extension: contact.extension, name: contact.name }); }}
+                      onClick={(e) => { e.stopPropagation(); setEditContact({ id: contact.id!, name: contact.name, extension: contact.extension }); }}
                       title="Edit"
                     >
                       <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
@@ -177,7 +193,7 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
                       size="icon"
                       variant="ghost"
                       className="h-7 w-7"
-                      onClick={(e) => { e.stopPropagation(); setDeleteTarget({ ext: contact.extension, name: contact.name }); }}
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: contact.id!, name: contact.name }); }}
                       title="Delete"
                     >
                       <Trash2 className="h-3.5 w-3.5 text-destructive" />
@@ -194,7 +210,8 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
                   </div>
                 }
               />
-            ))
+              );
+            })
           )}
         </div>
       </ScrollArea>
@@ -228,12 +245,15 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
           <DialogHeader>
             <DialogTitle>Edit Contact</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleEdit} className="space-y-3 mt-2">
+          <form onSubmit={handleEdit} className="space-y-3 mt-2" key={editContact?.id}>
             <div className="space-y-1">
               <Label className="text-xs">Name</Label>
               <Input name="name" defaultValue={editContact?.name || ""} required />
             </div>
-            <p className="text-xs text-muted-foreground">Extension: {editContact?.extension}</p>
+            <div className="space-y-1">
+              <Label className="text-xs">Extension</Label>
+              <Input name="extension" defaultValue={editContact?.extension || ""} required />
+            </div>
             <div className="flex gap-2 justify-end">
               <Button type="button" variant="secondary" size="sm" onClick={() => setEditContact(null)}>Cancel</Button>
               <Button type="submit" size="sm">Save</Button>
@@ -248,7 +268,7 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
           <DialogHeader>
             <DialogTitle>Delete Contact</DialogTitle>
             <DialogDescription>
-              Remove <strong>{deleteTarget?.name}</strong> ({deleteTarget?.ext}) from your contacts?
+              Remove <strong>{deleteTarget?.name}</strong> from your contacts?
             </DialogDescription>
           </DialogHeader>
           <div className="flex gap-2 justify-end mt-2">

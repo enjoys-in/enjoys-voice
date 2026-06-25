@@ -14,6 +14,9 @@ export interface User {
 }
 
 export interface Contact {
+  // Present only for personal address-book entries (backend row id); the global
+  // SIP directory entries (presence) have no id.
+  id?: number;
   extension: string;
   name: string;
   username: string;

@@ -54,6 +54,7 @@ func main() {
 		&models.Trunk{},
 		&models.APIKey{},
 		&models.Connector{},
+		&models.Contact{},
 	); err != nil {
 		log.Fatalf("Failed to migrate: %v", err)
 	}
@@ -87,6 +88,7 @@ func main() {
 	apiKeyRepo := repository.NewAPIKeyRepository(db)
 	connectorRepo := repository.NewConnectorRepository(db)
 	scheduleRepo := repository.NewScheduleRepository(db)
+	contactRepo := repository.NewContactRepository(db)
 
 	// ─── Services ────────────────────────────────────────
 	authSvc := service.NewAuthService(userRepo, settingsRepo, valkey)
@@ -106,7 +108,7 @@ func main() {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo)
 	connectorSvc := service.NewConnectorService(connectorRepo)
 	scheduleSvc := service.NewScheduleService(scheduleRepo)
-
+	contactSvc := service.NewContactService(contactRepo)
 	// Twilio client powers provider-native (BYON) caller-ID verification and OTP
 	// SMS delivery. With no credentials configured it stays disabled and the
 	// dependent endpoints return 503.
@@ -144,6 +146,7 @@ func main() {
 		APIKey:         handler.NewAPIKeyHandler(apiKeySvc),
 		Connector:      handler.NewConnectorHandler(connectorSvc),
 		Schedule:       handler.NewScheduleHandler(scheduleSvc, cfg.AdminExtensions),
+		Contact:        handler.NewContactHandler(contactSvc),
 	}
 
 	// ─── Ensure upload dir ───────────────────────────────

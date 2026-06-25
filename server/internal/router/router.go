@@ -27,6 +27,7 @@ type Handlers struct {
 	APIKey         *handler.APIKeyHandler
 	Connector      *handler.ConnectorHandler
 	Schedule       *handler.ScheduleHandler
+	Contact        *handler.ContactHandler
 }
 
 func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool) {
@@ -107,6 +108,14 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool
 			protected.GET("/connectors/:id", h.Connector.Get)
 			protected.PUT("/connectors/:id", h.Connector.Update)
 			protected.DELETE("/connectors/:id", h.Connector.Delete)
+
+			// Personal address book. Strictly owner-scoped — a user only ever
+			// lists/reads/edits/deletes the contacts they created.
+			protected.GET("/contacts", h.Contact.List)
+			protected.POST("/contacts", h.Contact.Create)
+			protected.GET("/contacts/:id", h.Contact.Get)
+			protected.PUT("/contacts/:id", h.Contact.Update)
+			protected.DELETE("/contacts/:id", h.Contact.Delete)
 
 			// PSTN call forwarding
 			protected.GET("/pstn-forward/:ext", selfOrAdmin, h.Settings.GetPstnForward)
