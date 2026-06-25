@@ -611,6 +611,11 @@
 - [x] Centralised TTS wording in `constants/TtsPrompts.ts` — `ANNOUNCEMENT_PROMPTS`
       maps each `announcementKey` to a `say:` prompt; `announcementText()` strips
       the prefix for callers that re-add it
+- [x] **Admin-editable announcement wording** — migration 007 `routing_prompts`
+      (key → text); Go CRUD under `/routing-prompts` (read open, write admin-only);
+      `RoutingOrchestrator.announcement(key)` resolves override → engine default
+      (read at announcement time, fail-open); admin **Announcements** card in
+      `HoursTab`. Empty/missing key keeps the shipped default (backward compatible)
 
 ### SIP / IVR integration (additive gates, fail-open)
 - [x] Internal extension (`internal.handler.ts`): a `PlayAnnouncement` decision

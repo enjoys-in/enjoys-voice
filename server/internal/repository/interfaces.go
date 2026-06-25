@@ -163,4 +163,6 @@ type ScheduleRepository interface {
 	SaveBusinessHours(ctx context.Context, timezone string, enabled bool, windows []models.BusinessHoursWindow, exceptions []models.BusinessHoursException) (*models.BusinessHoursPolicy, error)
 	ListAvailability(ctx context.Context, ext string) ([]models.UserAvailabilityWindow, error)
 	ReplaceAvailability(ctx context.Context, ext string, windows []models.UserAvailabilityWindow) error
+	GetPrompts(ctx context.Context) ([]models.RoutingPrompt, error)
+	ReplacePrompts(ctx context.Context, prompts []models.RoutingPrompt) error
 }

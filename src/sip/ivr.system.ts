@@ -8,7 +8,7 @@ import { DatabaseService } from '@/services';
 import { sendConnectorEmail } from '@/services';
 import { runFlow, type FlowRunnerContext, type FlowRunnerHandlers, type FlowResult } from './ivr/flow-runner';
 import type { IvrFlowGraph } from './ivr/flow.types';
-import { DecisionType, UnavailableReason, ANNOUNCEMENT_PROMPTS, type RoutingOrchestrator } from '@/modules/routing';
+import { DecisionType, UnavailableReason, type RoutingOrchestrator } from '@/modules/routing';
 
 const DEFAULT_DEPARTMENTS: Department[] = [
   { id: 'sales', name: 'Sales', nameHi: 'बिक्री', agents: ['1001', '1002'], queueName: 'sales_queue', maxWait: 120, priority: 2 },
@@ -919,9 +919,9 @@ export class IVRSystem {
           decision.type === DecisionType.PlayAnnouncement &&
           decision.reason === UnavailableReason.OutsideCompanyHours
         ) {
-          const prompt = ANNOUNCEMENT_PROMPTS[decision.announcementKey ?? 'company_closed'] ?? ANNOUNCEMENT_PROMPTS.company_closed;
+          const text = await this.routing.announcement(decision.announcementKey ?? 'company_closed');
           console.log(`⛔ IVR flow transfer: outside business hours → announcement [${state.callId}]`);
-          await this.playSafe(endpoint, prompt);
+          await this.playSafe(endpoint, `say:${text ?? 'Our company is currently closed.'}`);
           this.db.updateCall(state.callId, { status: 'missed' });
           return false;
         }

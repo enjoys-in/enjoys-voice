@@ -244,6 +244,8 @@ type ScheduleService interface {
 	SaveBusinessHours(ctx context.Context, in *BusinessHoursInput) (*models.BusinessHoursPolicy, error)
 	ListAvailability(ctx context.Context, ext string) ([]models.UserAvailabilityWindow, error)
 	SaveAvailability(ctx context.Context, ext string, in *AvailabilityInput) ([]models.UserAvailabilityWindow, error)
+	GetPrompts(ctx context.Context) ([]models.RoutingPrompt, error)
+	SavePrompts(ctx context.Context, in []PromptInput) ([]models.RoutingPrompt, error)
 }
 
 type VoicemailService interface {

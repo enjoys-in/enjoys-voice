@@ -196,6 +196,12 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 			protected.GET("/availability/:ext", h.Schedule.ListAvailability)
 			protected.PUT("/availability/:ext", h.Schedule.SaveAvailability)
 
+			// Routing announcement wording. Read is open (engine/UI resolve
+			// effective text); write is admin-only. Empty/missing key = engine
+			// default, so an empty table preserves the shipped wording.
+			protected.GET("/routing-prompts", h.Schedule.GetPrompts)
+			protected.PUT("/routing-prompts", h.Schedule.SavePrompts)
+
 			// Sounds (upload)
 			protected.POST("/sounds/upload", h.Sound.Upload)
 			protected.GET("/sounds/:ext", h.Sound.GetByExtension)

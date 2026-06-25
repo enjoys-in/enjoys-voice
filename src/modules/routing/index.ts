@@ -17,6 +17,7 @@ export type { BusinessHoursPolicy } from './domain/entities/BusinessHoursPolicy'
 export type { AvailabilityRepository } from './contracts/AvailabilityRepository';
 export type { BusinessHoursRepository } from './contracts/BusinessHoursRepository';
 export type { PresenceProvider } from './contracts/PresenceProvider';
+export type { PromptRepository } from './contracts/PromptRepository';
 export type { UserProfileRepository, UserProfile } from './contracts/UserProfileRepository';
 
 export { TTS_PROMPTS } from './constants/TtsPrompts';
@@ -26,4 +27,5 @@ export { ANNOUNCEMENT_PROMPTS, announcementText } from './constants/TtsPrompts';
 export { PgAvailabilityRepository } from './infrastructure/postgres/PgAvailabilityRepository';
 export { PgBusinessHoursRepository } from './infrastructure/postgres/PgBusinessHoursRepository';
 export { PgUserProfileRepository } from './infrastructure/postgres/PgUserProfileRepository';
+export { PgPromptRepository } from './infrastructure/postgres/PgPromptRepository';
 export { DatabasePresenceProvider } from './infrastructure/adapters/DatabasePresenceProvider';

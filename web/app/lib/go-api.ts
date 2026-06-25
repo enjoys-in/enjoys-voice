@@ -545,6 +545,13 @@ export interface GoAvailabilityInput {
   windows: GoScheduleWindow[];
 }
 
+/** One admin-overridden routing announcement (GET/PUT /routing-prompts). */
+export interface GoRoutingPrompt {
+  key: string;
+  text: string;
+  updated_at?: string;
+}
+
 // ─── Dashboard stats ────────────────────────────────────
 
 /** One status slice of the call-status breakdown. */
@@ -1028,6 +1035,15 @@ export const goApi = {
         `/availability/${encodeURIComponent(ext)}`,
         { method: "PUT", body: JSON.stringify(input) }
       );
+    },
+    getPrompts(): Promise<GoRoutingPrompt[]> {
+      return goRequest<GoRoutingPrompt[]>(`/routing-prompts`);
+    },
+    savePrompts(prompts: GoRoutingPrompt[]): Promise<GoRoutingPrompt[]> {
+      return goRequest<GoRoutingPrompt[]>(`/routing-prompts`, {
+        method: "PUT",
+        body: JSON.stringify({ prompts }),
+      });
     },
   },
 };

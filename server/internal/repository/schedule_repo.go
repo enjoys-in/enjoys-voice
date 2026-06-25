@@ -127,3 +127,27 @@ func (r *scheduleRepo) ReplaceAvailability(ctx context.Context, ext string, wind
 		return tx.Create(&windows).Error
 	})
 }
+
+// GetPrompts returns all stored announcement-wording overrides, ordered by key.
+func (r *scheduleRepo) GetPrompts(ctx context.Context) ([]models.RoutingPrompt, error) {
+	var prompts []models.RoutingPrompt
+	err := r.db.WithContext(ctx).Order("prompt_key ASC").Find(&prompts).Error
+	if err != nil {
+		return nil, err
+	}
+	return prompts, nil
+}
+
+// ReplacePrompts swaps the entire override set in one transaction (delete-all +
+// bulk insert). An empty slice clears every override, reverting to defaults.
+func (r *scheduleRepo) ReplacePrompts(ctx context.Context, prompts []models.RoutingPrompt) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("1 = 1").Delete(&models.RoutingPrompt{}).Error; err != nil {
+			return err
+		}
+		if len(prompts) == 0 {
+			return nil
+		}
+		return tx.Create(&prompts).Error
+	})
+}

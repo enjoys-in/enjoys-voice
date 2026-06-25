@@ -1,7 +1,7 @@
 import type { CallContext, RouteHandler, RouteServices } from './types';
 import type { DialResult } from '@/services';
 import { RouteType } from '@/services';
-import { DecisionType, announcementText } from '@/modules/routing';
+import { DecisionType } from '@/modules/routing';
 
 export class InternalHandler implements RouteHandler {
   async handle(ctx: CallContext, services: RouteServices, route?: DialResult): Promise<boolean> {
@@ -25,7 +25,7 @@ export class InternalHandler implements RouteHandler {
         });
         if (decision.type === DecisionType.PlayAnnouncement) {
           console.log(`⛔ ${route.target} gated by schedule (${decision.reason}) → announcement`);
-          await services.ivr.playUnavailable(ctx.req, ctx.res, announcementText(decision.announcementKey));
+          await services.ivr.playUnavailable(ctx.req, ctx.res, await services.routing.announcement(decision.announcementKey));
           services.db.updateCall(ctx.callId, { status: 'missed' });
           return true;
         }

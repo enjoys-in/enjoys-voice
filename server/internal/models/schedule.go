@@ -129,3 +129,15 @@ type UserAvailabilityWindow struct {
 }
 
 func (UserAvailabilityWindow) TableName() string { return "user_availability_windows" }
+
+// RoutingPrompt overrides the spoken wording of one routing announcement (keyed
+// by a stable prompt key, e.g. "company_closed"). A missing key falls back to
+// the Node engine's hardcoded default, so an empty table preserves the shipped
+// wording. Text is the raw phrase without the FreeSWITCH `say:` engine prefix.
+type RoutingPrompt struct {
+	Key       string    `gorm:"column:prompt_key;primaryKey;size:64" json:"key"`
+	Text      string    `gorm:"type:text;not null" json:"text"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (RoutingPrompt) TableName() string { return "routing_prompts" }

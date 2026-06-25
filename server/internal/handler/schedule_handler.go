@@ -86,8 +86,39 @@ func (h *ScheduleHandler) SaveAvailability(c *gin.Context) {
 	response.Success(c, "Availability updated", windows)
 }
 
+// GetPrompts → GET /routing-prompts : stored announcement-wording overrides
+// (public read so the engine/UI can resolve effective wording).
+func (h *ScheduleHandler) GetPrompts(c *gin.Context) {
+	prompts, err := h.svc.GetPrompts(c.Request.Context())
+	if err != nil {
+		response.Internal(c, err.Error())
+		return
+	}
+	response.OK(c, prompts)
+}
+
+// SavePrompts → PUT /routing-prompts (admin-only) : replace the override set.
+func (h *ScheduleHandler) SavePrompts(c *gin.Context) {
+	if !h.requireAdmin(c) {
+		return
+	}
+	var input struct {
+		Prompts []service.PromptInput `json:"prompts"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(c, "Invalid request body")
+		return
+	}
+	prompts, err := h.svc.SavePrompts(c.Request.Context(), input.Prompts)
+	if err != nil {
+		h.writeErr(c, err)
+		return
+	}
+	response.Success(c, "Announcement prompts updated", prompts)
+}
+
 func (h *ScheduleHandler) writeErr(c *gin.Context, err error) {
-	if errors.Is(err, service.ErrScheduleInvalid) {
+	if errors.Is(err, service.ErrScheduleInvalid) || errors.Is(err, service.ErrPromptKeyInvalid) {
 		response.BadRequest(c, err.Error())
 		return
 	}

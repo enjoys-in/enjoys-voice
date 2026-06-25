@@ -33,6 +33,7 @@ import {
   DatabasePresenceProvider,
   PgAvailabilityRepository,
   PgBusinessHoursRepository,
+  PgPromptRepository,
   PgUserProfileRepository,
   PresenceService,
   RoutingDecisionEngine,
@@ -107,7 +108,8 @@ class Application {
     const presenceService = new PresenceService(presenceProvider);
     const policyService = new RoutingPolicyService(availabilityService, businessHoursService, presenceService);
     const decisionEngine = new RoutingDecisionEngine();
-    this.routing = new RoutingOrchestrator(policyService, decisionEngine, userProfileRepo);
+    const promptRepo = new PgPromptRepository();
+    this.routing = new RoutingOrchestrator(policyService, decisionEngine, userProfileRepo, promptRepo);
     this.sip = new SipServer(this.db, this.trunk, registrationStore, this.audit, this.conference, this.queue, this.routing);
     this.ws = new SignalingServer(this.db);
     this.ws.setConferenceService(this.conference);

@@ -75,7 +75,7 @@ export class QueueHandler implements RouteHandler {
         ) {
           console.log(`⛔ Queue [${queue.name}]: outside business hours → announcement`);
           services.db.updateCall(ctx.callId, { to: `queue:${queueId}`, status: 'missed' });
-          await services.ivr.playUnavailable(ctx.req, ctx.res, announcementText(decision.announcementKey));
+          await services.ivr.playUnavailable(ctx.req, ctx.res, await services.routing.announcement(decision.announcementKey));
           return true;
         }
       } catch (err: any) {
@@ -93,7 +93,10 @@ export class QueueHandler implements RouteHandler {
     if (availability.online === 0) {
       console.log(`📭 Queue [${queue.name}]: no agents online → announcement`);
       services.db.updateCall(ctx.callId, { to: `queue:${queueId}`, status: 'missed' });
-      await services.ivr.playUnavailable(ctx.req, ctx.res, announcementText('no_agents_online'));
+      const noAgentsText = services.routing
+        ? await services.routing.announcement('no_agents_online')
+        : announcementText('no_agents_online');
+      await services.ivr.playUnavailable(ctx.req, ctx.res, noAgentsText);
       return true;
     }
 

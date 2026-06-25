@@ -17,6 +17,27 @@ const exceptionDateLayout = "2006-01-02"
 // ErrScheduleInvalid is returned when a submitted window is malformed (400).
 var ErrScheduleInvalid = errors.New("invalid schedule: day_of_week must be 0-6 and 0 <= start_minute < end_minute <= 1440")
 
+// ErrPromptKeyInvalid is returned when a prompt override uses an unknown key (400).
+var ErrPromptKeyInvalid = errors.New("invalid prompt key")
+
+// knownPromptKeys is the closed set of routing-announcement keys that may be
+// overridden. It mirrors ANNOUNCEMENT_PROMPTS in the Node engine
+// (src/modules/routing/constants/TtsPrompts.ts); unknown keys are rejected.
+var knownPromptKeys = map[string]bool{
+	"company_closed":               true,
+	"user_unavailable_by_schedule": true,
+	"user_unreachable":             true,
+	"all_agents_busy":              true,
+	"no_agents_online":             true,
+}
+
+// PromptInput is one announcement-wording override. An empty Text clears the
+// override (the key reverts to the engine default).
+type PromptInput struct {
+	Key  string `json:"key"`
+	Text string `json:"text"`
+}
+
 // WindowInput is one open interval shared by business-hours and per-user
 // availability payloads. Minutes are measured from midnight (0-1440).
 type WindowInput struct {
@@ -196,4 +217,35 @@ func normalizeTimezone(tz string) string {
 		return "UTC"
 	}
 	return tz
+}
+
+func (s *scheduleService) GetPrompts(ctx context.Context) ([]models.RoutingPrompt, error) {
+	return s.repo.GetPrompts(ctx)
+}
+
+// SavePrompts validates the keys and replaces the override set. Unknown keys are
+// rejected; entries with empty (trimmed) text are dropped so the key reverts to
+// the engine default. Duplicate keys are rejected.
+func (s *scheduleService) SavePrompts(ctx context.Context, in []PromptInput) ([]models.RoutingPrompt, error) {
+	prompts := make([]models.RoutingPrompt, 0, len(in))
+	seen := make(map[string]bool, len(in))
+	for _, p := range in {
+		key := strings.TrimSpace(p.Key)
+		if !knownPromptKeys[key] {
+			return nil, ErrPromptKeyInvalid
+		}
+		if seen[key] {
+			return nil, ErrPromptKeyInvalid
+		}
+		seen[key] = true
+		text := strings.TrimSpace(p.Text)
+		if text == "" {
+			continue // empty => revert to default (no row stored)
+		}
+		prompts = append(prompts, models.RoutingPrompt{Key: key, Text: text})
+	}
+	if err := s.repo.ReplacePrompts(ctx, prompts); err != nil {
+		return nil, err
+	}
+	return s.repo.GetPrompts(ctx)
 }
