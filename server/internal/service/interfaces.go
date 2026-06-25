@@ -235,6 +235,17 @@ type AuditService interface {
 	Record(ctx context.Context, ext, event, detail string) error
 }
 
+// ScheduleService owns the global business-hours policy and per-user
+// availability windows. Business hours are a single upsert document; per-user
+// availability is a full replace keyed by extension. Empty/disabled config
+// means "always open / always available" (backward-compatible default).
+type ScheduleService interface {
+	GetBusinessHours(ctx context.Context) (*models.BusinessHoursPolicy, error)
+	SaveBusinessHours(ctx context.Context, in *BusinessHoursInput) (*models.BusinessHoursPolicy, error)
+	ListAvailability(ctx context.Context, ext string) ([]models.UserAvailabilityWindow, error)
+	SaveAvailability(ctx context.Context, ext string, in *AvailabilityInput) ([]models.UserAvailabilityWindow, error)
+}
+
 type VoicemailService interface {
 	List(ctx context.Context, ext string) ([]models.Voicemail, int64, error)
 	Get(ctx context.Context, ext string, id uint) (*models.Voicemail, error)

@@ -1,0 +1,103 @@
+package handler
+
+import (
+	"errors"
+	"net/http"
+
+	"github.com/enjoys-in/enjoys-voice/api/internal/response"
+	"github.com/enjoys-in/enjoys-voice/api/internal/service"
+	"github.com/gin-gonic/gin"
+)
+
+// ScheduleHandler exposes the global business-hours policy and per-user
+// availability windows. Business hours are global config, so writes are
+// admin-only (ADMIN_EXTENSIONS allow-list); availability is read/written per
+// extension by any authenticated user (the route is extension-parameterised).
+type ScheduleHandler struct {
+	svc    service.ScheduleService
+	admins map[string]bool
+}
+
+func NewScheduleHandler(svc service.ScheduleService, adminExtensions []string) *ScheduleHandler {
+	admins := make(map[string]bool, len(adminExtensions))
+	for _, ext := range adminExtensions {
+		if ext != "" {
+			admins[ext] = true
+		}
+	}
+	return &ScheduleHandler{svc: svc, admins: admins}
+}
+
+// GetBusinessHours → GET /business-hours
+func (h *ScheduleHandler) GetBusinessHours(c *gin.Context) {
+	policy, err := h.svc.GetBusinessHours(c.Request.Context())
+	if err != nil {
+		response.Internal(c, err.Error())
+		return
+	}
+	response.OK(c, policy)
+}
+
+// SaveBusinessHours → PUT /business-hours (admin-only)
+func (h *ScheduleHandler) SaveBusinessHours(c *gin.Context) {
+	if !h.requireAdmin(c) {
+		return
+	}
+	var input service.BusinessHoursInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(c, "Invalid request body")
+		return
+	}
+	policy, err := h.svc.SaveBusinessHours(c.Request.Context(), &input)
+	if err != nil {
+		h.writeErr(c, err)
+		return
+	}
+	response.Success(c, "Business hours updated", policy)
+}
+
+// ListAvailability → GET /availability/:ext
+func (h *ScheduleHandler) ListAvailability(c *gin.Context) {
+	ext := c.Param("ext")
+	windows, err := h.svc.ListAvailability(c.Request.Context(), ext)
+	if err != nil {
+		response.Internal(c, err.Error())
+		return
+	}
+	response.OK(c, windows)
+}
+
+// SaveAvailability → PUT /availability/:ext
+func (h *ScheduleHandler) SaveAvailability(c *gin.Context) {
+	ext := c.Param("ext")
+	var input service.AvailabilityInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(c, "Invalid request body")
+		return
+	}
+	windows, err := h.svc.SaveAvailability(c.Request.Context(), ext, &input)
+	if err != nil {
+		h.writeErr(c, err)
+		return
+	}
+	response.Success(c, "Availability updated", windows)
+}
+
+func (h *ScheduleHandler) writeErr(c *gin.Context, err error) {
+	if errors.Is(err, service.ErrScheduleInvalid) {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Internal(c, err.Error())
+}
+
+// requireAdmin allows the request only when the JWT extension is in the
+// configured admin allow-list; otherwise it writes 403 and returns false.
+func (h *ScheduleHandler) requireAdmin(c *gin.Context) bool {
+	ext := c.GetString("extension")
+	if ext == "" || !h.admins[ext] {
+		response.Error(c, http.StatusForbidden, "Admin access required")
+		return false
+	}
+	return true
+}
