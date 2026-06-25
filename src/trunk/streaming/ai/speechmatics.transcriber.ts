@@ -13,6 +13,9 @@ export class SpeechmaticsTranscriber implements Transcriber {
   private client?: RealtimeClient;
   private active = false;
 
+  /** @param languageOverride per-agent ASR language; falls back to config. */
+  constructor(private readonly languageOverride?: string) {}
+
   async start(onFinal: (text: string) => void): Promise<void> {
     const { speechmaticsApiKey, speechmaticsUrl, language } = streamingConfig.ai;
     if (!speechmaticsApiKey) {
@@ -32,7 +35,7 @@ export class SpeechmaticsTranscriber implements Transcriber {
     });
 
     await this.client.start(jwt, {
-      transcription_config: { language, enable_partials: false },
+      transcription_config: { language: this.languageOverride || language, enable_partials: false },
       audio_format: { type: "raw", encoding: "mulaw", sample_rate: 8000 },
     });
     this.active = true;

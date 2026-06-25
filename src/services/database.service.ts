@@ -22,9 +22,12 @@ import {
   loadConnectorById,
   loadRoutingRuleByNumber,
   loadEnabledWebhooks,
+  loadAiAgentById,
+  loadEnabledAiAgents,
   type ConnectorRecord,
   type RoutingRuleRecord,
   type WebhookRecord,
+  type AiAgentRecord,
   type ForwardingRow,
 } from './postgres';
 import type { IvrFlowGraph } from '@/sip/ivr/flow.types';
@@ -77,6 +80,15 @@ export class DatabaseService extends EventEmitter {
    * reloaded on the next lookup. Read by the webhook dispatcher on call events.
    */
   private webhooks: Map<string, WebhookRecord[]> | null = null;
+  /**
+   * Per-id AI-agent cache. A present value is the loaded enabled agent; `null`
+   * is a negative cache ("no enabled agent for this id"). Plus a lazily-built
+   * owner→agents index for the offline-DID fallback. Both are cleared wholesale
+   * on an `ai_agents` NOTIFY and on listener reconnect (see clearAiAgentCache).
+   * Read by the media runtime when a call is routed to an AI agent.
+   */
+  private aiAgents = new Map<number, AiAgentRecord | null>();
+  private aiAgentsByOwner: Map<string, AiAgentRecord[]> | null = null;
   /**
    * Optional call rater. Injected (not imported) to avoid a module cycle with
    * the rating service. When set, a call transitioning to `ended` is priced here
@@ -660,6 +672,65 @@ export class DatabaseService extends EventEmitter {
   /** Drop the cached webhook set (on a `webhooks` change or reconnect). */
   clearWebhookCache(): void {
     this.webhooks = null;
+  }
+
+  // ─── AI agents ───────────────────────────────────────
+  // Per-user AI voice agents authored in the dashboard and persisted by the Go
+  // API in the shared `ai_agents` table. The media runtime only READS them — by
+  // id when a call is routed to a specific agent (routing rule / IVR node), or by
+  // owner for the offline-DID fallback. Kept fresh by the ai-agent-sync LISTEN/
+  // NOTIFY listener (see clearAiAgentCache). Provider keys are NOT here.
+
+  /**
+   * The enabled AI agent with this id, or undefined when none exists / it's
+   * disabled. Caches both hits and misses; a DB error returns undefined (the
+   * caller falls back) and is NOT cached, so the next lookup retries.
+   */
+  async getAiAgent(id: number): Promise<AiAgentRecord | undefined> {
+    if (!Number.isFinite(id) || id <= 0) return undefined;
+    if (this.aiAgents.has(id)) {
+      return this.aiAgents.get(id) ?? undefined;
+    }
+    try {
+      const agent = await loadAiAgentById(id);
+      this.aiAgents.set(id, agent ?? null);
+      return agent;
+    } catch (err: any) {
+      console.warn(`⚠️ AiAgent: lookup failed for ${id}: ${err?.message}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * The owner's default AI agent (their most-recently-created enabled one) for
+   * the offline-DID fallback, or undefined when they have none. Lazily loads and
+   * groups the whole enabled set on first use; a DB error returns undefined and
+   * is NOT cached.
+   */
+  async getDefaultAiAgentForOwner(owner: string): Promise<AiAgentRecord | undefined> {
+    if (!owner) return undefined;
+    if (this.aiAgentsByOwner === null) {
+      try {
+        const all = await loadEnabledAiAgents();
+        const byOwner = new Map<string, AiAgentRecord[]>();
+        for (const agent of all) {
+          const list = byOwner.get(agent.ownerExtension);
+          if (list) list.push(agent);
+          else byOwner.set(agent.ownerExtension, [agent]);
+        }
+        this.aiAgentsByOwner = byOwner;
+      } catch (err: any) {
+        console.warn(`⚠️ AiAgent: owner load failed: ${err?.message}`);
+        return undefined;
+      }
+    }
+    return this.aiAgentsByOwner.get(owner)?.[0];
+  }
+
+  /** Drop all cached AI agents (on an `ai_agents` change or reconnect). */
+  clearAiAgentCache(): void {
+    this.aiAgents.clear();
+    this.aiAgentsByOwner = null;
   }
 
   // ─── Connectors ──────────────────────────────────────
