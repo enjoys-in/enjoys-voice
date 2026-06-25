@@ -232,3 +232,69 @@ func (h *RateHandler) ImportRates(c *gin.Context) {
 	}
 	response.Success(c, "Rates imported", result)
 }
+
+// ─── Per-user rate overrides ─────────────────────────────
+
+// ListOverrides → GET /users/:ext/rate-overrides : a user's per-prefix overrides
+// (read is selfOrAdmin; writes below are admin-only).
+func (h *RateHandler) ListOverrides(c *gin.Context) {
+	ext := c.Param("ext")
+	overrides, err := h.svc.ListOverrides(c.Request.Context(), ext)
+	if err != nil {
+		response.Internal(c, "Failed to fetch rate overrides")
+		return
+	}
+	response.OK(c, overrides)
+}
+
+// CreateOverride → POST /users/:ext/rate-overrides (admin-only)
+func (h *RateHandler) CreateOverride(c *gin.Context) {
+	ext := c.Param("ext")
+	var input service.RateInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(c, "Invalid request body")
+		return
+	}
+	override, err := h.svc.CreateOverride(c.Request.Context(), ext, &input)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Created(c, "Rate override created", override)
+}
+
+// UpdateOverride → PUT /users/:ext/rate-overrides/:overrideId (admin-only)
+func (h *RateHandler) UpdateOverride(c *gin.Context) {
+	id, ok := parseUintParam(c, "overrideId")
+	if !ok {
+		return
+	}
+	var input service.RateInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(c, "Invalid request body")
+		return
+	}
+	override, err := h.svc.UpdateOverride(c.Request.Context(), id, &input)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.NotFound(c, "Rate override not found")
+			return
+		}
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, "Rate override updated", override)
+}
+
+// DeleteOverride → DELETE /users/:ext/rate-overrides/:overrideId (admin-only)
+func (h *RateHandler) DeleteOverride(c *gin.Context) {
+	id, ok := parseUintParam(c, "overrideId")
+	if !ok {
+		return
+	}
+	if err := h.svc.DeleteOverride(c.Request.Context(), id); err != nil {
+		response.Internal(c, "Failed to delete rate override")
+		return
+	}
+	response.Success(c, "Rate override deleted", gin.H{"id": id})
+}

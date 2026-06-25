@@ -99,6 +99,12 @@ type RateService interface {
 	// ImportRates parses CSV text (columns: prefix, description, sell, buy, setup,
 	// increment, min) and upserts the rows into the plan keyed on prefix.
 	ImportRates(ctx context.Context, planID uint, csvData string) (*RateImportResult, error)
+
+	// Per-user rate overrides (admin-managed writes; users read their own).
+	ListOverrides(ctx context.Context, ext string) ([]models.RateOverrideResponse, error)
+	CreateOverride(ctx context.Context, ext string, input *RateInput) (*models.RateOverrideResponse, error)
+	UpdateOverride(ctx context.Context, id uint, input *RateInput) (*models.RateOverrideResponse, error)
+	DeleteOverride(ctx context.Context, id uint) error
 }
 
 // BalanceService owns the prepaid wallet: reading a balance, listing the ledger

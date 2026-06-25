@@ -294,3 +294,80 @@ func normalizePrefix(prefix string) string {
 	}
 	return b.String()
 }
+
+// ─── Per-user rate overrides ─────────────────────────────
+
+func (s *rateService) ListOverrides(ctx context.Context, ext string) ([]models.RateOverrideResponse, error) {
+	overrides, err := s.repo.ListOverrides(ctx, ext)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]models.RateOverrideResponse, 0, len(overrides))
+	for i := range overrides {
+		out = append(out, overrides[i].ToResponse())
+	}
+	return out, nil
+}
+
+func (s *rateService) CreateOverride(ctx context.Context, ext string, input *RateInput) (*models.RateOverrideResponse, error) {
+	ext = strings.TrimSpace(ext)
+	if ext == "" {
+		return nil, errors.New("extension is required")
+	}
+	if input.Prefix == nil || normalizePrefix(*input.Prefix) == "" {
+		return nil, errors.New("prefix is required")
+	}
+	o := &models.UserRateOverride{
+		Extension:     ext,
+		Prefix:        normalizePrefix(*input.Prefix),
+		IncrementSecs: 60,
+	}
+	applyOverrideInput(o, input)
+	if err := s.repo.CreateOverride(ctx, o); err != nil {
+		return nil, err
+	}
+	resp := o.ToResponse()
+	return &resp, nil
+}
+
+func (s *rateService) UpdateOverride(ctx context.Context, id uint, input *RateInput) (*models.RateOverrideResponse, error) {
+	o, err := s.repo.GetOverride(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	applyOverrideInput(o, input)
+	if err := s.repo.UpdateOverride(ctx, o); err != nil {
+		return nil, err
+	}
+	resp := o.ToResponse()
+	return &resp, nil
+}
+
+func (s *rateService) DeleteOverride(ctx context.Context, id uint) error {
+	return s.repo.DeleteOverride(ctx, id)
+}
+
+// applyOverrideInput copies the provided (non-nil) fields onto an override.
+func applyOverrideInput(o *models.UserRateOverride, input *RateInput) {
+	if input.Prefix != nil && normalizePrefix(*input.Prefix) != "" {
+		o.Prefix = normalizePrefix(*input.Prefix)
+	}
+	if input.Description != nil {
+		o.Description = strings.TrimSpace(*input.Description)
+	}
+	if input.SellPerMin != nil {
+		o.SellPerMin = *input.SellPerMin
+	}
+	if input.BuyPerMin != nil {
+		o.BuyPerMin = *input.BuyPerMin
+	}
+	if input.SetupFee != nil {
+		o.SetupFee = *input.SetupFee
+	}
+	if input.IncrementSecs != nil && *input.IncrementSecs > 0 {
+		o.IncrementSecs = *input.IncrementSecs
+	}
+	if input.MinSecs != nil && *input.MinSecs >= 0 {
+		o.MinSecs = *input.MinSecs
+	}
+}

@@ -128,6 +128,14 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool
 			protected.GET("/users/:ext", selfOrAdmin, h.User.GetByExtension)
 			protected.DELETE("/users/:ext", admin, h.User.Delete)
 
+			// Per-user rate overrides (billing). A user reads their own overrides;
+			// create/update/delete are admin-only (pricing stays admin-controlled).
+			// The Node rating engine consults these before the user's assigned plan.
+			protected.GET("/users/:ext/rate-overrides", selfOrAdmin, h.Rate.ListOverrides)
+			protected.POST("/users/:ext/rate-overrides", admin, h.Rate.CreateOverride)
+			protected.PUT("/users/:ext/rate-overrides/:overrideId", admin, h.Rate.UpdateOverride)
+			protected.DELETE("/users/:ext/rate-overrides/:overrideId", admin, h.Rate.DeleteOverride)
+
 			// Settings (own only, or admin).
 			protected.GET("/settings/:ext", selfOrAdmin, h.Settings.Get)
 			protected.PUT("/settings/:ext", selfOrAdmin, h.Settings.Update)

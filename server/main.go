@@ -48,6 +48,7 @@ func main() {
 		&models.SystemSettings{},
 		&models.RatePlan{},
 		&models.Rate{},
+		&models.UserRateOverride{},
 		&models.UserBalance{},
 		&models.BalanceTxn{},
 		&models.Trunk{},

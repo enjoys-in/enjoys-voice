@@ -142,3 +142,36 @@ func (r *rateRepo) UpsertRates(ctx context.Context, planID uint, rates []models.
 	})
 	return created, updated, err
 }
+
+// ─── Per-user rate overrides ─────────────────────────────
+
+// ListOverrides returns a user's overrides longest-prefix first (then
+// alphabetically), so a prefix matcher can stop at the first leading match.
+func (r *rateRepo) ListOverrides(ctx context.Context, ext string) ([]models.UserRateOverride, error) {
+	var overrides []models.UserRateOverride
+	err := r.db.WithContext(ctx).
+		Where("extension = ?", ext).
+		Order("length(prefix) desc, prefix asc").
+		Find(&overrides).Error
+	return overrides, err
+}
+
+func (r *rateRepo) GetOverride(ctx context.Context, id uint) (*models.UserRateOverride, error) {
+	var o models.UserRateOverride
+	if err := r.db.WithContext(ctx).First(&o, id).Error; err != nil {
+		return nil, err
+	}
+	return &o, nil
+}
+
+func (r *rateRepo) CreateOverride(ctx context.Context, o *models.UserRateOverride) error {
+	return r.db.WithContext(ctx).Create(o).Error
+}
+
+func (r *rateRepo) UpdateOverride(ctx context.Context, o *models.UserRateOverride) error {
+	return r.db.WithContext(ctx).Save(o).Error
+}
+
+func (r *rateRepo) DeleteOverride(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).Delete(&models.UserRateOverride{}, id).Error
+}
