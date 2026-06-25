@@ -1,6 +1,7 @@
 import type { DatabaseService, TrunkService, AuditService, DialResult } from '@/services';
 import type { ConferenceService, QueueService } from '@/services';
 import type { WidgetTokenClaims } from '@/core';
+import type { RoutingOrchestrator } from '@/modules/routing';
 import type { IVRSystem } from '../ivr.system';
 
 export interface CallContext {
@@ -26,6 +27,13 @@ export interface RouteServices {
   conference: ConferenceService;
   queue: QueueService;
   notifyFn?: (extension: string, event: string, data?: any) => void;
+  /**
+   * Reusable routing module (business-hours + per-user schedule + presence).
+   * Optional so handlers stay backward-compatible: when absent (or when no
+   * schedule is configured) the existing registration/DND/offline logic runs
+   * unchanged. Wired in phase 3 for the internal extension path only.
+   */
+  routing?: RoutingOrchestrator;
   routeToExtension: (req: any, res: any, contact: string, callId: string) => Promise<void>;
   forwardCall: (req: any, res: any, target: string, callId: string, callingNumber: string) => Promise<void>;
   /**

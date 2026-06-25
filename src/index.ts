@@ -93,7 +93,22 @@ class Application {
       (ext) => this.db.isRegistered(ext),
       (ext) => this.db.getUser(ext)?.name,
     );
-    this.sip = new SipServer(this.db, this.trunk, registrationStore, this.audit, this.conference, this.queue);
+    // Reusable routing module (business-hours + per-user schedule + presence).
+    // Built before the SIP server so it can be injected; the internal extension
+    // path consults it (phase 3) while every other path is untouched. With no
+    // schedule configured the orchestrator reports open/available, so behavior
+    // is unchanged until an admin defines hours.
+    const availabilityRepo = new PgAvailabilityRepository();
+    const businessHoursRepo = new PgBusinessHoursRepository();
+    const userProfileRepo = new PgUserProfileRepository();
+    const presenceProvider = new DatabasePresenceProvider(this.db);
+    const availabilityService = new AvailabilityService(availabilityRepo);
+    const businessHoursService = new BusinessHoursService(businessHoursRepo);
+    const presenceService = new PresenceService(presenceProvider);
+    const policyService = new RoutingPolicyService(availabilityService, businessHoursService, presenceService);
+    const decisionEngine = new RoutingDecisionEngine();
+    this.routing = new RoutingOrchestrator(policyService, decisionEngine, userProfileRepo);
+    this.sip = new SipServer(this.db, this.trunk, registrationStore, this.audit, this.conference, this.queue, this.routing);
     this.ws = new SignalingServer(this.db);
     this.ws.setConferenceService(this.conference);
     this.ws.setQueueService(this.queue);
@@ -115,18 +130,6 @@ class Application {
     // publishable key against its Origin/IP allow-list (HTTP) and mints the
     // short-lived capability token the browser puts in its INVITE.
     this.apiKeys = new ApiKeyService();
-    // Phase-2 DI only: instantiate the reusable routing module but do not wire
-    // any SIP decision path to it yet (behavior stays unchanged until phase 3).
-    const availabilityRepo = new PgAvailabilityRepository();
-    const businessHoursRepo = new PgBusinessHoursRepository();
-    const userProfileRepo = new PgUserProfileRepository();
-    const presenceProvider = new DatabasePresenceProvider(this.db);
-    const availabilityService = new AvailabilityService(availabilityRepo);
-    const businessHoursService = new BusinessHoursService(businessHoursRepo);
-    const presenceService = new PresenceService(presenceProvider);
-    const policyService = new RoutingPolicyService(availabilityService, businessHoursService, presenceService);
-    const decisionEngine = new RoutingDecisionEngine();
-    this.routing = new RoutingOrchestrator(policyService, decisionEngine, userProfileRepo);
     this.http = new HttpServer(this.db, this.trunk, this.sip, this.twilioTrunk, this.metrics, this.apiKeys);
     // Twilio media-streaming WS server (separate port, like SignalingServer). Its
     // HTTP voice webhook rides on the existing HttpServer above. Opt-in via

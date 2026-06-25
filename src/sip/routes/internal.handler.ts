@@ -1,10 +1,38 @@
 import type { CallContext, RouteHandler, RouteServices } from './types';
 import type { DialResult } from '@/services';
 import { RouteType } from '@/services';
+import { DecisionType, announcementText } from '@/modules/routing';
 
 export class InternalHandler implements RouteHandler {
   async handle(ctx: CallContext, services: RouteServices, route?: DialResult): Promise<boolean> {
     if (!route || route.type !== RouteType.Internal) return false;
+
+    // ─── Schedule / business-hours gate (phase 3, additive) ───────────
+    // Consult the routing module BEFORE any registration logic. It only takes
+    // over when a configured schedule closes the company or falls outside the
+    // target user's personal hours; in that case we play the matching spoken
+    // announcement and end the call. With no schedule configured the orchestrator
+    // reports open/available, the decision is never `PlayAnnouncement`, and we
+    // fall straight through to the unchanged registration/DND/offline logic
+    // below. Any error in the new path is swallowed so it can never break calls.
+    if (services.routing && services.ivr) {
+      try {
+        const decision = await services.routing.evaluate({
+          callId: ctx.callId,
+          callerNumber: ctx.callingNumber,
+          calledNumber: ctx.calledNumber,
+          targetExtension: route.target,
+        });
+        if (decision.type === DecisionType.PlayAnnouncement) {
+          console.log(`⛔ ${route.target} gated by schedule (${decision.reason}) → announcement`);
+          await services.ivr.playUnavailable(ctx.req, ctx.res, announcementText(decision.announcementKey));
+          services.db.updateCall(ctx.callId, { status: 'missed' });
+          return true;
+        }
+      } catch (err: any) {
+        console.warn('⚠️ routing schedule gate skipped:', err?.message || err);
+      }
+    }
 
     const reg = services.db.getRegistration(route.target);
     if (reg) {

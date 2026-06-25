@@ -21,6 +21,7 @@ export type { UserProfileRepository, UserProfile } from './contracts/UserProfile
 
 export { TTS_PROMPTS } from './constants/TtsPrompts';
 export type { TtsPromptKey } from './constants/TtsPrompts';
+export { ANNOUNCEMENT_PROMPTS, announcementText } from './constants/TtsPrompts';
 
 export { PgAvailabilityRepository } from './infrastructure/postgres/PgAvailabilityRepository';
 export { PgBusinessHoursRepository } from './infrastructure/postgres/PgBusinessHoursRepository';
