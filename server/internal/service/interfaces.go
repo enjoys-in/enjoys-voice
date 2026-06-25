@@ -225,6 +225,7 @@ type SoundService interface {
 
 type IvrService interface {
 	List(ctx context.Context) ([]models.IvrFlow, error)
+	ListByOwner(ctx context.Context, owner string) ([]models.IvrFlow, error)
 	Get(ctx context.Context, id string) (*models.IvrFlow, error)
 	Save(ctx context.Context, flow *models.IvrFlow) error
 	Delete(ctx context.Context, id string) error

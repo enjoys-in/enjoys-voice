@@ -135,6 +135,7 @@ type VoicemailRepository interface {
 
 type IvrFlowRepository interface {
 	GetAll(ctx context.Context) ([]models.IvrFlow, error)
+	GetAllByOwner(ctx context.Context, owner string) ([]models.IvrFlow, error)
 	GetByID(ctx context.Context, id string) (*models.IvrFlow, error)
 	GetByExtension(ctx context.Context, ext string) (*models.IvrFlow, error)
 	Upsert(ctx context.Context, flow *models.IvrFlow) error

@@ -22,6 +22,12 @@ func (r *ivrFlowRepo) GetAll(ctx context.Context) ([]models.IvrFlow, error) {
 	return flows, err
 }
 
+func (r *ivrFlowRepo) GetAllByOwner(ctx context.Context, owner string) ([]models.IvrFlow, error) {
+	var flows []models.IvrFlow
+	err := r.db.WithContext(ctx).Where("owner_extension = ?", owner).Order("updated_at DESC").Find(&flows).Error
+	return flows, err
+}
+
 func (r *ivrFlowRepo) GetByID(ctx context.Context, id string) (*models.IvrFlow, error) {
 	var flow models.IvrFlow
 	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&flow).Error; err != nil {
