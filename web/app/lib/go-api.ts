@@ -9,6 +9,7 @@
  * `api.ts` is unchanged — these helpers target only the routes ported to Go.
  */
 import { getGoApiBase } from "./runtime-config";
+import { cachedGet, invalidateCache } from "./request-cache";
 import type { IvrFlow, IvrFlowSummary } from "../admin/ivr/ivr.types";
 import type { CallRecord } from "../types";
 
@@ -93,7 +94,7 @@ export function refreshAccessToken(): Promise<string | null> {
   return refreshInFlight;
 }
 
-async function goRequest<T>(
+async function rawGoRequest<T>(
   endpoint: string,
   options: RequestInit = {},
   retryOn401 = true
@@ -118,7 +119,7 @@ async function goRequest<T>(
   if (res.status === 401 && retryOn401) {
     const newToken = await refreshAccessToken();
     if (newToken) {
-      return goRequest<T>(endpoint, options, false);
+      return rawGoRequest<T>(endpoint, options, false);
     }
     // Refresh failed → session is dead; clear it.
     if (typeof window !== "undefined") {
@@ -140,6 +141,44 @@ async function goRequest<T>(
   }
 
   return body.data;
+}
+
+/**
+ * Cache-aware entry point used by every `goApi.*` method.
+ *
+ * GET responses are served from a short-lived in-memory cache and concurrent
+ * identical GETs are coalesced into a single network call — this kills the
+ * double-fetch caused by React Strict Mode, the role re-resolution on hydration
+ * and re-opening a tab. Any mutation (POST/PUT/PATCH/DELETE) invalidates the
+ * cached reads for that resource family so the next GET re-fetches fresh data.
+ */
+async function goRequest<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  retryOn401 = true
+): Promise<T> {
+  const method = (options.method ?? "GET").toUpperCase();
+
+  if (method === "GET") {
+    return cachedGet<T>(`g:${endpoint}`, () => rawGoRequest<T>(endpoint, options, retryOn401));
+  }
+
+  const data = await rawGoRequest<T>(endpoint, options, retryOn401);
+  invalidateGoCache(endpoint);
+  return data;
+}
+
+/** Drop cached GET reads affected by a write to `endpoint`. */
+function invalidateGoCache(endpoint: string): void {
+  // Auth flows swap the signed-in user entirely → wipe every cached read so no
+  // data leaks across sessions.
+  if (endpoint.startsWith("/auth")) {
+    invalidateCache();
+    return;
+  }
+  // e.g. "/webhooks/5" or "/webhooks/5/test" → drop the whole "/webhooks" family.
+  const base = "/" + endpoint.replace(/^\/+/, "").split("/")[0];
+  invalidateCache(`g:${base}`);
 }
 
 // ─── Payload types ──────────────────────────────────────

@@ -68,8 +68,13 @@ export function useLiveMetrics(): { metrics: LiveMetrics | null; connected: bool
     ws.onclose = () => {
       setConnected(false);
       wsRef.current = null;
-      startPolling();
+      // Only fall back to polling / reconnect while still mounted. Without this
+      // guard the close() we trigger during cleanup (leaving the dashboard)
+      // would spin up a fresh 5s /metrics polling interval *after* unmount —
+      // one that leaks and keeps hitting the endpoint forever, accumulating
+      // another interval on every dashboard revisit.
       if (!closedRef.current) {
+        startPolling();
         reconnectRef.current = setTimeout(connect, 3000);
       }
     };
