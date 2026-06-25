@@ -15,13 +15,16 @@ func NewScheduleRepository(db *gorm.DB) ScheduleRepository {
 	return &scheduleRepo{db: db}
 }
 
-// GetBusinessHours returns the single global policy with its windows, or
-// (nil, nil) when none has been configured yet.
+// GetBusinessHours returns the single global policy with its windows and
+// exceptions, or (nil, nil) when none has been configured yet.
 func (r *scheduleRepo) GetBusinessHours(ctx context.Context) (*models.BusinessHoursPolicy, error) {
 	var policy models.BusinessHoursPolicy
 	err := r.db.WithContext(ctx).
 		Preload("Windows", func(db *gorm.DB) *gorm.DB {
 			return db.Order("day_of_week ASC, start_minute ASC")
+		}).
+		Preload("Exceptions", func(db *gorm.DB) *gorm.DB {
+			return db.Order("exception_date ASC")
 		}).
 		Order("id ASC").
 		First(&policy).Error
@@ -35,8 +38,8 @@ func (r *scheduleRepo) GetBusinessHours(ctx context.Context) (*models.BusinessHo
 }
 
 // SaveBusinessHours upserts the single policy row and fully replaces its window
-// set, atomically. Returns the reloaded policy with windows.
-func (r *scheduleRepo) SaveBusinessHours(ctx context.Context, timezone string, enabled bool, windows []models.BusinessHoursWindow) (*models.BusinessHoursPolicy, error) {
+// and exception sets, atomically. Returns the reloaded policy.
+func (r *scheduleRepo) SaveBusinessHours(ctx context.Context, timezone string, enabled bool, windows []models.BusinessHoursWindow, exceptions []models.BusinessHoursException) (*models.BusinessHoursPolicy, error) {
 	var policy models.BusinessHoursPolicy
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// At most one policy row exists; find it or create a fresh one.
@@ -70,6 +73,20 @@ func (r *scheduleRepo) SaveBusinessHours(ctx context.Context, timezone string, e
 				windows[i].PolicyID = policy.ID
 			}
 			if err := tx.Create(&windows).Error; err != nil {
+				return err
+			}
+		}
+
+		// Replace the exception set wholesale.
+		if err := tx.Where("policy_id = ?", policy.ID).Delete(&models.BusinessHoursException{}).Error; err != nil {
+			return err
+		}
+		if len(exceptions) > 0 {
+			for i := range exceptions {
+				exceptions[i].ID = 0
+				exceptions[i].PolicyID = policy.ID
+			}
+			if err := tx.Create(&exceptions).Error; err != nil {
 				return err
 			}
 		}

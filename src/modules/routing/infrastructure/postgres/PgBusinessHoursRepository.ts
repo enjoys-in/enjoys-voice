@@ -14,6 +14,14 @@ interface WindowRow {
   end_minute: number;
 }
 
+interface ExceptionRow {
+  date: string;
+  closed_all_day: boolean;
+  start_minute: number | null;
+  end_minute: number | null;
+  note: string | null;
+}
+
 export class PgBusinessHoursRepository implements BusinessHoursRepository {
   async getPolicy(): Promise<BusinessHoursPolicy | undefined> {
     try {
@@ -35,6 +43,17 @@ export class PgBusinessHoursRepository implements BusinessHoursRepository {
         [policy.id],
       );
 
+      // Only upcoming/today exceptions matter for live routing; bound the read so
+      // the holiday list can't grow unboundedly over the years.
+      const { rows: exceptions } = await getPool().query<ExceptionRow>(
+        `SELECT to_char(exception_date, 'YYYY-MM-DD') AS date,
+                closed_all_day, start_minute, end_minute, note
+         FROM business_hours_exceptions
+         WHERE policy_id = $1 AND exception_date >= CURRENT_DATE
+         ORDER BY exception_date ASC`,
+        [policy.id],
+      );
+
       return {
         timezone: policy.timezone,
         enabled: policy.enabled,
@@ -42,6 +61,13 @@ export class PgBusinessHoursRepository implements BusinessHoursRepository {
           dayOfWeek: w.day_of_week,
           startMinute: w.start_minute,
           endMinute: w.end_minute,
+        })),
+        exceptions: exceptions.map((e) => ({
+          date: e.date,
+          closedAllDay: e.closed_all_day,
+          startMinute: e.start_minute,
+          endMinute: e.end_minute,
+          note: e.note ?? undefined,
         })),
       };
     } catch (err: any) {

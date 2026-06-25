@@ -1,6 +1,6 @@
 {
   "name": "callnet-web",
-  "version": "0.1.203",
+  "version": "0.1.204",
   "private": true,
   "scripts": {
     "predev": "node scripts/gen-runtime-config.mjs",

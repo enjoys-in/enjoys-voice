@@ -652,8 +652,12 @@
 ### Docs / follow-ups
 - [x] `ARCHITECTURE.md` "Routing & Availability" section (module layers, decision
       order, wiring points, prompt mapping, schedule API) + `ADMIN_EXTENSIONS` env
+- [x] `LEARNING.md` §13.1 "Time-based routing" concept section + interview Q&A
 - [ ] `RoutingDecisionEngine` unit tests (decision matrix + time-boundary cases)
-- [ ] Business-hours **exceptions/holidays** (one-off closed days) — schema noted in
-      `plan.md` as a later phase, not yet implemented
-
-
+- [x] Business-hours **exceptions/holidays** (one-off closed/special days) —
+      SQL migration `006_business_hours_exceptions.sql` (`closed_all_day` or a
+      special start/end window per date); Go model (`BusinessHoursException` +
+      `DateOnly` type)/repo/service with validation + dedupe; Node
+      `BusinessHoursService` applies a matching date over the weekly windows
+      (upcoming dates only, backward-compatible); admin UI editor in `HoursTab`
+      (date + closed-all-day toggle or special hours + note)

@@ -287,16 +287,17 @@ stay open to authenticated users. The Next.js admin **Working Hours** tab
 
 | Method · Route | Auth | Purpose |
 |----------------|------|---------|
-| `GET /business-hours` | authenticated | Read the single global business-hours policy |
-| `PUT /business-hours` | **admin** | Replace timezone + enabled + weekly windows |
+| `GET /business-hours` | authenticated | Read the global policy (weekly windows + holiday exceptions) |
+| `PUT /business-hours` | **admin** | Replace timezone + enabled + weekly windows + exceptions |
 | `GET /availability/:ext` | authenticated | Read a user's availability windows |
 | `PUT /availability/:ext` | **admin** | Replace a user's timezone + windows |
 
-| Table (migration 005) | Key columns |
-|-----------------------|-------------|
+| Table | Key columns |
+|-------|-------------|
 | `business_hours_policies` | `timezone`, `enabled` (single global row) |
 | `business_hours_windows` | `policy_id`, `day_of_week` (0–6), `start_minute`/`end_minute` (0–1440) |
 | `user_availability_windows` | `extension`, `day_of_week`, `start_minute`/`end_minute`, `timezone`, `enabled` |
+| `business_hours_exceptions` (migration 006) | `policy_id`, `exception_date`, `closed_all_day`, optional `start_minute`/`end_minute`, `note` — a date override that beats the weekly windows |
 
 ## Live Data Sync (LISTEN/NOTIFY)
 

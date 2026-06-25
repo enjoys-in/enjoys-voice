@@ -499,12 +499,25 @@ export interface GoScheduleWindow {
   enabled?: boolean;
 }
 
+/** A one-off calendar-date override of the weekly business hours. */
+export interface GoBusinessHoursException {
+  id?: number;
+  /** 'YYYY-MM-DD'. */
+  date: string;
+  /** Closed for the whole day; when false, start/end define the open window. */
+  closed_all_day: boolean;
+  start_minute?: number | null;
+  end_minute?: number | null;
+  note?: string;
+}
+
 /** Global business-hours policy returned by GET /business-hours. */
 export interface GoBusinessHours {
   id: number;
   timezone: string;
   enabled: boolean;
   windows: GoScheduleWindow[];
+  exceptions: GoBusinessHoursException[];
 }
 
 /** Upsert payload for the global business-hours policy (PUT /business-hours). */
@@ -512,6 +525,7 @@ export interface GoBusinessHoursInput {
   timezone: string;
   enabled: boolean;
   windows: GoScheduleWindow[];
+  exceptions: GoBusinessHoursException[];
 }
 
 /** One stored availability window for a user (GET /availability/:ext). */

@@ -4,10 +4,15 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/enjoys-in/enjoys-voice/api/internal/models"
 	"github.com/enjoys-in/enjoys-voice/api/internal/repository"
 )
+
+// exceptionDateLayout is the canonical YYYY-MM-DD calendar-date format accepted
+// for business-hours exceptions.
+const exceptionDateLayout = "2006-01-02"
 
 // ErrScheduleInvalid is returned when a submitted window is malformed (400).
 var ErrScheduleInvalid = errors.New("invalid schedule: day_of_week must be 0-6 and 0 <= start_minute < end_minute <= 1440")
@@ -21,11 +26,23 @@ type WindowInput struct {
 	Enabled     *bool `json:"enabled,omitempty"`
 }
 
+// ExceptionInput is one calendar-date override of the weekly business hours.
+// When ClosedAllDay the company is shut for the whole date; otherwise
+// StartMinute/EndMinute define the only open window that day.
+type ExceptionInput struct {
+	Date         string `json:"date"`
+	ClosedAllDay bool   `json:"closed_all_day"`
+	StartMinute  *int   `json:"start_minute,omitempty"`
+	EndMinute    *int   `json:"end_minute,omitempty"`
+	Note         string `json:"note,omitempty"`
+}
+
 // BusinessHoursInput is the full upsert document for the global policy.
 type BusinessHoursInput struct {
-	Timezone string        `json:"timezone"`
-	Enabled  bool          `json:"enabled"`
-	Windows  []WindowInput `json:"windows"`
+	Timezone   string           `json:"timezone"`
+	Enabled    bool             `json:"enabled"`
+	Windows    []WindowInput    `json:"windows"`
+	Exceptions []ExceptionInput `json:"exceptions"`
 }
 
 // AvailabilityInput replaces a single user's availability windows.
@@ -50,7 +67,12 @@ func (s *scheduleService) GetBusinessHours(ctx context.Context) (*models.Busines
 	if policy == nil {
 		// Represent "never configured" as a disabled, empty UTC policy so the UI
 		// always has a stable shape to render.
-		return &models.BusinessHoursPolicy{Timezone: "UTC", Enabled: false, Windows: []models.BusinessHoursWindow{}}, nil
+		return &models.BusinessHoursPolicy{
+			Timezone:   "UTC",
+			Enabled:    false,
+			Windows:    []models.BusinessHoursWindow{},
+			Exceptions: []models.BusinessHoursException{},
+		}, nil
 	}
 	return policy, nil
 }
@@ -71,7 +93,53 @@ func (s *scheduleService) SaveBusinessHours(ctx context.Context, in *BusinessHou
 			EndMinute:   int16(w.EndMinute),
 		})
 	}
-	return s.repo.SaveBusinessHours(ctx, tz, in.Enabled, windows)
+	exceptions, err := buildExceptions(in.Exceptions)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.SaveBusinessHours(ctx, tz, in.Enabled, windows, exceptions)
+}
+
+// buildExceptions validates and maps the exception payload, rejecting malformed
+// dates, out-of-bounds windows, and duplicate dates with ErrScheduleInvalid.
+func buildExceptions(in []ExceptionInput) ([]models.BusinessHoursException, error) {
+	exceptions := make([]models.BusinessHoursException, 0, len(in))
+	seen := make(map[string]bool, len(in))
+	for _, e := range in {
+		date := strings.TrimSpace(e.Date)
+		parsed, err := time.Parse(exceptionDateLayout, date)
+		if err != nil {
+			return nil, ErrScheduleInvalid
+		}
+		if seen[date] {
+			return nil, ErrScheduleInvalid
+		}
+		seen[date] = true
+
+		note := strings.TrimSpace(e.Note)
+		if len(note) > 200 {
+			note = note[:200]
+		}
+		ex := models.BusinessHoursException{
+			Date:         models.DateOnly{Time: parsed},
+			ClosedAllDay: e.ClosedAllDay,
+			Note:         note,
+		}
+		if !e.ClosedAllDay {
+			if e.StartMinute == nil || e.EndMinute == nil ||
+				*e.StartMinute < 0 || *e.StartMinute > 1439 ||
+				*e.EndMinute < 1 || *e.EndMinute > 1440 ||
+				*e.StartMinute >= *e.EndMinute {
+				return nil, ErrScheduleInvalid
+			}
+			start := int16(*e.StartMinute)
+			end := int16(*e.EndMinute)
+			ex.StartMinute = &start
+			ex.EndMinute = &end
+		}
+		exceptions = append(exceptions, ex)
+	}
+	return exceptions, nil
 }
 
 func (s *scheduleService) ListAvailability(ctx context.Context, ext string) ([]models.UserAvailabilityWindow, error) {

@@ -8,6 +8,7 @@ import {
   Loader2,
   Clock,
   CalendarClock,
+  CalendarOff,
   AlertCircle,
   CheckCircle2,
 } from "lucide-react";
@@ -26,7 +27,7 @@ import {
 } from "@/components/ui/select";
 import {
   goApi,
-  type GoScheduleWindow,
+  type GoBusinessHoursInput,
 } from "../../lib/go-api";
 import { type UserResponse } from "../../lib/api";
 
@@ -192,6 +193,150 @@ function WindowRows({
   );
 }
 
+interface EditableException {
+  date: string; // 'YYYY-MM-DD'
+  closed_all_day: boolean;
+  start_minute: number;
+  end_minute: number;
+  note: string;
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function exceptionValid(e: EditableException): boolean {
+  if (!DATE_RE.test(e.date)) return false;
+  if (e.closed_all_day) return true;
+  return (
+    e.start_minute >= 0 &&
+    e.start_minute <= 1439 &&
+    e.end_minute >= 1 &&
+    e.end_minute <= 1440 &&
+    e.start_minute < e.end_minute
+  );
+}
+
+/** Editor for one-off date exceptions (holidays / special days). */
+function ExceptionRows({
+  exceptions,
+  onChange,
+}: {
+  exceptions: EditableException[];
+  onChange: (next: EditableException[]) => void;
+}) {
+  const update = (i: number, patch: Partial<EditableException>) =>
+    onChange(exceptions.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
+  const remove = (i: number) =>
+    onChange(exceptions.filter((_, idx) => idx !== i));
+  const add = () =>
+    onChange([
+      ...exceptions,
+      {
+        date: "",
+        closed_all_day: true,
+        start_minute: 540,
+        end_minute: 1020,
+        note: "",
+      },
+    ]);
+
+  const dupDates = new Set(
+    exceptions
+      .map((e) => e.date)
+      .filter((d, i, arr) => d && arr.indexOf(d) !== i)
+  );
+
+  return (
+    <div className="space-y-2">
+      {exceptions.length === 0 && (
+        <p className="text-sm text-muted-foreground py-2">
+          No exceptions — holidays use the normal weekly schedule.
+        </p>
+      )}
+      {exceptions.map((e, i) => {
+        const invalid = !exceptionValid(e) || dupDates.has(e.date);
+        return (
+          <div
+            key={i}
+            className="flex flex-wrap items-center gap-2 rounded-lg border border-border/50 p-2"
+          >
+            <Input
+              type="date"
+              className="w-40"
+              value={e.date}
+              onChange={(ev) => update(i, { date: ev.target.value })}
+            />
+
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={e.closed_all_day}
+                onCheckedChange={(checked) => update(i, { closed_all_day: checked })}
+              />
+              <span className="text-xs text-muted-foreground">Closed all day</span>
+            </div>
+
+            {!e.closed_all_day && (
+              <div className="flex items-center gap-1">
+                <Input
+                  type="time"
+                  className="w-28"
+                  value={minutesToTime(e.start_minute)}
+                  onChange={(ev) => {
+                    const m = timeToMinutes(ev.target.value);
+                    if (Number.isFinite(m)) update(i, { start_minute: m });
+                  }}
+                />
+                <span className="text-muted-foreground text-sm">to</span>
+                <Input
+                  type="time"
+                  className="w-28"
+                  value={minutesToTime(e.end_minute)}
+                  onChange={(ev) => {
+                    const m = timeToMinutes(ev.target.value);
+                    if (Number.isFinite(m)) update(i, { end_minute: m });
+                  }}
+                />
+              </div>
+            )}
+
+            <Input
+              className="w-40 flex-1 min-w-32"
+              placeholder="Note (e.g. Christmas)"
+              value={e.note}
+              maxLength={200}
+              onChange={(ev) => update(i, { note: ev.target.value })}
+            />
+
+            {invalid && (
+              <span className="flex items-center gap-1 text-xs text-destructive">
+                <AlertCircle className="h-3 w-3" />
+                {dupDates.has(e.date) ? "Duplicate date" : "Pick a date / valid hours"}
+              </span>
+            )}
+
+            <Button
+              variant="ghost"
+              size="icon"
+              className="ml-auto h-8 w-8 text-muted-foreground hover:text-destructive"
+              onClick={() => remove(i)}
+              aria-label="Remove exception"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        );
+      })}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={add}
+        className="gap-1"
+      >
+        <Plus className="h-4 w-4" /> Add exception
+      </Button>
+    </div>
+  );
+}
+
 /** Global business-hours editor. */
 function BusinessHoursCard() {
   const [loading, setLoading] = useState(true);
@@ -199,6 +344,7 @@ function BusinessHoursCard() {
   const [enabled, setEnabled] = useState(false);
   const [timezone, setTimezone] = useState("UTC");
   const [windows, setWindows] = useState<EditableWindow[]>([]);
+  const [exceptions, setExceptions] = useState<EditableException[]>([]);
   const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
   const [error, setError] = useState<string>("");
 
@@ -218,6 +364,15 @@ function BusinessHoursCard() {
             enabled: true,
           }))
         );
+        setExceptions(
+          (policy.exceptions ?? []).map((e) => ({
+            date: e.date,
+            closed_all_day: e.closed_all_day,
+            start_minute: e.start_minute ?? 540,
+            end_minute: e.end_minute ?? 1020,
+            note: e.note ?? "",
+          }))
+        );
       })
       .catch((err) => {
         console.error("Failed to load business hours:", err);
@@ -230,20 +385,36 @@ function BusinessHoursCard() {
     };
   }, []);
 
-  const allValid = useMemo(() => windows.every(windowValid), [windows]);
+  const allValid = useMemo(() => {
+    const dates = exceptions.map((e) => e.date).filter(Boolean);
+    const noDupes = new Set(dates).size === dates.length;
+    return (
+      windows.every(windowValid) &&
+      exceptions.every(exceptionValid) &&
+      noDupes
+    );
+  }, [windows, exceptions]);
 
   const save = async () => {
     setSaving(true);
     setStatus("idle");
     setError("");
     try {
-      const payload: { timezone: string; enabled: boolean; windows: GoScheduleWindow[] } = {
+      const payload: GoBusinessHoursInput = {
         timezone: timezone.trim() || "UTC",
         enabled,
         windows: windows.map((w) => ({
           day_of_week: w.day_of_week,
           start_minute: w.start_minute,
           end_minute: w.end_minute,
+        })),
+        exceptions: exceptions.map((e) => ({
+          date: e.date,
+          closed_all_day: e.closed_all_day,
+          ...(e.closed_all_day
+            ? {}
+            : { start_minute: e.start_minute, end_minute: e.end_minute }),
+          note: e.note.trim() || undefined,
         })),
       };
       const updated = await goApi.schedule.saveBusinessHours(payload);
@@ -255,6 +426,15 @@ function BusinessHoursCard() {
           start_minute: w.start_minute,
           end_minute: w.end_minute,
           enabled: true,
+        }))
+      );
+      setExceptions(
+        (updated.exceptions ?? []).map((e) => ({
+          date: e.date,
+          closed_all_day: e.closed_all_day,
+          start_minute: e.start_minute ?? 540,
+          end_minute: e.end_minute ?? 1020,
+          note: e.note ?? "",
         }))
       );
       setStatus("saved");
@@ -303,6 +483,18 @@ function BusinessHoursCard() {
             </div>
 
             <WindowRows windows={windows} showEnabled={false} onChange={setWindows} />
+
+            <div className="space-y-2 border-t border-border/50 pt-4">
+              <div className="flex items-center gap-2">
+                <CalendarOff className="h-4 w-4 text-primary" />
+                <Label className="text-sm font-medium">Exceptions &amp; holidays</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                One-off dates that override the weekly schedule — closed all day, or
+                with special hours. Upcoming dates only.
+              </p>
+              <ExceptionRows exceptions={exceptions} onChange={setExceptions} />
+            </div>
 
             <div className="flex items-center gap-3">
               <Button onClick={save} disabled={saving || !allValid} className="gap-2">
