@@ -35,6 +35,8 @@ export { IvrFlowSyncListener } from './postgres';
 export type { IvrFlowSyncOptions } from './postgres';
 export { ConnectorSyncListener } from './postgres';
 export type { ConnectorSyncOptions, ConnectorRecord } from './postgres';
+export { RoutingRuleSyncListener } from './postgres';
+export type { RoutingRuleSyncOptions, RoutingRuleRecord } from './postgres';
 export { sendConnectorEmail } from './mailer';
 export type { EmailConnectorConfig, OutboundEmail } from './mailer';
 export { ensureCallSchema, upsertCall } from './postgres';

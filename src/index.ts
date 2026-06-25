@@ -9,6 +9,7 @@ import {
   SettingsSyncListener,
   RateSyncListener,
   ConnectorSyncListener,
+  RoutingRuleSyncListener,
   RatingService,
   WriteQueue,
   ensureCallSchema,
@@ -55,6 +56,7 @@ class Application {
   private settingsSync: SettingsSyncListener;
   private rateSync: RateSyncListener;
   private connectorSync: ConnectorSyncListener;
+  private routingSync: RoutingRuleSyncListener;
   private rating: RatingService;
   private writeQueue: WriteQueue;
   private conference: ConferenceService;
@@ -176,6 +178,15 @@ class Application {
       onConnectorChanged: (id) => this.db.invalidateConnector(id),
       onReconnect: () => this.db.clearConnectorCache(),
     });
+    // Live-reconcile per-user inbound routing rules the moment a user creates/
+    // edits/deletes one in the dashboard (written by the Go API), so the SIP
+    // path always decides from memory and never reads the DB per call. A single
+    // edit can move a rule's match key, so the whole (small) cache is cleared on
+    // any change and on reconnect to catch missed NOTIFYs.
+    this.routingSync = new RoutingRuleSyncListener({
+      onChanged: () => this.db.clearRoutingRuleCache(),
+      onReconnect: () => this.db.clearRoutingRuleCache(),
+    });
     // Write-behind queue: call-record upserts are emitted as events, enqueued to
     // Valkey, and applied to the shared Postgres by a worker. This keeps the SIP
     // path off the DB write latency. (Voicemails write to Postgres directly.)
@@ -232,6 +243,11 @@ class Application {
     // And for email/webhook connectors used by the IVR `email` block.
     this.connectorSync.start().catch((err: any) =>
       console.warn(`   Sync:   ⚠️  connector-sync listener failed to start (${err?.message})`),
+    );
+    // And for per-user inbound routing rules (route inbound calls to an IVR,
+    // extension, PSTN number, or voicemail).
+    this.routingSync.start().catch((err: any) =>
+      console.warn(`   Sync:   ⚠️  routing-rule-sync listener failed to start (${err?.message})`),
     );
     // Start the write-behind queue worker (voicemail → Postgres). Best-effort:
     // if Valkey is unreachable, voicemails still record (in memory + on disk),

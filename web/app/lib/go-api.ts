@@ -513,6 +513,45 @@ export interface GoContactInput {
   username?: string;
 }
 
+// ─── Per-user inbound routing rules ─────────────────────
+
+/** How a routing rule matches inbound calls. */
+export type GoRoutingMatchType = "all" | "number";
+
+/** Where a matched call is routed. */
+export type GoRoutingDestinationType =
+  | "ivr"
+  | "extension"
+  | "pstn"
+  | "voicemail";
+
+/** A user's per-user inbound call-routing rule. Owner-scoped: the API only
+ * ever returns the caller's own rules. A rule sends the user's inbound calls
+ * to an IVR flow, another extension, a PSTN number, or voicemail. */
+export interface GoRoutingRule {
+  id: number;
+  ownerExtension: string;
+  /** "all" → every inbound call to the owner; "number" → a specific dialed number. */
+  matchType: GoRoutingMatchType;
+  /** The dialed number to match when matchType is "number". */
+  matchNumber?: string;
+  destinationType: GoRoutingDestinationType;
+  /** IVR entry extension, target extension, or PSTN number. Empty for voicemail. */
+  destinationValue?: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Partial create/update of a routing rule. */
+export interface GoRoutingRuleInput {
+  matchType?: GoRoutingMatchType;
+  matchNumber?: string;
+  destinationType?: GoRoutingDestinationType;
+  destinationValue?: string;
+  enabled?: boolean;
+}
+
 // ─── Routing schedules (business hours + per-user availability) ──────────
 
 /** One open interval on a weekday (0 = Sun … 6 = Sat), minutes from midnight. */
@@ -1072,6 +1111,32 @@ export const goApi = {
     },
     remove(id: number): Promise<void> {
       return goRequest<unknown>(`/contacts/${id}`, {
+        method: "DELETE",
+      }).then(() => undefined);
+    },
+  },
+
+  // Per-user inbound routing rules: each user's own rules (owner-scoped CRUD).
+  // A rule routes the user's inbound calls to an IVR flow, another extension,
+  // a PSTN number, or voicemail.
+  routing: {
+    list(): Promise<GoRoutingRule[]> {
+      return goRequest<GoRoutingRule[]>(`/routing-rules`);
+    },
+    create(input: GoRoutingRuleInput): Promise<GoRoutingRule> {
+      return goRequest<GoRoutingRule>(`/routing-rules`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(id: number, input: GoRoutingRuleInput): Promise<GoRoutingRule> {
+      return goRequest<GoRoutingRule>(`/routing-rules/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(id: number): Promise<void> {
+      return goRequest<unknown>(`/routing-rules/${id}`, {
         method: "DELETE",
       }).then(() => undefined);
     },

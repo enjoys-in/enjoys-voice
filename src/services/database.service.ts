@@ -20,7 +20,9 @@ import {
   countUnreadVoicemails,
   loadIvrFlowByExtension,
   loadConnectorById,
+  loadRoutingRuleByNumber,
   type ConnectorRecord,
+  type RoutingRuleRecord,
   type ForwardingRow,
 } from './postgres';
 import type { IvrFlowGraph } from '@/sip/ivr/flow.types';
@@ -58,6 +60,14 @@ export class DatabaseService extends EventEmitter {
    * reconnect, exactly like the IVR-flow cache above.
    */
   private connectors = new Map<number, ConnectorRecord | null>();
+  /**
+   * Per-dialed-number routing-rule cache. A present value is the matching
+   * enabled rule; `null` is a negative cache ("no rule for this number") so the
+   * common case (most calls have no override) doesn't hit Postgres on every
+   * INVITE. Cleared wholesale on a `routing_rules` NOTIFY (a single edit can
+   * change a rule's match key) and on listener reconnect.
+   */
+  private routingRules = new Map<string, RoutingRuleRecord | null>();
   /**
    * Optional call rater. Injected (not imported) to avoid a module cycle with
    * the rating service. When set, a call transitioning to `ended` is priced here
@@ -567,6 +577,37 @@ export class DatabaseService extends EventEmitter {
   /** Drop all cached flows (on listener reconnect, to catch missed changes). */
   clearIvrFlowCache(): void {
     this.ivrFlows.clear();
+  }
+
+  // ─── Routing rules ───────────────────────────────────
+  // Per-user inbound routing rules are authored in the dashboard and persisted
+  // by the Go API in the shared `routing_rules` table. The SIP runtime only
+  // READS them, keyed by the dialed number, with a small in-memory cache kept
+  // fresh by the routing-rule-sync LISTEN/NOTIFY listener (see
+  // clearRoutingRuleCache).
+
+  /**
+   * The enabled routing rule overriding a dialed number, or undefined when none
+   * exists. Caches both hits and misses; a DB error returns undefined (the
+   * caller falls back to default routing) and is NOT cached.
+   */
+  async getRoutingRule(number: string): Promise<RoutingRuleRecord | undefined> {
+    if (this.routingRules.has(number)) {
+      return this.routingRules.get(number) ?? undefined;
+    }
+    try {
+      const rule = await loadRoutingRuleByNumber(number);
+      this.routingRules.set(number, rule ?? null);
+      return rule;
+    } catch (err: any) {
+      console.warn(`⚠️ Routing: rule lookup failed for ${number}: ${err?.message}`);
+      return undefined;
+    }
+  }
+
+  /** Drop all cached routing rules (on a `routing_rules` change or reconnect). */
+  clearRoutingRuleCache(): void {
+    this.routingRules.clear();
   }
 
   // ─── Connectors ──────────────────────────────────────

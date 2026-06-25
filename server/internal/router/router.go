@@ -28,6 +28,7 @@ type Handlers struct {
 	Connector      *handler.ConnectorHandler
 	Schedule       *handler.ScheduleHandler
 	Contact        *handler.ContactHandler
+	RoutingRule    *handler.RoutingRuleHandler
 }
 
 func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool) {
@@ -116,6 +117,17 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool
 			protected.GET("/contacts/:id", h.Contact.Get)
 			protected.PUT("/contacts/:id", h.Contact.Update)
 			protected.DELETE("/contacts/:id", h.Contact.Delete)
+
+			// Per-user inbound call-routing rules. Self-service and strictly
+			// owner-scoped — a user only ever lists/reads/edits/deletes the
+			// rules they created (no admin intervention). A rule routes the
+			// user's inbound calls to an IVR flow, another extension, a PSTN
+			// number, or voicemail.
+			protected.GET("/routing-rules", h.RoutingRule.List)
+			protected.POST("/routing-rules", h.RoutingRule.Create)
+			protected.GET("/routing-rules/:id", h.RoutingRule.Get)
+			protected.PUT("/routing-rules/:id", h.RoutingRule.Update)
+			protected.DELETE("/routing-rules/:id", h.RoutingRule.Delete)
 
 			// PSTN call forwarding
 			protected.GET("/pstn-forward/:ext", selfOrAdmin, h.Settings.GetPstnForward)

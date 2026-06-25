@@ -4,7 +4,7 @@ import { config, verifyWidgetToken } from '@/core';
 import type { WidgetTokenClaims } from '@/core';
 import { SipStatus } from '@/core/types';
 import { DatabaseService, TrunkService, AuditService, DialPlanService, RouteType } from '@/services';
-import type { DialResult, ConferenceService, QueueService } from '@/services';
+import type { DialResult, ConferenceService, QueueService, RoutingRuleRecord } from '@/services';
 import type { RegistrationStore } from '@/services/registration';
 import type { RoutingOrchestrator } from '@/modules/routing';
 import { IVRSystem } from './ivr.system';
@@ -29,6 +29,10 @@ export class SipServer {
   private readonly abuse: SipAbuseGuard;
 
   // ─── Route Handlers (ordered by priority) ────────────
+  // The IVR and Internal handlers are also referenced by name so a matching
+  // per-user routing rule can dispatch a call straight into them.
+  private ivrHandler = new IvrHandler();
+  private internalHandler = new InternalHandler();
   private routeHandlers: RouteHandler[] = [
     new TrunkInboundHandler(),
     new WidgetHandler(),
@@ -36,8 +40,8 @@ export class SipServer {
     new ConferenceHandler(),
     new QueueHandler(),
     new EmergencyHandler(),
-    new IvrHandler(),
-    new InternalHandler(),
+    this.ivrHandler,
+    this.internalHandler,
     new ExternalHandler(),
   ];
 
@@ -306,11 +310,32 @@ export class SipServer {
           routeDoNotDisturb: this.boundRouteDoNotDisturb,
         };
 
+        // ─── Per-user routing rules (self-service) ──────────────────────
+        // A user can route the inbound calls reaching them (their own extension
+        // or a DID) to one of their own IVR flows, another extension, a PSTN
+        // number, or voicemail. A matching enabled rule overrides the default
+        // dial-plan / DID behavior, so it is consulted before the trunk-inbound
+        // and dial-plan handlers. Widget calls are exempt: their destination is
+        // already pinned by the capability token. Lookups are cached in memory
+        // (negative cache too) so most calls — which have no override — don't
+        // hit Postgres.
+        if (!widgetClaims) {
+          const routingRule = await this.db.getRoutingRule(calledNumber);
+          if (routingRule) {
+            console.log(`🧭 Routing rule: ${calledNumber} → ${routingRule.destinationType}${routingRule.destinationValue ? `:${routingRule.destinationValue}` : ''} (owner ${routingRule.ownerExtension})`);
+            this.audit.log('call_routed', callingNumber, {
+              to: calledNumber, callId,
+              destinationType: routingRule.destinationType,
+              destinationValue: routingRule.destinationValue || routingRule.ownerExtension,
+            }, ip);
+            if (await this.dispatchRoutingRule(ctx, services, routingRule)) return;
+          }
+        }
+
         // Try trunk inbound first (before dial plan)
         if (await this.routeHandlers[0].handle(ctx, services)) return;
 
         console.log(`🗺️ Dial plan: ${calledNumber} → ${route.type} (${route.normalizedNumber})`);
-
         // Try each handler in priority order (skip trunk inbound already tried)
         for (let i = 1; i < this.routeHandlers.length; i++) {
           if (await this.routeHandlers[i].handle(ctx, services, route)) return;
@@ -324,6 +349,69 @@ export class SipServer {
         if (!res.finalResponseSent) res.send(SipStatus.ServerError);
       }
     });
+  }
+
+  /**
+   * Apply a matched per-user routing rule to an inbound call, overriding the
+   * default dial-plan / DID behavior. Returns true when the call was handled
+   * (the INVITE pipeline should stop), false when the rule couldn't be applied
+   * and normal routing should continue.
+   */
+  private async dispatchRoutingRule(
+    ctx: CallContext, services: RouteServices, rule: RoutingRuleRecord,
+  ): Promise<boolean> {
+    switch (rule.destinationType) {
+      case RouteType.IVR: {
+        // Route into the matching IVR flow by its entry extension.
+        const route: DialResult = {
+          type: RouteType.IVR,
+          target: rule.destinationValue,
+          originalNumber: ctx.calledNumber,
+          normalizedNumber: rule.destinationValue,
+        };
+        return this.ivrHandler.handle(ctx, services, route);
+      }
+      case 'extension': {
+        // Ring another internal extension, reusing the internal handler so the
+        // schedule gate, DND and offline-fallback chain all still apply.
+        const route: DialResult = {
+          type: RouteType.Internal,
+          target: rule.destinationValue,
+          originalNumber: ctx.calledNumber,
+          normalizedNumber: rule.destinationValue,
+        };
+        return this.internalHandler.handle(ctx, services, route);
+      }
+      case 'pstn': {
+        // Forward out to a PSTN number. We bypass the external handler (whose
+        // toll-fraud gate requires a registered caller) because this forward is
+        // the rule owner's own explicit, authorized configuration.
+        if (!this.trunk.isEnabled) {
+          if (!ctx.res.finalResponseSent) ctx.res.send(SipStatus.TemporarilyUnavailable);
+          this.db.updateCall(ctx.callId, { status: 'missed' });
+          return true;
+        }
+        const target = this.dialPlan.resolve(rule.destinationValue).normalizedNumber;
+        console.log(`🧭 Routing → PSTN ${target} (rule owner ${rule.ownerExtension})`);
+        const ok = await this.trunk.routeCall(this.srf, ctx.req, ctx.res, target);
+        this.db.updateCall(ctx.callId, { status: ok ? 'answered' : 'failed' });
+        return true;
+      }
+      case 'voicemail': {
+        // Send the caller straight to the rule owner's voicemail.
+        if (config.voicemail.enabled && this.ivr) {
+          const fromName = ctx.req.callingName || this.db.getUser(ctx.callingNumber)?.name || ctx.callingNumber;
+          const saved = await this.ivr.recordVoicemail(ctx.req, ctx.res, rule.ownerExtension, ctx.callingNumber, fromName);
+          this.db.updateCall(ctx.callId, { status: saved ? 'voicemail' : 'missed' });
+        } else {
+          if (!ctx.res.finalResponseSent) ctx.res.send(SipStatus.TemporarilyUnavailable);
+          this.db.updateCall(ctx.callId, { status: 'missed' });
+        }
+        return true;
+      }
+      default:
+        return false;
+    }
   }
 
   /**

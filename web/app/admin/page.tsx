@@ -2,7 +2,7 @@
 
 import { useState, useEffect, type ReactNode } from "react";
 import Link from "next/link";
-import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming, Palette, Save, RotateCcw, Check, Receipt, ScrollText, Radio, Headphones, KeyRound, Link2, Clock, Voicemail } from "lucide-react";
+import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming, Palette, Save, RotateCcw, Check, Receipt, ScrollText, Radio, Headphones, KeyRound, Link2, Clock, Voicemail, Waypoints } from "lucide-react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -41,20 +41,22 @@ import { QueuesTab } from "./components/QueuesTab";
 import { ApiKeysTab } from "./components/ApiKeysTab";
 import { ConnectorsTab } from "./components/ConnectorsTab";
 import { HoursTab } from "./components/HoursTab";
+import { RoutingTab } from "./components/RoutingTab";
 import { useLiveMetrics } from "../hooks/useLiveMetrics";
 import { useBranding } from "../hooks/useBranding";
 import { useAuthStore } from "../stores";
 import { VoicemailScreen } from "../components/screens/VoicemailScreen";
 import { CallRecordStatus, type CallRecord } from "../types";
 
-type Tab = "overview" | "users" | "calls" | "voicemail" | "customization" | "rates" | "trunks" | "queues" | "hours" | "apikeys" | "connectors" | "audit" | "config";
+type Tab = "overview" | "users" | "calls" | "voicemail" | "routing" | "customization" | "rates" | "trunks" | "queues" | "hours" | "apikeys" | "connectors" | "audit" | "config";
 
 // Selectable stats windows (days) for the dashboard aggregate metrics/charts.
 const RANGE_OPTIONS = [7, 14, 30] as const;
 
 // Tabs a non-admin (read-only) user is allowed to see in the Control Plane.
-// Everything else is admin-only and hidden from regular users.
-const USER_TABS: Tab[] = ["overview", "calls", "voicemail", "audit"];
+// Everything else is admin-only and hidden from regular users. Routing is
+// self-service, so every user manages their own inbound-call routing here.
+const USER_TABS: Tab[] = ["overview", "calls", "voicemail", "routing", "audit"];
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("overview");
@@ -125,6 +127,7 @@ export default function AdminPage() {
     { id: "users", label: "Users", icon: Users },
     { id: "calls", label: "Call Logs", icon: Phone },
     { id: "voicemail", label: "Voicemail", icon: Voicemail },
+    { id: "routing", label: "Call Routing", icon: Waypoints },
     { id: "customization", label: "Customization", icon: Palette },
     { id: "rates", label: "Rates", icon: Receipt },
     { id: "trunks", label: "Trunks", icon: Radio },
@@ -219,6 +222,7 @@ export default function AdminPage() {
             {tab === "users" && <UsersTab users={users} loading={loading} onRefresh={loadData} />}
             {tab === "calls" && <CallsTab calls={calls} loading={loading} />}
             {tab === "voicemail" && <VoicemailScreen />}
+            {tab === "routing" && <RoutingTab />}
             {tab === "customization" && <CustomizationTab />}
             {tab === "rates" && <RatesTab />}
             {tab === "trunks" && <TrunksTab />}
