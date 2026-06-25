@@ -29,7 +29,7 @@ type Handlers struct {
 	Schedule       *handler.ScheduleHandler
 }
 
-func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
+func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool) {
 	r.Use(middleware.CORS())
 
 	// Reply with the standard { success, message, data } envelope for unknown
@@ -76,6 +76,12 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 		protected := api.Group("")
 		protected.Use(middleware.AuthMiddleware(tm))
 		{
+			// Per-route authorization guards (run after AuthMiddleware):
+			//   admin       — caller must be in ADMIN_EXTENSIONS
+			//   selfOrAdmin — :ext must be the caller's own extension, or admin
+			admin := middleware.RequireAdmin(admins)
+			selfOrAdmin := middleware.RequireSelfOrAdmin(admins)
+
 			// Current-session profile / validator (UI calls this on boot).
 			protected.GET("/auth/me", h.Auth.Me)
 			protected.PATCH("/auth/me", h.Auth.UpdateMe)
@@ -98,27 +104,28 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 			protected.DELETE("/connectors/:id", h.Connector.Delete)
 
 			// PSTN call forwarding
-			protected.GET("/pstn-forward/:ext", h.Settings.GetPstnForward)
-			protected.POST("/pstn-forward/:ext", h.Settings.SetPstnForward)
+			protected.GET("/pstn-forward/:ext", selfOrAdmin, h.Settings.GetPstnForward)
+			protected.POST("/pstn-forward/:ext", selfOrAdmin, h.Settings.SetPstnForward)
 
-			// Audit log
-			protected.GET("/audit", h.Audit.Query)
-			protected.GET("/audit/:ext", h.Audit.GetByExtension)
+			// Audit log (admin-only — spans every user).
+			protected.GET("/audit", admin, h.Audit.Query)
+			protected.GET("/audit/:ext", selfOrAdmin, h.Audit.GetByExtension)
 
-			// Voicemails
-			protected.GET("/voicemails/:ext", h.Voicemail.List)
-			protected.GET("/voicemails/:ext/:id/audio", h.Voicemail.Audio)
-			protected.POST("/voicemails/:ext/:id/read", h.Voicemail.MarkRead)
-			protected.DELETE("/voicemails/:ext/:id", h.Voicemail.Delete)
+			// Voicemails (a user only ever sees their own mailbox).
+			protected.GET("/voicemails/:ext", selfOrAdmin, h.Voicemail.List)
+			protected.GET("/voicemails/:ext/:id/audio", selfOrAdmin, h.Voicemail.Audio)
+			protected.POST("/voicemails/:ext/:id/read", selfOrAdmin, h.Voicemail.MarkRead)
+			protected.DELETE("/voicemails/:ext/:id", selfOrAdmin, h.Voicemail.Delete)
 
-			// Users
-			protected.GET("/users", h.User.GetAll)
-			protected.GET("/users/:ext", h.User.GetByExtension)
-			protected.DELETE("/users/:ext", h.User.Delete)
+			// Users — listing every user + deleting are admin-only; reading one
+			// extension is limited to the owner (or an admin).
+			protected.GET("/users", admin, h.User.GetAll)
+			protected.GET("/users/:ext", selfOrAdmin, h.User.GetByExtension)
+			protected.DELETE("/users/:ext", admin, h.User.Delete)
 
-			// Settings
-			protected.GET("/settings/:ext", h.Settings.Get)
-			protected.PUT("/settings/:ext", h.Settings.Update)
+			// Settings (own only, or admin).
+			protected.GET("/settings/:ext", selfOrAdmin, h.Settings.Get)
+			protected.PUT("/settings/:ext", selfOrAdmin, h.Settings.Update)
 
 			// Outbound caller ID (BYON). Extension is taken from the JWT inside
 			// the handler, so these are unparameterised — a user only ever manages
@@ -128,22 +135,22 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 			protected.POST("/caller-id/verify/confirm", h.CallerID.Confirm)
 			protected.DELETE("/caller-id", h.CallerID.Delete)
 
-			// System-wide customization (branding + default policies)
-			protected.PUT("/system-settings", h.SystemSettings.Update)
+			// System-wide customization (branding + default policies). Read is
+			// public (above, for the login screen); writing is admin-only.
+			protected.PUT("/system-settings", admin, h.SystemSettings.Update)
 
-			// Call rate plans + per-destination rates (billing). Plans hold a
-			// currency + a set of longest-prefix-matched rates; rates are nested
-			// under their plan.
-			protected.GET("/rate-plans", h.Rate.ListPlans)
-			protected.POST("/rate-plans", h.Rate.CreatePlan)
-			protected.GET("/rate-plans/:id", h.Rate.GetPlan)
-			protected.PUT("/rate-plans/:id", h.Rate.UpdatePlan)
-			protected.DELETE("/rate-plans/:id", h.Rate.DeletePlan)
-			protected.GET("/rate-plans/:id/rates", h.Rate.ListRates)
-			protected.POST("/rate-plans/:id/rates", h.Rate.CreateRate)
-			protected.POST("/rate-plans/:id/rates/import", h.Rate.ImportRates)
-			protected.PUT("/rate-plans/:id/rates/:rateId", h.Rate.UpdateRate)
-			protected.DELETE("/rate-plans/:id/rates/:rateId", h.Rate.DeleteRate)
+			// Call rate plans + per-destination rates (billing). Pricing config is
+			// admin-only; a user reads their own effective plan elsewhere.
+			protected.GET("/rate-plans", admin, h.Rate.ListPlans)
+			protected.POST("/rate-plans", admin, h.Rate.CreatePlan)
+			protected.GET("/rate-plans/:id", admin, h.Rate.GetPlan)
+			protected.PUT("/rate-plans/:id", admin, h.Rate.UpdatePlan)
+			protected.DELETE("/rate-plans/:id", admin, h.Rate.DeletePlan)
+			protected.GET("/rate-plans/:id/rates", admin, h.Rate.ListRates)
+			protected.POST("/rate-plans/:id/rates", admin, h.Rate.CreateRate)
+			protected.POST("/rate-plans/:id/rates/import", admin, h.Rate.ImportRates)
+			protected.PUT("/rate-plans/:id/rates/:rateId", admin, h.Rate.UpdateRate)
+			protected.DELETE("/rate-plans/:id/rates/:rateId", admin, h.Rate.DeleteRate)
 
 			// Prepaid wallet. Self-reads (no :ext) derive the extension from the
 			// JWT; the :ext variants and top-up are admin-only (ADMIN_EXTENSIONS).
@@ -171,29 +178,30 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 			protected.PUT("/api-keys/:id", h.APIKey.Update)
 			protected.DELETE("/api-keys/:id", h.APIKey.Delete)
 
-			// Calls
-			protected.GET("/calls", h.Call.GetAll)
-			protected.GET("/calls/:ext", h.Call.GetByExtension)
-			protected.DELETE("/calls/:ext", h.Call.DeleteByExtension)
+			// Calls — the full firehose + global stats are admin-only; a user
+			// reads/clears only their own history (:ext must be self, or admin).
+			protected.GET("/calls", admin, h.Call.GetAll)
+			protected.GET("/calls/:ext", selfOrAdmin, h.Call.GetByExtension)
+			protected.DELETE("/calls/:ext", selfOrAdmin, h.Call.DeleteByExtension)
 
-			// Dashboard stats (aggregate call metrics)
-			protected.GET("/stats", h.Call.Stats)
+			// Dashboard stats (aggregate call metrics across all users)
+			protected.GET("/stats", admin, h.Call.Stats)
 
-			// Block list
-			protected.GET("/block/:ext", h.Block.Get)
-			protected.POST("/block/:ext", h.Block.Add)
-			protected.DELETE("/block/:ext/:number", h.Block.Remove)
+			// Block list (own only, or admin)
+			protected.GET("/block/:ext", selfOrAdmin, h.Block.Get)
+			protected.POST("/block/:ext", selfOrAdmin, h.Block.Add)
+			protected.DELETE("/block/:ext/:number", selfOrAdmin, h.Block.Remove)
 
-			// Forwarding
-			protected.GET("/forwarding/:ext", h.Forwarding.Get)
-			protected.POST("/forwarding/:ext", h.Forwarding.Set)
+			// Forwarding (own only, or admin)
+			protected.GET("/forwarding/:ext", selfOrAdmin, h.Forwarding.Get)
+			protected.POST("/forwarding/:ext", selfOrAdmin, h.Forwarding.Set)
 
-			// Routing schedules: global business hours and per-user availability
-			// windows. All writes are admin-only (ADMIN_EXTENSIONS); reads stay
-			// open to authenticated users. Empty/disabled config = always open.
+			// Routing schedules: global business hours (admin write) and per-user
+			// availability windows. Reads of a user's availability are limited to
+			// the owner (or admin); the global policy read stays open.
 			protected.GET("/business-hours", h.Schedule.GetBusinessHours)
 			protected.PUT("/business-hours", h.Schedule.SaveBusinessHours)
-			protected.GET("/availability/:ext", h.Schedule.ListAvailability)
+			protected.GET("/availability/:ext", selfOrAdmin, h.Schedule.ListAvailability)
 			protected.PUT("/availability/:ext", h.Schedule.SaveAvailability)
 
 			// Routing announcement wording. Read is open (engine/UI resolve
@@ -202,9 +210,9 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 			protected.GET("/routing-prompts", h.Schedule.GetPrompts)
 			protected.PUT("/routing-prompts", h.Schedule.SavePrompts)
 
-			// Sounds (upload)
+			// Sounds (upload). A user reads only their own uploaded sounds.
 			protected.POST("/sounds/upload", h.Sound.Upload)
-			protected.GET("/sounds/:ext", h.Sound.GetByExtension)
+			protected.GET("/sounds/:ext", selfOrAdmin, h.Sound.GetByExtension)
 			protected.DELETE("/sounds/:id", h.Sound.Delete)
 		}
 	}

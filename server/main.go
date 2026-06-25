@@ -9,6 +9,7 @@ import (
 	"github.com/enjoys-in/enjoys-voice/api/internal/config"
 	"github.com/enjoys-in/enjoys-voice/api/internal/database"
 	"github.com/enjoys-in/enjoys-voice/api/internal/handler"
+	"github.com/enjoys-in/enjoys-voice/api/internal/middleware"
 	"github.com/enjoys-in/enjoys-voice/api/internal/models"
 	"github.com/enjoys-in/enjoys-voice/api/internal/repository"
 	"github.com/enjoys-in/enjoys-voice/api/internal/router"
@@ -155,7 +156,7 @@ func main() {
 
 	// ─── Router ──────────────────────────────────────────
 	r := gin.Default()
-	router.Setup(r, handlers, tokenMgr)
+	router.Setup(r, handlers, tokenMgr, middleware.AdminSet(cfg.AdminExtensions))
 
 	// ─── Start ───────────────────────────────────────────
 	log.Printf("Enjoys Voice API starting on :%s", cfg.Port)
