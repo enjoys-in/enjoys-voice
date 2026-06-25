@@ -48,8 +48,13 @@ export interface FlowRunnerHandlers {
   ): Promise<string>;
   /** Record a voicemail on the already-connected endpoint. */
   voicemail(mailbox: string, opts: { greeting?: string; maxSeconds?: number }): Promise<void>;
-  /** Route the caller to a department queue and/or a specific extension. */
-  transfer(opts: { department?: string; extension?: string; ringSeconds?: number }): Promise<void>;
+  /**
+   * Route the caller to a department queue and/or a specific extension.
+   * Resolves `true` when the caller was parked for the queue/agent bridge, or
+   * `false` when routing gated the transfer (e.g. outside business hours) and an
+   * announcement was played instead — the call is then terminal.
+   */
+  transfer(opts: { department?: string; extension?: string; ringSeconds?: number }): Promise<boolean>;
   /** EXPERIMENTAL — send an email via a configured connector (best-effort). */
   sendEmail(opts: { connectorId: string; to: string; subject: string; body: string }): Promise<void>;
 }
@@ -58,6 +63,7 @@ export type FlowResult =
   | 'completed'
   | 'voicemail'
   | 'transferred'
+  | 'announced'
   | 'hangup'
   | 'error';
 
@@ -255,12 +261,12 @@ export async function runFlow(
 
       case 'transfer': {
         const data = node.data as TransferNodeData;
-        await h.transfer({
+        const transferred = await h.transfer({
           department: data.department,
           extension: data.extension,
           ringSeconds: data.ringSeconds,
         });
-        return 'transferred';
+        return transferred ? 'transferred' : 'announced';
       }
 
       case 'voicemail': {

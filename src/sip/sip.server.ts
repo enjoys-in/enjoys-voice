@@ -131,7 +131,7 @@ export class SipServer {
     if (!config.ivr.enabled || this.ivr) return;
 
     console.log('🔄 IVR: Connecting to FreeSWITCH...');
-    this.ivr = new IVRSystem(this.srf, this.db);
+    this.ivr = new IVRSystem(this.srf, this.db, undefined, this.routing);
     if (this.notifyFn) this.ivr.setNotifier(this.notifyFn);
     const ok = await this.ivr.initialize();
     if (ok) console.log('🎙️ IVR: Ready');

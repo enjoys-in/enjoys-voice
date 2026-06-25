@@ -223,10 +223,10 @@ This order should live in one place (`RoutingPolicyService` + `RoutingDecisionEn
 - [x] Domain models + contracts
 - [x] Decision engine (phase 1) — tests pending
 - [x] Postgres repositories + migrations
-- [~] SIP/IVR integration points switched to orchestrator (phase 3: internal extension; phase 4: queue business-hours + no-agents-online prompts)
+- [x] SIP/IVR integration points switched to orchestrator (internal extension; queue business-hours + no-agents-online; IVR transfer node business-hours gate)
 - [x] Admin/API endpoints for schedules (phase 5a Go CRUD; phase 5b admin UI)
 - [x] Prompt mapping for unavailable reasons (`constants/TtsPrompts.ts`)
-- [ ] Documentation update (architecture + env/config)
+- [x] Documentation update (architecture + env/config)
 
 ---
 
