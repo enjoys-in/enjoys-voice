@@ -3,7 +3,7 @@
 window.__RUNTIME_CONFIG__ = {
   "API_BASE": "http://localhost:3001",
   "GO_API_BASE": "http://localhost:3003",
-  "SIGNAL_URL": "ws://localhost:3002",
+  "SIGNAL_URL": "ws://localhost:3002/signal",
   "BRIDGE_URL": "",
   "BRIDGE_TOKEN": "",
   "ICE_SERVERS": [{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:192.168.1.48:3478?transport=udp","username":"callnet","credential":"devsecret123"}]
