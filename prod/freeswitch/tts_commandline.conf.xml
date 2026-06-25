@@ -1,0 +1,24 @@
+<configuration name="tts_commandline.conf" description="TextToSpeech Commandline configuration (Piper neural TTS)">
+    <settings>
+	<!--
+	Piper TTS engine for mod_tts_commandline. This file is:
+	  1) BAKED into the published image (the Dockerfile COPYs it to
+	     /etc/freeswitch/autoload_configs/tts_commandline.conf.xml) so Piper
+	     works out of the box, and
+	  2) bind-mounted on top of the read-only configs by the
+	     freeswitch-piper-test container.
+	Either way, mounting your own file (or whole /etc/freeswitch) overrides it.
+
+	Variables substituted by mod_tts_commandline:
+	${text}:  input text (quoted)
+	${rate}:  sample rate (example: 8000)
+	${voice}: voice_name passed to TTS (quoted) -> Piper .onnx model basename
+	${file}:  output file (quoted, including .wav extension)
+
+	The voice model must exist inside the enjoys-freeswitch image at
+	/opt/piper/voices/<voice>.onnx (baked at build time). Piper writes a
+	22050 Hz mono WAV; FreeSWITCH resamples to the call rate automatically.
+	-->
+	<param name="command" value="echo ${text} | /opt/piper/piper --model /opt/piper/voices/${voice}.onnx --espeak_data /opt/piper/espeak-ng-data --output_file ${file}"/>
+    </settings>
+</configuration>

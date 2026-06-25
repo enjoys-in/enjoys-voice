@@ -45,14 +45,18 @@ services:
       # <tls> in drachtio.conf.prod.xml). Read-only.
       - /etc/caddy/certs:/etc/drachtio/tls:ro
   drachtio-freeswitch:
-    image: safarov/freeswitch:latest
+    # Custom image = stock FreeSWITCH + Piper neural TTS (built from
+    # ./freeswitch-custom). To fall back to the stock image, comment the line
+    # below and uncomment the safarov one.
+    image: mullayam06/freeswitch-piper:latest
+    # image: safarov/freeswitch:latest   # stock (no Piper) — future fallback
     container_name: drachtio-freeswitch
     logging: *default-logging
     ports:
       - "8021:8021" # ESL (Event Socket)
       - "5090:5090/udp" # MRF SIP (drachtio_mrf profile)
       - "5090:5090/tcp"
-      - "16384-16403:16384-16403/udp" # RTP media
+      - "16384-16500:16384-16500/udp" # RTP media
     cap_add:
       - SYS_NICE
     environment:
@@ -78,6 +82,9 @@ services:
       # both knobs to `optional` so DTLS auto-negotiates. Dev keeps the strict
       # behaviour (file referenced ONLY here). Longer dest path wins over the dir.
       - ../prod/freeswitch/dialplan-mrf.xml:/etc/freeswitch/dialplan/mrf.xml:ro
+      - ../prod/freeswitch/tts_commandline.conf.xml:/etc/freeswitch/autoload_configs/tts_commandline.conf.xml:ro
+
+
       - ./freeswitch_sounds:/usr/share/freeswitch/sounds
       - ./recordings:/usr/local/freeswitch/recordings
     # The image's /healthcheck.sh authenticates with the DEFAULT ESL password
@@ -256,14 +263,13 @@ services:
       DRACHTIO_SECRET: siprocks
       FREESWITCH_HOST: drachtio-freeswitch
       FREESWITCH_PORT: "8021"
-      # TTS engine for IVR `say:` prompts. The prod FreeSWITCH image
-      # (safarov/freeswitch) ships mod_flite but NOT Piper/mod_tts_commandline,
-      # so the code default (tts_commandline) tells FreeSWITCH to use an engine
-      # that is not loaded → say: synthesizes nothing → silent IVR (caller hears
-      # only a tone). flite is built in, so use it here. Only switch back to
-      # tts_commandline on a CUSTOM image that actually bundles Piper.
-      TTS_ENGINE: flite
-      TTS_VOICE: slt
+      # TTS engine for IVR `say:` prompts. The custom image
+      # (mullayam06/freeswitch-piper) bundles Piper + mod_tts_commandline and
+      # wires it as the default engine, so use neural Piper TTS here. To fall
+      # back to the stock safarov image, switch these to flite / slt (mod_flite
+      # is built in; Piper is NOT present there).
+      TTS_ENGINE: tts_commandline
+      TTS_VOICE: en_US-amy-medium
       # ESL-OUTBOUND callback target (advertisedAddress / X-esl-outbound). After
       # answering the MRF INVITE, FreeSWITCH connects BACK to the fsmrf listener
       # on :8085 to drive IVR/voicemail media. In prod the Node app runs INSIDE
