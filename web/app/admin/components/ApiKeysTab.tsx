@@ -56,14 +56,14 @@ import {
 const ROUTE_TYPE_LABELS: Record<GoApiKeyRouteType, string> = {
   trunk: "PSTN",
   ivr: "IVR",
-  extension: "extension",
+  extension: "Self",
 };
 
 // Per-route-type help text for the "Destination" field in the dialog.
 const ROUTE_TYPE_HINTS: Record<GoApiKeyRouteType, string> = {
   trunk: "The phone number every call dials",
   ivr: "The IVR menu extension every call reaches",
-  extension: "The internal SIP extension every call rings",
+  extension: "Rings your own extension",
 };
 
 const ROUTE_TYPE_PLACEHOLDERS: Record<GoApiKeyRouteType, string> = {
@@ -344,7 +344,9 @@ function ApiKeyDialog({
     }
   }, [draft]);
 
-  const valid = destination.trim() !== "";
+  // Destination is optional: a blank value routes every call to the owner's own
+  // extension (handled server-side), so the form is always submittable.
+  const valid = true;
 
   const handleSave = async () => {
     if (!draft || saving || !valid) return;
@@ -395,7 +397,10 @@ function ApiKeyDialog({
             />
           </DialogField>
           <div className="grid grid-cols-2 gap-3">
-            <DialogField label="Destination" hint={ROUTE_TYPE_HINTS[routeType]}>
+            <DialogField
+              label="Destination"
+              hint={destination.trim() ? ROUTE_TYPE_HINTS[routeType] : "Blank → rings your own extension"}
+            >
               <Input
                 value={destination}
                 maxLength={40}
@@ -421,7 +426,6 @@ function ApiKeyDialog({
                 <SelectContent>
                   <SelectItem value="trunk">Phone number (PSTN trunk)</SelectItem>
                   <SelectItem value="ivr">IVR menu (internal)</SelectItem>
-                  <SelectItem value="extension">Browser → extension</SelectItem>
                 </SelectContent>
               </Select>
             </DialogField>
