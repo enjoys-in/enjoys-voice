@@ -219,13 +219,13 @@ This order should live in one place (`RoutingPolicyService` + `RoutingDecisionEn
 ---
 
 ## Deliverables Checklist
-- [ ] Module skeleton in `src/modules/routing/`
-- [ ] Domain models + contracts
-- [ ] Decision engine + tests
-- [ ] Postgres repositories + migrations
+- [x] Module skeleton in `src/modules/routing/`
+- [x] Domain models + contracts
+- [x] Decision engine (phase 1) — tests pending
+- [x] Postgres repositories + migrations
 - [ ] SIP/IVR integration points switched to orchestrator
 - [ ] Admin/API endpoints for schedules
-- [ ] Prompt mapping for unavailable reasons
+- [x] Prompt mapping for unavailable reasons (`constants/TtsPrompts.ts`)
 - [ ] Documentation update (architecture + env/config)
 
 ---
