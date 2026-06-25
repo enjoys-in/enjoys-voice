@@ -54,9 +54,10 @@ type Tab = "overview" | "users" | "calls" | "voicemail" | "routing" | "customiza
 const RANGE_OPTIONS = [7, 14, 30] as const;
 
 // Tabs a non-admin (read-only) user is allowed to see in the Control Plane.
-// Everything else is admin-only and hidden from regular users. Routing is
-// self-service, so every user manages their own inbound-call routing here.
-const USER_TABS: Tab[] = ["overview", "calls", "voicemail", "routing", "audit"];
+// Everything else is admin-only and hidden from regular users. Routing and API
+// keys are self-service: every user manages their own inbound-call routing and
+// their own click-to-call widget keys (owner-scoped server-side).
+const USER_TABS: Tab[] = ["overview", "calls", "voicemail", "routing", "apikeys", "audit"];
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("overview");

@@ -382,7 +382,7 @@ function RoutingDialog({
               value={matchType}
               onValueChange={(v) => setMatchType(v as GoRoutingMatchType)}
             >
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -411,7 +411,7 @@ function RoutingDialog({
                 setDestinationValue("");
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -437,7 +437,7 @@ function RoutingDialog({
                 onValueChange={(v) => setDestinationValue(v ?? "")}
                 disabled={flows.length === 0}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select a flow" />
                 </SelectTrigger>
                 <SelectContent>
