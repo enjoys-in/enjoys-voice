@@ -53,6 +53,12 @@ export const useAuthStore = create<AuthState>()(
           // Authenticated per the cookie. Reuse the cached profile when it's the
           // same user; otherwise seed a placeholder until `/me` returns.
           const sameUser = state.user?.extension === extension;
+          // Already reconciled to this user — return the SAME state object so
+          // zustand skips notifying subscribers. The seed runs during AppShell's
+          // render; emitting an update here would re-render other mounted
+          // components (e.g. AdminPage mid route-transition) during render,
+          // which React flags as "setState while rendering".
+          if (sameUser && state.isAuthenticated) return state;
           const user = sameUser
             ? state.user!
             : { extension, username: extension, name: extension };
