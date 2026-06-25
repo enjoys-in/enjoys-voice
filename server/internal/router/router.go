@@ -188,8 +188,9 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 			protected.GET("/forwarding/:ext", h.Forwarding.Get)
 			protected.POST("/forwarding/:ext", h.Forwarding.Set)
 
-			// Routing schedules: global business hours (admin-only write) and
-			// per-user availability windows. Empty/disabled config = always open.
+			// Routing schedules: global business hours and per-user availability
+			// windows. All writes are admin-only (ADMIN_EXTENSIONS); reads stay
+			// open to authenticated users. Empty/disabled config = always open.
 			protected.GET("/business-hours", h.Schedule.GetBusinessHours)
 			protected.PUT("/business-hours", h.Schedule.SaveBusinessHours)
 			protected.GET("/availability/:ext", h.Schedule.ListAvailability)
