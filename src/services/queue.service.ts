@@ -190,6 +190,26 @@ export class QueueService extends EventEmitter {
     return this.queues.get(id);
   }
 
+  /**
+   * Live agent-availability summary for a queue. Used by the SIP path to pick
+   * the right treatment BEFORE enqueueing a caller: when `online` is 0 nobody is
+   * registered to ever answer (play the "no agents online" prompt instead of
+   * holding forever), whereas `online > 0 && available === 0` means everyone is
+   * busy/paused right now (the caller can still wait → normal hold + "all agents
+   * busy" timeout). Returns zeros for an unknown queue id.
+   */
+  agentAvailability(queueId: string): { online: number; available: number; total: number } {
+    const queue = this.queues.get(queueId);
+    if (!queue) return { online: 0, available: 0, total: 0 };
+    let online = 0;
+    let available = 0;
+    for (const agent of queue.agents.values()) {
+      if (agent.state !== 'offline') online += 1;
+      if (agent.state === 'available') available += 1;
+    }
+    return { online, available, total: queue.agents.size };
+  }
+
   list(): Queue[] {
     return Array.from(this.queues.values());
   }

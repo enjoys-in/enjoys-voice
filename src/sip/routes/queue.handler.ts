@@ -3,6 +3,7 @@ import type { CallContext, RouteHandler, RouteServices } from './types';
 import type { DialResult } from '@/services';
 import { RouteType } from '@/services';
 import { SipStatus } from '@/core/types';
+import { DecisionType, UnavailableReason, announcementText } from '@/modules/routing';
 
 /**
  * Distributes a caller into a call queue (ACD).
@@ -51,6 +52,48 @@ export class QueueHandler implements RouteHandler {
       }, ctx.req.source_address);
       services.db.updateCall(ctx.callId, { status: 'failed' });
       ctx.res.send(SipStatus.Forbidden);
+      return true;
+    }
+
+    // ─── Business-hours gate (phase 4, additive) ──────────────────────
+    // Outside the company's configured business hours, play the "company
+    // closed" announcement instead of holding the caller for agents who aren't
+    // on shift. With no policy configured the orchestrator reports open, so this
+    // never fires and the queue behaves exactly as before.
+    if (services.routing) {
+      try {
+        const decision = await services.routing.evaluate({
+          callId: ctx.callId,
+          callerNumber: caller,
+          calledNumber: ctx.calledNumber,
+          targetQueueId: queueId,
+          preferQueue: true,
+        });
+        if (
+          decision.type === DecisionType.PlayAnnouncement &&
+          decision.reason === UnavailableReason.OutsideCompanyHours
+        ) {
+          console.log(`⛔ Queue [${queue.name}]: outside business hours → announcement`);
+          services.db.updateCall(ctx.callId, { to: `queue:${queueId}`, status: 'missed' });
+          await services.ivr.playUnavailable(ctx.req, ctx.res, announcementText(decision.announcementKey));
+          return true;
+        }
+      } catch (err: any) {
+        console.warn('⚠️ Queue business-hours gate skipped:', err?.message || err);
+      }
+    }
+
+    // ─── No-agents-online gate (phase 4, additive) ────────────────────
+    // Distinct from "all agents busy": if nobody on the roster is even
+    // registered, there is no point parking the caller on hold music until the
+    // max-wait deadline — play the "no agents online" prompt and end. When at
+    // least one agent is online (available OR busy) we fall through to the
+    // normal enqueue/hold flow, whose timeout plays the "all agents busy" prompt.
+    const availability = services.queue.agentAvailability(queueId);
+    if (availability.online === 0) {
+      console.log(`📭 Queue [${queue.name}]: no agents online → announcement`);
+      services.db.updateCall(ctx.callId, { to: `queue:${queueId}`, status: 'missed' });
+      await services.ivr.playUnavailable(ctx.req, ctx.res, announcementText('no_agents_online'));
       return true;
     }
 
