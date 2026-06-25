@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strconv"
 
+	"github.com/enjoys-in/enjoys-voice/api/internal/middleware"
 	"github.com/enjoys-in/enjoys-voice/api/internal/response"
 	"github.com/enjoys-in/enjoys-voice/api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -20,9 +21,18 @@ func NewConnectorHandler(svc service.ConnectorService) *ConnectorHandler {
 	return &ConnectorHandler{svc: svc}
 }
 
-// List → GET /connectors
+// List → GET /connectors : admins see every connector; a user sees only theirs.
 func (h *ConnectorHandler) List(c *gin.Context) {
-	conns, err := h.svc.List(c.Request.Context())
+	ctx := c.Request.Context()
+	var (
+		conns []service.ConnectorView
+		err   error
+	)
+	if middleware.IsAdmin(c) {
+		conns, err = h.svc.List(ctx)
+	} else {
+		conns, err = h.svc.ListByOwner(ctx, c.GetString("extension"))
+	}
 	if err != nil {
 		response.Internal(c, err.Error())
 		return
@@ -30,7 +40,7 @@ func (h *ConnectorHandler) List(c *gin.Context) {
 	response.OK(c, conns)
 }
 
-// Get → GET /connectors/:id
+// Get → GET /connectors/:id : a non-admin may only read a connector they own.
 func (h *ConnectorHandler) Get(c *gin.Context) {
 	id, ok := h.parseID(c)
 	if !ok {
@@ -41,17 +51,21 @@ func (h *ConnectorHandler) Get(c *gin.Context) {
 		h.writeErr(c, err)
 		return
 	}
+	if !h.canAccess(c, conn) {
+		response.NotFound(c, "connector not found")
+		return
+	}
 	response.OK(c, conn)
 }
 
-// Create → POST /connectors
+// Create → POST /connectors : the caller becomes the owner.
 func (h *ConnectorHandler) Create(c *gin.Context) {
 	var input service.ConnectorInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		response.BadRequest(c, "Invalid request body")
 		return
 	}
-	conn, err := h.svc.Create(c.Request.Context(), &input)
+	conn, err := h.svc.Create(c.Request.Context(), c.GetString("extension"), &input)
 	if err != nil {
 		h.writeErr(c, err)
 		return
@@ -59,10 +73,19 @@ func (h *ConnectorHandler) Create(c *gin.Context) {
 	response.Created(c, "Connector created", conn)
 }
 
-// Update → PUT /connectors/:id
+// Update → PUT /connectors/:id : a non-admin may only update a connector they own.
 func (h *ConnectorHandler) Update(c *gin.Context) {
 	id, ok := h.parseID(c)
 	if !ok {
+		return
+	}
+	existing, err := h.svc.Get(c.Request.Context(), id)
+	if err != nil {
+		h.writeErr(c, err)
+		return
+	}
+	if !h.canAccess(c, existing) {
+		response.NotFound(c, "connector not found")
 		return
 	}
 	var input service.ConnectorInput
@@ -78,10 +101,19 @@ func (h *ConnectorHandler) Update(c *gin.Context) {
 	response.Success(c, "Connector updated", conn)
 }
 
-// Delete → DELETE /connectors/:id
+// Delete → DELETE /connectors/:id : a non-admin may only delete a connector they own.
 func (h *ConnectorHandler) Delete(c *gin.Context) {
 	id, ok := h.parseID(c)
 	if !ok {
+		return
+	}
+	existing, err := h.svc.Get(c.Request.Context(), id)
+	if err != nil {
+		h.writeErr(c, err)
+		return
+	}
+	if !h.canAccess(c, existing) {
+		response.NotFound(c, "connector not found")
 		return
 	}
 	if err := h.svc.Delete(c.Request.Context(), id); err != nil {
@@ -89,6 +121,12 @@ func (h *ConnectorHandler) Delete(c *gin.Context) {
 		return
 	}
 	response.Success(c, "Connector deleted", nil)
+}
+
+// canAccess reports whether the caller may act on conn: admins may act on any,
+// a regular user only on connectors they own.
+func (h *ConnectorHandler) canAccess(c *gin.Context, conn *service.ConnectorView) bool {
+	return middleware.IsAdmin(c) || conn.OwnerExtension == c.GetString("extension")
 }
 
 func (h *ConnectorHandler) parseID(c *gin.Context) (uint, bool) {
