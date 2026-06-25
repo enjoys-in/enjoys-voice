@@ -205,12 +205,13 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool
 			protected.POST("/forwarding/:ext", selfOrAdmin, h.Forwarding.Set)
 
 			// Routing schedules: global business hours (admin write) and per-user
-			// availability windows. Reads of a user's availability are limited to
-			// the owner (or admin); the global policy read stays open.
+			// availability windows. A user reads and writes only their own
+			// availability (selfOrAdmin); the global policy read stays open and its
+			// write is admin-only.
 			protected.GET("/business-hours", h.Schedule.GetBusinessHours)
 			protected.PUT("/business-hours", h.Schedule.SaveBusinessHours)
 			protected.GET("/availability/:ext", selfOrAdmin, h.Schedule.ListAvailability)
-			protected.PUT("/availability/:ext", h.Schedule.SaveAvailability)
+			protected.PUT("/availability/:ext", selfOrAdmin, h.Schedule.SaveAvailability)
 
 			// Routing announcement wording. Read is open (engine/UI resolve
 			// effective text); write is admin-only. Empty/missing key = engine
