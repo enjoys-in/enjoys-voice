@@ -57,6 +57,13 @@ export interface FlowRunnerHandlers {
   transfer(opts: { department?: string; extension?: string; ringSeconds?: number }): Promise<boolean>;
   /** EXPERIMENTAL — send an email via a configured connector (best-effort). */
   sendEmail(opts: { connectorId: string; to: string; subject: string; body: string }): Promise<void>;
+  /**
+   * True once the caller has hung up. The interpreter polls this between nodes
+   * (and right after collecting input) so it can stop promptly instead of
+   * walking the rest of the graph — e.g. replaying a menu's remaining retries —
+   * against a channel that is already gone.
+   */
+  isHungUp(): boolean;
 }
 
 export type FlowResult =
@@ -193,6 +200,12 @@ export async function runFlow(
   let current: IvrGraphNode | undefined = start;
 
   for (let hop = 0; hop < MAX_HOPS && current; hop++) {
+    // Bail out the instant the caller hangs up — don't keep walking the graph
+    // (or replaying a menu) against a dead channel.
+    if (h.isHungUp()) {
+      console.log(`📴 IVR flow: caller hung up — stopping [${ctx.callId}]`);
+      return 'hangup';
+    }
     const node = current;
     const kind = nodeKind(node);
 
@@ -224,6 +237,11 @@ export async function runFlow(
           waitMs: data.timeoutMs ?? 7000,
           label: 'menu',
         });
+
+        // The collector returns '' both for genuine no-input and for a hangup;
+        // when it's a hangup, stop here instead of playing the invalid prompt
+        // and following the fallback edge.
+        if (h.isHungUp()) return 'hangup';
 
         if (digit) {
           lastDigit = digit;
