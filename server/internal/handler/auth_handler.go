@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/enjoys-in/enjoys-voice/api/internal/config"
+	"github.com/enjoys-in/enjoys-voice/api/internal/middleware"
 	"github.com/enjoys-in/enjoys-voice/api/internal/models"
 	"github.com/enjoys-in/enjoys-voice/api/internal/response"
 	"github.com/enjoys-in/enjoys-voice/api/internal/service"
@@ -269,6 +270,7 @@ func (h *AuthHandler) Me(c *gin.Context) {
 		"name":      user.Name,
 		"username":  user.Username,
 		"mobile":    user.Mobile,
+		"isAdmin":   middleware.IsAdmin(c),
 		"sipConfig": gin.H{
 			"wsUrl":        h.sip.WsURL(),
 			"sipWsUrl":     h.sip.SipWsURL(),

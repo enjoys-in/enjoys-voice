@@ -29,16 +29,18 @@ export function AppHeader() {
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <Link
-          href="/admin"
-          target="_blank"
-          rel="noopener noreferrer"
-          className={buttonVariants({ variant: "outline", size: "sm" })}
-          title="Open the admin dashboard in a new tab"
-        >
-          <Shield />
-          Admin
-        </Link>
+        {user.isAdmin && (
+          <Link
+            href="/admin"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+            title="Open the admin dashboard in a new tab"
+          >
+            <Shield />
+            Admin
+          </Link>
+        )}
         <Badge variant="secondary" className="text-[10px]">Online</Badge>
       </div>
     </header>

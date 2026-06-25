@@ -8,6 +8,9 @@ export interface User {
   name: string;
   mobile?: string;
   avatar?: string;
+  // True when this user is a server-side admin (ADMIN_EXTENSIONS). Drives the
+  // admin/user navigation split; populated by the /auth/me refresh.
+  isAdmin?: boolean;
 }
 
 export interface Contact {

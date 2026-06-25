@@ -149,6 +149,10 @@ export interface AuthUser {
   name: string;
   username: string;
   mobile?: string;
+  // True when the caller's extension is in the server's ADMIN_EXTENSIONS
+  // allow-list. Only the /auth/me response sets this (login does not), so the
+  // app fills it in from the background /me refresh on boot.
+  isAdmin?: boolean;
 }
 
 export interface AuthSipConfig {
