@@ -30,6 +30,7 @@ type Handlers struct {
 	Contact        *handler.ContactHandler
 	RoutingRule    *handler.RoutingRuleHandler
 	Webhook        *handler.WebhookHandler
+	AiAgent        *handler.AiAgentHandler
 }
 
 func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool) {
@@ -139,6 +140,17 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool
 			protected.GET("/webhooks/:id", h.Webhook.Get)
 			protected.PUT("/webhooks/:id", h.Webhook.Update)
 			protected.DELETE("/webhooks/:id", h.Webhook.Delete)
+
+			// Per-user AI voice agents. Self-service and strictly owner-scoped —
+			// a user only ever lists/reads/edits/deletes the agents they created.
+			// The Node media runtime builds a live speech→LLM→speech pipeline from
+			// an agent's config when a call is routed to it (offline fallback on the
+			// owner's DID, an `ai_agent` routing rule, or an IVR "AI Agent" node).
+			protected.GET("/ai-agents", h.AiAgent.List)
+			protected.POST("/ai-agents", h.AiAgent.Create)
+			protected.GET("/ai-agents/:id", h.AiAgent.Get)
+			protected.PUT("/ai-agents/:id", h.AiAgent.Update)
+			protected.DELETE("/ai-agents/:id", h.AiAgent.Delete)
 
 			// PSTN call forwarding
 			protected.GET("/pstn-forward/:ext", selfOrAdmin, h.Settings.GetPstnForward)
