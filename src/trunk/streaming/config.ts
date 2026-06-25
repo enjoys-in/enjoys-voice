@@ -40,7 +40,30 @@ export interface StreamingConfig {
     speechmaticsUrl: string;
     /** ASR language (ISO code), e.g. "en". */
     language: string;
+    /** OpenAI API key (LLM Responder, provider "openai"). */
+    openaiApiKey: string;
+    /** Google Gemini API key (LLM Responder, provider "gemini"). */
+    geminiApiKey: string;
+    /** Sarvam API key (TTS Synthesizer, provider "sarvam"). */
+    sarvamApiKey: string;
+    /** Deepgram API key (TTS Synthesizer + streaming STT, provider "deepgram"). */
+    deepgramApiKey: string;
   };
+  /**
+   * Which trunk/media provider carries calls into the media WS: "twilio" or
+   * "plivo". Drives both the voice-webhook XML dialect and how inbound audio
+   * frames are decoded. Defaults to twilio for backwards compatibility.
+   */
+  provider: "twilio" | "plivo";
+}
+
+function resolveProvider(): "twilio" | "plivo" {
+  const raw = (
+    process.env.MEDIA_STREAM_PROVIDER ||
+    process.env.SIP_TRUNK_PROVIDER ||
+    "twilio"
+  ).toLowerCase();
+  return raw === "plivo" ? "plivo" : "twilio";
 }
 
 export const streamingConfig: StreamingConfig = {
@@ -56,5 +79,10 @@ export const streamingConfig: StreamingConfig = {
     speechmaticsApiKey: process.env.SPEECHMATICS_API_KEY || "",
     speechmaticsUrl: process.env.SPEECHMATICS_RT_URL || "",
     language: process.env.MEDIA_STREAM_AI_LANGUAGE || "en",
+    openaiApiKey: process.env.OPENAI_API_KEY || "",
+    geminiApiKey: process.env.GEMINI_API_KEY || "",
+    sarvamApiKey: process.env.SARVAM_API_KEY || "",
+    deepgramApiKey: process.env.DEEPGRAM_API_KEY || "",
   },
+  provider: resolveProvider(),
 };

@@ -27,6 +27,8 @@ export {
   createRoutingHandlers,
   type MediaStreamRuntime,
   type MediaStreamMode,
+  type MediaStreamRuntimeOptions,
+  type AgentResolver,
 } from "./runtime";
 export * as twilioProtocol from "./twilio.protocol";
 
@@ -35,8 +37,10 @@ export { muLawToPcm16, pcm16ToMuLaw } from "./audio.codec";
 export { BrowserBridge } from "./browser-bridge";
 
 // Goal 2 — AI answers the caller (speech-to-text -> LLM -> text-to-speech).
-export { createAiHandlers, createDefaultBrain } from "./ai/ai.handlers";
+export { createAiHandlers, createAgentAwareHandlers, createDefaultBrain } from "./ai/ai.handlers";
+export { buildBrainFromAgent } from "./ai/agent.brain";
 export { SpeechmaticsTranscriber } from "./ai/speechmatics.transcriber";
+export type { AgentRuntimeConfig, SttProvider, LlmProvider, TtsProvider } from "./ai/providers/types";
 export {
   echoResponder,
   silentSynthesizer,

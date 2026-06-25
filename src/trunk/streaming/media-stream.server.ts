@@ -14,6 +14,7 @@ import type { IncomingMessage } from "node:http";
 import { randomUUID } from "node:crypto";
 import { streamingConfig } from "./config";
 import type {
+  MediaFrame,
   MediaSession,
   MediaStreamHandlers,
   StreamStartMeta,
@@ -25,6 +26,46 @@ import {
   encodeTwilioMark,
   encodeTwilioMedia,
 } from "./twilio.protocol";
+import {
+  decodePlivoMedia,
+  decodePlivoStart,
+  encodePlivoClear,
+  encodePlivoMark,
+  encodePlivoMedia,
+} from "./plivo.protocol";
+
+/**
+ * A media-provider wire codec. Twilio and Plivo both speak start/media/stop JSON
+ * over the socket but with different framing and (for Plivo) out-of-band params,
+ * so the server picks one per connection and stays provider-agnostic otherwise.
+ */
+interface StreamProtocol {
+  decodeStart(msg: any, urlParams: Record<string, string>): StreamStartMeta;
+  decodeMedia(msg: any): MediaFrame;
+  encodeMedia(streamId: string, audio: Buffer): string;
+  encodeClear(streamId: string): string;
+  encodeMark(streamId: string, name: string): string;
+}
+
+const TWILIO_PROTOCOL: StreamProtocol = {
+  decodeStart: (msg) => decodeTwilioStart(msg),
+  decodeMedia: decodeTwilioMedia,
+  encodeMedia: encodeTwilioMedia,
+  encodeClear: encodeTwilioClear,
+  encodeMark: encodeTwilioMark,
+};
+
+const PLIVO_PROTOCOL: StreamProtocol = {
+  decodeStart: (msg, urlParams) => decodePlivoStart(msg, urlParams),
+  decodeMedia: decodePlivoMedia,
+  encodeMedia: encodePlivoMedia,
+  encodeClear: encodePlivoClear,
+  encodeMark: encodePlivoMark,
+};
+
+function selectProtocol(provider: string): StreamProtocol {
+  return provider === "plivo" ? PLIVO_PROTOCOL : TWILIO_PROTOCOL;
+}
 
 export class MediaStreamServer {
   private wss?: WsServer;
@@ -35,8 +76,8 @@ export class MediaStreamServer {
   start(): void {
     this.wss = new WsServer({
       port: streamingConfig.wsPort,
-      // Twilio is server-to-server (no Origin header), so CSWSH origin checks
-      // don't apply. Gate instead on the shared token in the URL query.
+      // Twilio/Plivo are server-to-server (no Origin header), so CSWSH origin
+      // checks don't apply. Gate instead on the shared token in the URL query.
       verifyClient: (
         info: { origin: string; secure: boolean; req: IncomingMessage },
         cb: (ok: boolean, code?: number, message?: string) => void,
@@ -49,7 +90,9 @@ export class MediaStreamServer {
     this.wss.on("listening", () =>
       console.log(`✅ Media WS: listening on :${streamingConfig.wsPort}`),
     );
-    this.wss.on("connection", (ws: WebSocket) => this.onConnection(ws));
+    this.wss.on("connection", (ws: WebSocket, req: IncomingMessage) =>
+      this.onConnection(ws, req),
+    );
   }
 
   stop(): void {
@@ -67,9 +110,16 @@ export class MediaStreamServer {
     }
   }
 
-  private onConnection(ws: WebSocket): void {
+  private onConnection(ws: WebSocket, req: IncomingMessage): void {
+    // Pick the wire codec for this connection. The provider rides on the URL
+    // query (the webhook sets ?provider=plivo); default is Twilio. Plivo lacks
+    // native custom parameters, so we also lift the query pairs (mode/agentId/
+    // extension) here and inject them into its `start` metadata.
+    const { provider, urlParams } = this.parseConnectionUrl(req);
+    const proto = selectProtocol(provider);
+
     // The session is created on the provider `start` event (we need its
-    // streamSid to send audio back). Frames before `start` are ignored.
+    // streamId to send audio back). Frames before `start` are ignored.
     let session: MediaSession | undefined;
     let stopped = false;
 
@@ -93,15 +143,15 @@ export class MediaStreamServer {
           break; // handshake ack; nothing to do
 
         case "start": {
-          const meta = decodeTwilioStart(msg);
-          session = this.createSession(ws, meta);
+          const meta = proto.decodeStart(msg, urlParams);
+          session = this.createSession(ws, meta, proto);
           this.handlers.onStart?.(session, meta);
           break;
         }
 
         case "media": {
           if (!session) break;
-          const frame = decodeTwilioMedia(msg);
+          const frame = proto.decodeMedia(msg);
           // Dev two-way proof: echo caller audio straight back.
           if (streamingConfig.echo) session.sendAudio(frame.audio);
           this.handlers.onAudio?.(session, frame);
@@ -128,8 +178,37 @@ export class MediaStreamServer {
     ws.on("error", (err: Error) => this.handlers.onError?.(session, err));
   }
 
+  /**
+   * Read the connection URL: the provider selector plus the caller-supplied
+   * params (everything except the auth token / provider selector) that Plivo
+   * needs carried out-of-band. Twilio ignores `urlParams` (it uses start
+   * customParameters), so this is harmless there.
+   */
+  private parseConnectionUrl(req: IncomingMessage): {
+    provider: string;
+    urlParams: Record<string, string>;
+  } {
+    const urlParams: Record<string, string> = {};
+    let provider: string = streamingConfig.provider;
+    try {
+      const url = new URL(req.url ?? "", "http://localhost");
+      provider = url.searchParams.get("provider") || provider;
+      for (const [k, v] of url.searchParams) {
+        if (k === "token" || k === "provider") continue;
+        urlParams[k] = v;
+      }
+    } catch {
+      /* fall back to configured provider with no params */
+    }
+    return { provider, urlParams };
+  }
+
   /** Build the MediaSession control surface bound to this socket. */
-  private createSession(ws: WebSocket, meta: StreamStartMeta): MediaSession {
+  private createSession(
+    ws: WebSocket,
+    meta: StreamStartMeta,
+    proto: StreamProtocol,
+  ): MediaSession {
     const streamSid = meta.streamId;
     const sendIfOpen = (data: string) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(data);
@@ -139,9 +218,9 @@ export class MediaStreamServer {
       provider: meta.provider,
       streamId: streamSid,
       callId: meta.callId,
-      sendAudio: (audio: Buffer) => sendIfOpen(encodeTwilioMedia(streamSid, audio)),
-      clearAudio: () => sendIfOpen(encodeTwilioClear(streamSid)),
-      mark: (name: string) => sendIfOpen(encodeTwilioMark(streamSid, name)),
+      sendAudio: (audio: Buffer) => sendIfOpen(proto.encodeMedia(streamSid, audio)),
+      clearAudio: () => sendIfOpen(proto.encodeClear(streamSid)),
+      mark: (name: string) => sendIfOpen(proto.encodeMark(streamSid, name)),
       close: () => ws.close(),
     };
   }
