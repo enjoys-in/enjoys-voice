@@ -21,8 +21,10 @@ import {
   loadIvrFlowByExtension,
   loadConnectorById,
   loadRoutingRuleByNumber,
+  loadEnabledWebhooks,
   type ConnectorRecord,
   type RoutingRuleRecord,
+  type WebhookRecord,
   type ForwardingRow,
 } from './postgres';
 import type { IvrFlowGraph } from '@/sip/ivr/flow.types';
@@ -68,6 +70,13 @@ export class DatabaseService extends EventEmitter {
    * change a rule's match key) and on listener reconnect.
    */
   private routingRules = new Map<string, RoutingRuleRecord | null>();
+  /**
+   * Owner-extension → their enabled webhooks. The whole (small) `webhooks` set
+   * is loaded once and grouped by owner; `null` means "not loaded yet". Cleared
+   * wholesale on a `webhooks` NOTIFY and on listener reconnect, then lazily
+   * reloaded on the next lookup. Read by the webhook dispatcher on call events.
+   */
+  private webhooks: Map<string, WebhookRecord[]> | null = null;
   /**
    * Optional call rater. Injected (not imported) to avoid a module cycle with
    * the rating service. When set, a call transitioning to `ended` is priced here
@@ -397,6 +406,12 @@ export class DatabaseService extends EventEmitter {
     return this.getUserByPhone(leg)?.extension;
   }
 
+  /** The most recent in-memory call record with this id, or undefined. Used by
+   * the webhook dispatcher to enrich audit-derived events with a full call. */
+  getCall(callId: string): CallLog | undefined {
+    return this.callLogs.find(c => c.id === callId);
+  }
+
   updateCall(callId: string, updates: Partial<CallLog>): void {
     const call = this.callLogs.find(c => c.id === callId);
     if (call) {
@@ -608,6 +623,43 @@ export class DatabaseService extends EventEmitter {
   /** Drop all cached routing rules (on a `routing_rules` change or reconnect). */
   clearRoutingRuleCache(): void {
     this.routingRules.clear();
+  }
+
+  // ─── Webhooks ────────────────────────────────────────
+  // Per-user outbound call-event webhooks authored in the dashboard and
+  // persisted by the Go API in the shared `webhooks` table. The SIP runtime only
+  // READS them, grouped by owner extension, with the whole (small) enabled set
+  // cached in memory and kept fresh by the webhook-sync LISTEN/NOTIFY listener
+  // (see clearWebhookCache). The dispatcher reads them on call events.
+
+  /**
+   * Every enabled webhook owned by `owner`, or [] when they have none. Lazily
+   * loads and groups the whole enabled set on first use; a DB error returns []
+   * (no deliveries) and is NOT cached, so the next call retries.
+   */
+  async getWebhooksForOwner(owner: string): Promise<WebhookRecord[]> {
+    if (!owner) return [];
+    if (this.webhooks === null) {
+      try {
+        const all = await loadEnabledWebhooks();
+        const byOwner = new Map<string, WebhookRecord[]>();
+        for (const hook of all) {
+          const list = byOwner.get(hook.ownerExtension);
+          if (list) list.push(hook);
+          else byOwner.set(hook.ownerExtension, [hook]);
+        }
+        this.webhooks = byOwner;
+      } catch (err: any) {
+        console.warn(`⚠️ Webhooks: load failed: ${err?.message}`);
+        return [];
+      }
+    }
+    return this.webhooks.get(owner) ?? [];
+  }
+
+  /** Drop the cached webhook set (on a `webhooks` change or reconnect). */
+  clearWebhookCache(): void {
+    this.webhooks = null;
   }
 
   // ─── Connectors ──────────────────────────────────────

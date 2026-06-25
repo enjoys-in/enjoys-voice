@@ -29,6 +29,7 @@ type Handlers struct {
 	Schedule       *handler.ScheduleHandler
 	Contact        *handler.ContactHandler
 	RoutingRule    *handler.RoutingRuleHandler
+	Webhook        *handler.WebhookHandler
 }
 
 func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool) {
@@ -128,6 +129,16 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool
 			protected.GET("/routing-rules/:id", h.RoutingRule.Get)
 			protected.PUT("/routing-rules/:id", h.RoutingRule.Update)
 			protected.DELETE("/routing-rules/:id", h.RoutingRule.Delete)
+
+			// Per-user outbound call-event webhooks. Self-service and strictly
+			// owner-scoped — a user only ever lists/reads/edits/deletes the
+			// webhooks they created. The SIP engine POSTs a signed JSON payload
+			// to each enabled webhook on matching call events involving the owner.
+			protected.GET("/webhooks", h.Webhook.List)
+			protected.POST("/webhooks", h.Webhook.Create)
+			protected.GET("/webhooks/:id", h.Webhook.Get)
+			protected.PUT("/webhooks/:id", h.Webhook.Update)
+			protected.DELETE("/webhooks/:id", h.Webhook.Delete)
 
 			// PSTN call forwarding
 			protected.GET("/pstn-forward/:ext", selfOrAdmin, h.Settings.GetPstnForward)

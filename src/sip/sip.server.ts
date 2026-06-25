@@ -731,6 +731,8 @@ export class SipServer {
 
       console.log(`✅ Call forwarded: ${callingNumber} → ${target}`);
       this.notifyFn?.(callingNumber, 'answered', { target, callId });
+      // Audit the transfer (also drives the `call.transferred` webhook event).
+      this.audit.log('call_forwarded', callingNumber, { to: target, callId });
 
       const onDestroy = () => {
         this.db.updateCall(callId, { status: 'ended', endTime: new Date().toISOString() });

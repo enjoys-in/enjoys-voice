@@ -552,6 +552,57 @@ export interface GoRoutingRuleInput {
   enabled?: boolean;
 }
 
+// ─── Webhooks (per-user outbound call-event callbacks) ──────────────
+
+/** Canonical call-event names a webhook can subscribe to. */
+export type GoWebhookEvent =
+  | "call.ringing"
+  | "call.answered"
+  | "call.completed"
+  | "call.missed"
+  | "call.failed"
+  | "call.unreachable"
+  | "call.voicemail"
+  | "call.transferred"
+  | "call.routed";
+
+/** The full ordered set of webhook events (for building selectors). */
+export const GO_WEBHOOK_EVENTS: GoWebhookEvent[] = [
+  "call.ringing",
+  "call.answered",
+  "call.completed",
+  "call.missed",
+  "call.failed",
+  "call.unreachable",
+  "call.voicemail",
+  "call.transferred",
+  "call.routed",
+];
+
+/** A per-user outbound call-event webhook (owner-scoped). */
+export interface GoWebhook {
+  id: number;
+  ownerExtension: string;
+  name: string;
+  url: string;
+  /** Subscribed events. An empty array means “all events”. */
+  events: GoWebhookEvent[];
+  /** Whether a signing secret is configured (the secret itself is never returned). */
+  hasSecret: boolean;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Partial create/update of a webhook. A non-empty `secret` rotates the signing key. */
+export interface GoWebhookInput {
+  name?: string;
+  url?: string;
+  secret?: string;
+  events?: GoWebhookEvent[];
+  enabled?: boolean;
+}
+
 // ─── Routing schedules (business hours + per-user availability) ──────────
 
 /** One open interval on a weekday (0 = Sun … 6 = Sat), minutes from midnight. */
@@ -1137,6 +1188,32 @@ export const goApi = {
     },
     remove(id: number): Promise<void> {
       return goRequest<unknown>(`/routing-rules/${id}`, {
+        method: "DELETE",
+      }).then(() => undefined);
+    },
+  },
+
+  // Per-user outbound call-event webhooks (owner-scoped CRUD). The SIP engine
+  // POSTs a signed JSON payload to each enabled webhook on matching call events
+  // involving the owner (asynchronously, off the call path).
+  webhooks: {
+    list(): Promise<GoWebhook[]> {
+      return goRequest<GoWebhook[]>(`/webhooks`);
+    },
+    create(input: GoWebhookInput): Promise<GoWebhook> {
+      return goRequest<GoWebhook>(`/webhooks`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(id: number, input: GoWebhookInput): Promise<GoWebhook> {
+      return goRequest<GoWebhook>(`/webhooks/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(id: number): Promise<void> {
+      return goRequest<unknown>(`/webhooks/${id}`, {
         method: "DELETE",
       }).then(() => undefined);
     },

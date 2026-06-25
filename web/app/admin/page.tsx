@@ -2,7 +2,7 @@
 
 import { useState, useEffect, type ReactNode } from "react";
 import Link from "next/link";
-import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming, Palette, Save, RotateCcw, Check, Receipt, ScrollText, Radio, Headphones, KeyRound, Link2, Clock, Voicemail, Waypoints } from "lucide-react";
+import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming, Palette, Save, RotateCcw, Check, Receipt, ScrollText, Radio, Headphones, KeyRound, Link2, Clock, Voicemail, Waypoints, Webhook } from "lucide-react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -42,22 +42,24 @@ import { ApiKeysTab } from "./components/ApiKeysTab";
 import { ConnectorsTab } from "./components/ConnectorsTab";
 import { HoursTab } from "./components/HoursTab";
 import { RoutingTab } from "./components/RoutingTab";
+import { WebhooksTab } from "./components/WebhooksTab";
 import { useLiveMetrics } from "../hooks/useLiveMetrics";
 import { useBranding } from "../hooks/useBranding";
 import { useAuthStore } from "../stores";
 import { VoicemailScreen } from "../components/screens/VoicemailScreen";
 import { CallRecordStatus, type CallRecord } from "../types";
 
-type Tab = "overview" | "users" | "calls" | "voicemail" | "routing" | "customization" | "rates" | "trunks" | "queues" | "hours" | "apikeys" | "connectors" | "audit" | "config";
+type Tab = "overview" | "users" | "calls" | "voicemail" | "routing" | "customization" | "rates" | "trunks" | "queues" | "hours" | "apikeys" | "webhooks" | "connectors" | "audit" | "config";
 
 // Selectable stats windows (days) for the dashboard aggregate metrics/charts.
 const RANGE_OPTIONS = [7, 14, 30] as const;
 
 // Tabs a non-admin (read-only) user is allowed to see in the Control Plane.
-// Everything else is admin-only and hidden from regular users. Routing and API
-// keys are self-service: every user manages their own inbound-call routing and
-// their own click-to-call widget keys (owner-scoped server-side).
-const USER_TABS: Tab[] = ["overview", "calls", "voicemail", "routing", "apikeys", "audit"];
+// Everything else is admin-only and hidden from regular users. Routing, API
+// keys and webhooks are self-service: every user manages their own inbound-call
+// routing, their own click-to-call widget keys, and their own call-event
+// webhooks (owner-scoped server-side).
+const USER_TABS: Tab[] = ["overview", "calls", "voicemail", "routing", "apikeys", "webhooks", "audit"];
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("overview");
@@ -135,6 +137,7 @@ export default function AdminPage() {
     { id: "queues", label: "Queues", icon: Headphones },
     { id: "hours", label: "Working Hours", icon: Clock },
     { id: "apikeys", label: "API Keys", icon: KeyRound },
+    { id: "webhooks", label: "Webhooks", icon: Webhook },
     { id: "connectors", label: "Connectors", icon: Link2 },
     { id: "audit", label: "Activity", icon: ScrollText },
     { id: "config", label: "Config", icon: Settings },
@@ -230,6 +233,7 @@ export default function AdminPage() {
             {tab === "queues" && <QueuesTab />}
             {tab === "hours" && <HoursTab users={users} />}
             {tab === "apikeys" && <ApiKeysTab />}
+            {tab === "webhooks" && <WebhooksTab />}
             {tab === "connectors" && <ConnectorsTab />}
             {tab === "audit" && <AuditTab extension={isAdmin ? undefined : myExt} />}
             {tab === "config" && <ConfigTab />}

@@ -35,6 +35,8 @@ export enum DbEvent {
 export enum WriteJob {
   CallUpsert = 'call.upsert',
   BalanceDebit = 'balance.debit',
+  /** A single signed outbound webhook delivery (POSTed off the call path). */
+  WebhookDeliver = 'webhook.deliver',
 }
 
 /**
@@ -46,6 +48,53 @@ export interface BalanceDebitJob {
   callId: string;
   amount: number;
   currency: string;
+}
+
+/**
+ * The JSON body POSTed to a subscriber's webhook URL. Self-describing: carries
+ * the event name, a stable idempotency key (so receivers can de-duplicate
+ * retries), the firing timestamp, the owner the webhook belongs to, and a
+ * sanitized snapshot of the call.
+ */
+export interface WebhookCallSnapshot {
+  id: string;
+  from: string;
+  to: string;
+  fromName: string;
+  direction: 'inbound' | 'outbound';
+  status: string;
+  startTime: string;
+  endTime?: string;
+  duration?: number;
+  fromExt?: string;
+  toExt?: string;
+  cost?: number;
+  currency?: string;
+}
+
+export interface WebhookEventPayload {
+  event: string;
+  idempotencyKey: string;
+  timestamp: string;
+  webhookId: number;
+  owner: string;
+  call: WebhookCallSnapshot;
+}
+
+/**
+ * A single queued webhook delivery. Enqueued on the write-behind queue so the
+ * HTTP POST never blocks the SIP/call path; the queue retries on failure. The
+ * idempotencyKey (also echoed in the body + X-Idempotency-Key header) is stable
+ * per (webhook, call, event) so both the queue and the receiver can de-dupe.
+ */
+export interface WebhookDeliverJob {
+  webhookId: number;
+  url: string;
+  /** HMAC-SHA256 signing secret; empty string when the webhook is unsigned. */
+  secret: string;
+  event: string;
+  idempotencyKey: string;
+  body: WebhookEventPayload;
 }
 
 export interface CallLog {

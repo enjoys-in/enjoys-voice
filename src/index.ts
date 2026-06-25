@@ -10,6 +10,9 @@ import {
   RateSyncListener,
   ConnectorSyncListener,
   RoutingRuleSyncListener,
+  WebhookSyncListener,
+  WebhookDispatcher,
+  deliverWebhook,
   RatingService,
   WriteQueue,
   ensureCallSchema,
@@ -57,6 +60,8 @@ class Application {
   private rateSync: RateSyncListener;
   private connectorSync: ConnectorSyncListener;
   private routingSync: RoutingRuleSyncListener;
+  private webhookSync: WebhookSyncListener;
+  private webhookDispatcher: WebhookDispatcher;
   private rating: RatingService;
   private writeQueue: WriteQueue;
   private conference: ConferenceService;
@@ -187,6 +192,14 @@ class Application {
       onChanged: () => this.db.clearRoutingRuleCache(),
       onReconnect: () => this.db.clearRoutingRuleCache(),
     });
+    // Live-reconcile per-user outbound webhooks the moment one is created/
+    // edited/deleted in the dashboard (written by the Go API). The whole (small)
+    // enabled set is cached grouped by owner, so any change clears it and the
+    // next call event lazily reloads it.
+    this.webhookSync = new WebhookSyncListener({
+      onChanged: () => this.db.clearWebhookCache(),
+      onReconnect: () => this.db.clearWebhookCache(),
+    });
     // Write-behind queue: call-record upserts are emitted as events, enqueued to
     // Valkey, and applied to the shared Postgres by a worker. This keeps the SIP
     // path off the DB write latency. (Voicemails write to Postgres directly.)
@@ -202,6 +215,17 @@ class Application {
     this.db.on(DbEvent.BalanceDebit, (job) => {
       void this.writeQueue.enqueue(WriteJob.BalanceDebit, job).catch(() => {});
     });
+    // Per-user webhooks: a signed HTTP POST on call events. The dispatcher taps
+    // the same CallUpserted choke point and enqueues one delivery job per
+    // matching webhook; the queue worker performs the actual (signed, timed-out,
+    // retried) POST, so a slow receiver never blocks the SIP/call path.
+    this.writeQueue.on(WriteJob.WebhookDeliver, (job) => deliverWebhook(job));
+    this.webhookDispatcher = new WebhookDispatcher({
+      db: this.db,
+      audit: this.audit,
+      enqueue: (type, payload) => this.writeQueue.enqueue(type, payload),
+    });
+    this.webhookDispatcher.attach();
   }
 
   async start(): Promise<void> {
@@ -248,6 +272,11 @@ class Application {
     // extension, PSTN number, or voicemail).
     this.routingSync.start().catch((err: any) =>
       console.warn(`   Sync:   ⚠️  routing-rule-sync listener failed to start (${err?.message})`),
+    );
+    // And for per-user outbound call-event webhooks (a signed POST on call
+    // events). Best-effort: a failure here just means no webhook deliveries.
+    this.webhookSync.start().catch((err: any) =>
+      console.warn(`   Sync:   ⚠️  webhook-sync listener failed to start (${err?.message})`),
     );
     // Start the write-behind queue worker (voicemail → Postgres). Best-effort:
     // if Valkey is unreachable, voicemails still record (in memory + on disk),
