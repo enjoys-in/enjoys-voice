@@ -203,6 +203,7 @@ type CallService interface {
 	Create(ctx context.Context, call *models.CallRecord) error
 	DeleteByExtension(ctx context.Context, ext string) (int64, error)
 	Stats(ctx context.Context, days int) (*models.CallStats, error)
+	StatsByExtension(ctx context.Context, ext string, days int) (*models.CallStats, error)
 }
 
 type BlockService interface {

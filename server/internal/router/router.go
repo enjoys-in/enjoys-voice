@@ -82,6 +82,11 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool
 			admin := middleware.RequireAdmin(admins)
 			selfOrAdmin := middleware.RequireSelfOrAdmin(admins)
 
+			// Stamp is_admin on every protected request so role-adaptive
+			// handlers (admin = global view, user = own data) can branch via
+			// middleware.IsAdmin without each one needing the admins map.
+			protected.Use(middleware.AdminFlag(admins))
+
 			// Current-session profile / validator (UI calls this on boot).
 			protected.GET("/auth/me", h.Auth.Me)
 			protected.PATCH("/auth/me", h.Auth.UpdateMe)
@@ -178,14 +183,17 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool
 			protected.PUT("/api-keys/:id", h.APIKey.Update)
 			protected.DELETE("/api-keys/:id", h.APIKey.Delete)
 
-			// Calls — the full firehose + global stats are admin-only; a user
-			// reads/clears only their own history (:ext must be self, or admin).
-			protected.GET("/calls", admin, h.Call.GetAll)
+			// Calls — role-adaptive: an admin gets the full firehose + global
+			// stats, a regular user gets only their own history/metrics (derived
+			// from the JWT inside the handler). Reading/clearing a specific
+			// extension still requires self (or admin).
+			protected.GET("/calls", h.Call.GetAll)
 			protected.GET("/calls/:ext", selfOrAdmin, h.Call.GetByExtension)
 			protected.DELETE("/calls/:ext", selfOrAdmin, h.Call.DeleteByExtension)
 
-			// Dashboard stats (aggregate call metrics across all users)
-			protected.GET("/stats", admin, h.Call.Stats)
+			// Dashboard stats — admin sees aggregate metrics across all users; a
+			// user sees stats scoped to their own call history.
+			protected.GET("/stats", h.Call.Stats)
 
 			// Block list (own only, or admin)
 			protected.GET("/block/:ext", selfOrAdmin, h.Block.Get)

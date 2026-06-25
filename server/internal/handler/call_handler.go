@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/enjoys-in/enjoys-voice/api/internal/middleware"
 	"github.com/enjoys-in/enjoys-voice/api/internal/models"
 	"github.com/enjoys-in/enjoys-voice/api/internal/response"
 	"github.com/enjoys-in/enjoys-voice/api/internal/service"
@@ -82,7 +83,20 @@ func toCallResponses(calls []models.CallRecord) []callResponse {
 	return out
 }
 
+// GetAll → GET /calls : role-adaptive call history. An admin gets the full
+// firehose across every user; a regular user gets only their own history
+// (filtered by their JWT extension), so the same endpoint backs both the admin
+// dashboard and a user's "recent calls".
 func (h *CallHandler) GetAll(c *gin.Context) {
+	if !middleware.IsAdmin(c) {
+		calls, err := h.callSvc.GetByExtension(c.Request.Context(), c.GetString("extension"))
+		if err != nil {
+			response.Internal(c, "Failed to fetch calls")
+			return
+		}
+		response.OK(c, toCallResponses(calls))
+		return
+	}
 	calls, err := h.callSvc.GetAll(c.Request.Context())
 	if err != nil {
 		response.Internal(c, "Failed to fetch calls")
@@ -113,9 +127,10 @@ func (h *CallHandler) DeleteByExtension(c *gin.Context) {
 	response.OK(c, gin.H{"deleted": deleted})
 }
 
-// Stats → GET /stats?days=N : aggregate call metrics for the admin dashboard
-// (totals, connection/abandoned rates, direction split, status breakdown, and a
-// per-day series). Defaults to the last 7 days; clamped to 1..365.
+// Stats → GET /stats?days=N : role-adaptive aggregate call metrics (totals,
+// connection/abandoned rates, direction split, status breakdown, and a per-day
+// series). An admin sees global metrics across every user; a regular user sees
+// only their own call history. Defaults to the last 7 days; clamped to 1..365.
 func (h *CallHandler) Stats(c *gin.Context) {
 	days := 7
 	if v := c.Query("days"); v != "" {
@@ -123,7 +138,14 @@ func (h *CallHandler) Stats(c *gin.Context) {
 			days = n
 		}
 	}
-	stats, err := h.callSvc.Stats(c.Request.Context(), days)
+	ctx := c.Request.Context()
+	var stats *models.CallStats
+	var err error
+	if middleware.IsAdmin(c) {
+		stats, err = h.callSvc.Stats(ctx, days)
+	} else {
+		stats, err = h.callSvc.StatsByExtension(ctx, c.GetString("extension"), days)
+	}
 	if err != nil {
 		response.Internal(c, "Failed to compute stats")
 		return

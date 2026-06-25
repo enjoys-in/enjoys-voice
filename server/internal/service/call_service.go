@@ -34,3 +34,7 @@ func (s *callService) DeleteByExtension(ctx context.Context, ext string) (int64,
 func (s *callService) Stats(ctx context.Context, days int) (*models.CallStats, error) {
 	return s.callRepo.Stats(ctx, days)
 }
+
+func (s *callService) StatsByExtension(ctx context.Context, ext string, days int) (*models.CallStats, error) {
+	return s.callRepo.StatsByExtension(ctx, ext, days)
+}

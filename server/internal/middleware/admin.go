@@ -35,6 +35,24 @@ func RequireAdmin(admins map[string]bool) gin.HandlerFunc {
 	}
 }
 
+// AdminFlag stamps an "is_admin" boolean on the context for every request,
+// derived from the JWT extension against the admin allow-list. Unlike
+// RequireAdmin it never blocks — it lets role-adaptive handlers (admin sees the
+// global view, a user sees only their own) branch via IsAdmin without each
+// handler needing the admins map. MUST be chained after AuthMiddleware.
+func AdminFlag(admins map[string]bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set("is_admin", admins[c.GetString("extension")])
+		c.Next()
+	}
+}
+
+// IsAdmin reports whether the current request is from an admin, reading the flag
+// set by AdminFlag. Safe to call on any protected route.
+func IsAdmin(c *gin.Context) bool {
+	return c.GetBool("is_admin")
+}
+
 // RequireSelfOrAdmin allows the request when the ":ext" path param matches the
 // caller's own JWT extension, or the caller is an admin. This closes cross-user
 // IDOR on extension-scoped endpoints (a user may only touch their own data;

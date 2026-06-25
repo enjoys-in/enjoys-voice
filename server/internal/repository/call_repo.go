@@ -54,6 +54,21 @@ func (r *callRepo) DeleteByExtension(ctx context.Context, ext string) (int64, er
 // admin dashboard. It runs three set-based queries (status breakdown, direction
 // split, and a per-day series) instead of loading rows into memory.
 func (r *callRepo) Stats(ctx context.Context, days int) (*models.CallStats, error) {
+	return r.statsFiltered(ctx, days, "")
+}
+
+// StatsByExtension is the owner-scoped variant of Stats: it computes the same
+// aggregates but only over the rows owned by ext (mirroring GetByExtension's
+// from_ext/to_ext/"from"/"to" match), so a non-admin user sees stats for their
+// own call history rather than the global firehose.
+func (r *callRepo) StatsByExtension(ctx context.Context, ext string, days int) (*models.CallStats, error) {
+	return r.statsFiltered(ctx, days, ext)
+}
+
+// statsFiltered backs both Stats (ext == "") and StatsByExtension (ext != "").
+// When ext is non-empty every aggregate query is additionally constrained to
+// the caller's own legs.
+func (r *callRepo) statsFiltered(ctx context.Context, days int, ext string) (*models.CallStats, error) {
 	if days <= 0 {
 		days = 7
 	}
@@ -61,7 +76,17 @@ func (r *callRepo) Stats(ctx context.Context, days int) (*models.CallStats, erro
 		days = 365
 	}
 	since := time.Now().AddDate(0, 0, -days)
-	db := r.db.WithContext(ctx).Model(&models.CallRecord{})
+
+	// scope returns a fresh query carrying the time-window (and, for the
+	// owner-scoped variant, the ext ownership filter) shared by every aggregate
+	// query below.
+	scope := func() *gorm.DB {
+		q := r.db.WithContext(ctx).Model(&models.CallRecord{}).Where("started_at >= ?", since)
+		if ext != "" {
+			q = q.Where(`from_ext = ? OR to_ext = ? OR "from" = ? OR "to" = ?`, ext, ext, ext, ext)
+		}
+		return q
+	}
 
 	stats := &models.CallStats{RangeDays: days}
 
@@ -73,9 +98,8 @@ func (r *callRepo) Stats(ctx context.Context, days int) (*models.CallStats, erro
 		CostSum float64
 	}
 	var statusRows []statusRow
-	if err := db.
+	if err := scope().
 		Select("status, COUNT(*) AS cnt, COALESCE(SUM(duration),0) AS dur_sum, COALESCE(SUM(cost),0) AS cost_sum").
-		Where("started_at >= ?", since).
 		Group("status").
 		Scan(&statusRows).Error; err != nil {
 		return nil, err
@@ -106,9 +130,8 @@ func (r *callRepo) Stats(ctx context.Context, days int) (*models.CallStats, erro
 		Cnt       int64
 	}
 	var dirRows []dirRow
-	if err := db.
+	if err := scope().
 		Select("direction, COUNT(*) AS cnt").
-		Where("started_at >= ?", since).
 		Group("direction").
 		Scan(&dirRows).Error; err != nil {
 		return nil, err
@@ -135,9 +158,9 @@ func (r *callRepo) Stats(ctx context.Context, days int) (*models.CallStats, erro
 	// With a single rate plan this is simply that plan's currency.
 	if stats.TotalCost > 0 {
 		var currency string
-		if err := db.
+		if err := scope().
 			Select("currency").
-			Where("started_at >= ? AND currency <> '' AND cost > 0", since).
+			Where("currency <> '' AND cost > 0").
 			Group("currency").
 			Order("SUM(cost) DESC").
 			Limit(1).
@@ -148,14 +171,13 @@ func (r *callRepo) Stats(ctx context.Context, days int) (*models.CallStats, erro
 
 	// 3) Per-day series (Postgres FILTER aggregates, oldest → newest).
 	var buckets []models.CallStatsBucket
-	if err := db.
+	if err := scope().
 		Select(`to_char(started_at::date, 'YYYY-MM-DD') AS date,
 			COUNT(*) AS total,
 			COUNT(*) FILTER (WHERE direction = 'inbound') AS inbound,
 			COUNT(*) FILTER (WHERE direction = 'outbound') AS outbound,
 			COUNT(*) FILTER (WHERE status IN ('answered','ended')) AS answered,
 			COALESCE(SUM(cost),0) AS cost`).
-		Where("started_at >= ?", since).
 		Group("started_at::date").
 		Order("started_at::date ASC").
 		Scan(&buckets).Error; err != nil {
