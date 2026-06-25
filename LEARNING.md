@@ -582,6 +582,69 @@ forwarding rules → **voicemail** (FreeSWITCH records) → spoken "unavailable"
 - There's also a **visual IVR builder** (`web/app/admin/ivr`) using React Flow, persisting
   flow graphs (nodes: menu/play/condition/transfer/voicemail/hangup) as JSONB in Postgres.
 
+### 13.1 Time-based routing: business hours & availability
+
+Real PBXes don't ring forever at 2 a.m. — they answer "we're closed, call back
+during business hours." This project centralises that *"should this call connect
+right now?"* decision in a reusable module (`src/modules/routing/`) instead of
+scattering `if (open) …` checks across handlers.
+
+**Two schedule layers:**
+- **Global business hours** — one company-wide policy (timezone + weekly open
+  windows). Admin-managed. Closed ⇒ caller hears the *company closed* prompt.
+- **Per-user availability** — an individual extension's working hours. Outside
+  them ⇒ *"the person you're trying to reach is unavailable"*.
+
+**Clean/hexagonal layering** (why it's structured this way — testability + reuse):
+
+```
+domain (entities/enums)             ← plain types, zero I/O
+   ↓
+contracts (repo/provider ifaces)    ← "what I need", not "how"
+   ↓
+services (availability/hours/presence/policy) → build a policy snapshot
+   ↓
+RoutingDecisionEngine.decide()      ← PURE function: (context, policy) → decision
+   ↓
+RoutingOrchestrator.evaluate()      ← facade the handlers call
+   ↓
+infrastructure (Postgres repos, presence adapter over the registration store)
+```
+
+The **decision order lives in exactly one place** (the engine), so every call
+path applies the same rules:
+
+```
+company open? → user within hours? → DND? → online? → queue/extension/voicemail
+```
+
+A decision is a typed object (`{ type, reason, announcementKey, … }`), never a
+stringly-typed branch. `type === PlayAnnouncement` ⇒ the handler plays the prompt
+mapped in `constants/TtsPrompts.ts` and ends the call.
+
+**Where it plugs into the call flow** (all three are *additive, fail-open* — wrapped
+in try/catch so a routing bug can never drop a call):
+
+| Path | File | Gate |
+|---|---|---|
+| Internal extension | `internal.handler.ts` | company-closed / outside-user-hours → announcement, else ring |
+| Queue entry | `queue.handler.ts` | business hours **+** a distinct *no agents online* prompt (vs *all agents busy*) |
+| IVR transfer node | `ivr.system.ts` `flowTransfer` | outside business hours → play `company_closed` on the live endpoint, end as `missed` |
+
+**Storage & API:** the Go API owns persistence (SQL migration `005`), and **all
+schedule writes are admin-only** (`ADMIN_EXTENSIONS`); reads stay open. The admin
+"Working Hours" tab (`web/app/admin/components/HoursTab.tsx`) drives both editors.
+
+> 🔑 Interview soundbite: *"Put the policy in a pure decision engine, not the
+> handlers."* A side-effect-free `decide(context, policy)` is trivially unit-tested
+> across a decision matrix, and every transport (SIP extension, queue, IVR) reuses
+> the identical rule order — no drift, no duplicated `if` ladders.
+>
+> 🔑 **Backward-compatible by design:** no policy ⇒ always open; no user windows ⇒
+> always available. With nothing configured the engine never emits an announcement,
+> so behaviour is identical to before the feature existed. New routing logic should
+> *default to the current behaviour* and only diverge once an admin opts in.
+
 ---
 
 ## 14. Security: toll fraud, TLS, spammers
@@ -717,6 +780,14 @@ A: Externalize stateful pieces — registrations and dialogs — into shared sto
 Valkey), keep per-instance caches in sync (Postgres LISTEN/NOTIFY), put a load balancer in
 front, and size capacity around concurrent media legs (the expensive part), considering media
 anchoring/TURN bandwidth.
+
+**Q: How would you add "business hours" routing without rewriting every handler?**
+A: Centralize the decision in a **pure engine** — `decide(context, policy) → decision` — and
+have a thin orchestrator load the schedule/presence and call it. Each call path (extension,
+queue, IVR transfer) just asks the orchestrator and acts on a typed decision (e.g.
+`PlayAnnouncement`), so the rule order lives in one testable place. Make it **fail-open and
+backward-compatible**: no policy ⇒ always open, and wrap the call in try/catch so a routing
+fault never drops a call. That's exactly how `src/modules/routing/` is built here.
 
 ---
 

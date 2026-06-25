@@ -583,3 +583,77 @@
 - [ ] (Optional, later) True PSTN↔PSTN callback bridge for `sk_` originate; publish
       the package to npm.
 
+## Working Hours & Availability Routing — ✅ DONE
+> **Goal:** centralise the "should this call connect *right now*?" decision in one
+> reusable module so SIP/IVR handlers stop hard-coding schedule logic. Two schedule
+> layers: a **global business-hours policy** (company open/closed) and **per-user
+> availability windows** (a person's working hours). Outside hours the caller hears
+> a spoken announcement instead of ringing forever. **Backward-compatible by
+> default:** no policy ⇒ always open; no user windows ⇒ always available, so
+> existing call flows are unchanged until a schedule is configured.
+>
+> **Design:** a framework-agnostic, clean/hexagonal module under
+> `src/modules/routing/` — `domain` (entities/enums) → `contracts` (repo/provider
+> interfaces) → `services` (availability/business-hours/presence/policy) → a
+> **pure, side-effect-free** `RoutingDecisionEngine` → `RoutingOrchestrator`
+> facade → `infrastructure` (Postgres repos + a presence adapter over the
+> registration store). The engine's decision order lives in **one** place:
+> company hours → user hours → DND → presence → queue/extension/voicemail.
+
+### Routing module (Node — decision core)
+- [x] Module skeleton + domain models/enums (`DecisionType`, `UnavailableReason`,
+      `RoutingContext`, `RoutingDecision`) under `src/modules/routing/`
+- [x] Pure `RoutingDecisionEngine.decide(ctx, policy)` — deterministic tree, no I/O
+- [x] `RoutingOrchestrator.evaluate(ctx)` facade — loads the user profile, builds a
+      policy snapshot, calls the engine
+- [x] Postgres repositories + `DatabasePresenceProvider` (wraps `isRegistered`);
+      missing tables degrade to open/available (no regression)
+- [x] Centralised TTS wording in `constants/TtsPrompts.ts` — `ANNOUNCEMENT_PROMPTS`
+      maps each `announcementKey` to a `say:` prompt; `announcementText()` strips
+      the prefix for callers that re-add it
+
+### SIP / IVR integration (additive gates, fail-open)
+- [x] Internal extension (`internal.handler.ts`): a `PlayAnnouncement` decision
+      (company closed / outside user hours) plays the prompt and ends the call
+      (`missed`) before the ring/registration logic
+- [x] Queue entry (`queue.handler.ts`): pre-enqueue business-hours gate
+      (`company_closed`) **+** a distinct no-agents-online gate via
+      `QueueService.agentAvailability()` (`no_agents_online`) — "all agents busy"
+      stays the existing hold/timeout prompt
+- [x] IVR `transfer` node (`ivr.system.ts` `flowTransfer`): an outside-business-hours
+      decision plays `company_closed` on the live endpoint and returns the new
+      `announced` flow result (leg torn down `missed`) instead of parking on hold
+- [x] Every gate wraps the orchestrator in try/catch and logs-and-continues, so a
+      routing fault can never break a call
+
+### Schedule storage & admin API (Go — system of record)
+- [x] SQL migration `005_routing_hours_and_availability.sql`:
+      `business_hours_policies` (single global row: `timezone`, `enabled`),
+      `business_hours_windows` (`day_of_week` 0–6, `start_minute`/`end_minute`
+      0–1440), `user_availability_windows` (`extension` + windows + `timezone` +
+      `enabled`). Models map onto this SQL and are **not** in AutoMigrate (avoids
+      GORM type churn; `int16` matches `SMALLINT`).
+- [x] `ScheduleRepository`/`Service`/`Handler` + routes under `/api/g`:
+  - `GET /business-hours` — read the global policy (authenticated)
+  - `PUT /business-hours` — replace timezone + enabled + windows (**admin-only**)
+  - `GET /availability/:ext` — read a user's windows (authenticated)
+  - `PUT /availability/:ext` — replace a user's windows (**admin-only**)
+- [x] All schedule **writes are admin-only** (`ADMIN_EXTENSIONS` allow-list, same
+      `requireAdmin` gate as trunks); reads stay open to authenticated users
+- [x] Input validation mirrors the SQL CHECK bounds (day 0–6, `0 ≤ start < end ≤
+      1440`); empty/disabled ⇒ always open/available; timezone defaults to UTC
+
+### Web dashboard
+- [x] Admin **Working Hours** tab (`web/app/admin/components/HoursTab.tsx`): a global
+      business-hours editor (enable + timezone + weekly windows) and a per-user
+      availability editor (pick extension + timezone + windows), with inline bounds
+      validation; wired into the admin nav and `goApi.schedule` (`go-api.ts`)
+
+### Docs / follow-ups
+- [x] `ARCHITECTURE.md` "Routing & Availability" section (module layers, decision
+      order, wiring points, prompt mapping, schedule API) + `ADMIN_EXTENSIONS` env
+- [ ] `RoutingDecisionEngine` unit tests (decision matrix + time-boundary cases)
+- [ ] Business-hours **exceptions/holidays** (one-off closed days) — schema noted in
+      `plan.md` as a later phase, not yet implemented
+
+
