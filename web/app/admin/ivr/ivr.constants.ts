@@ -12,6 +12,7 @@ import {
   PhoneForwarded,
   Voicemail,
   Mail,
+  Bot,
   PhoneOff,
   type LucideIcon,
 } from "lucide-react";
@@ -99,6 +100,14 @@ export const NODE_META: Record<IvrNodeKind, NodeMeta> = {
     addable: true,
     experimental: true,
   },
+  ai_agent: {
+    kind: "ai_agent",
+    title: "AI agent",
+    description: "Hand the call to an AI voice agent that talks with the caller.",
+    icon: Bot,
+    accent: "text-cyan-500 border-cyan-500/40",
+    addable: true,
+  },
   hangup: {
     kind: "hangup",
     title: "Hang up",
@@ -117,6 +126,7 @@ export const PALETTE_KINDS: IvrNodeKind[] = [
   "transfer",
   "voicemail",
   "email",
+  "ai_agent",
   "hangup",
 ];
 
@@ -216,6 +226,12 @@ export function defaultNodeData(kind: IvrNodeKind, extension = ""): IvrNodeData 
         to: "",
         subject: "New IVR call",
         body: "A caller reached this step in the IVR flow.",
+      };
+    case "ai_agent":
+      return {
+        kind: "ai_agent",
+        label: "AI agent",
+        agentId: "",
       };
     case "hangup":
       return { kind: "hangup", label: "Hang up" };

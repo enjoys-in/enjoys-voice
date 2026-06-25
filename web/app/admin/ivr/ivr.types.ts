@@ -33,6 +33,7 @@ export const IVR_NODE_KINDS = [
   "transfer",
   "voicemail",
   "email",
+  "ai_agent",
   "hangup",
 ] as const;
 
@@ -182,6 +183,18 @@ export type HangupNodeData = {
 };
 
 /**
+ * Hands the live call to an AI voice agent. The agent (configured under the AI
+ * Agents tab) runs the STT → LLM → TTS loop and converses with the caller. This
+ * is a terminal block — the agent owns the call from here.
+ */
+export type AiAgentNodeData = {
+  kind: "ai_agent";
+  label: string;
+  /** Id of the AI agent to hand the call to ("" until one is picked). */
+  agentId: string;
+};
+
+/**
  * EXPERIMENTAL — triggers an outbound email via a configured "email" connector
  * when the call reaches this block, then continues. Does nothing if no connector
  * is selected/configured. `to`/`subject`/`body` may reference channel variables
@@ -208,6 +221,7 @@ export type IvrNodeData =
   | TransferNodeData
   | VoicemailNodeData
   | EmailNodeData
+  | AiAgentNodeData
   | HangupNodeData;
 
 // ─── React Flow node/edge aliases ───────────────────────
@@ -219,6 +233,7 @@ export type ConditionNode = Node<ConditionNodeData, "condition">;
 export type TransferNode = Node<TransferNodeData, "transfer">;
 export type VoicemailNode = Node<VoicemailNodeData, "voicemail">;
 export type EmailNode = Node<EmailNodeData, "email">;
+export type AiAgentNode = Node<AiAgentNodeData, "ai_agent">;
 export type HangupNode = Node<HangupNodeData, "hangup">;
 
 export type IvrNode =
@@ -229,6 +244,7 @@ export type IvrNode =
   | TransferNode
   | VoicemailNode
   | EmailNode
+  | AiAgentNode
   | HangupNode;
 
 export type IvrEdge = Edge;

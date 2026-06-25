@@ -12,6 +12,7 @@ import {
   PhoneCall,
   PhoneOutgoing,
   Voicemail,
+  Bot,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +42,7 @@ import {
   type GoRoutingRuleInput,
   type GoRoutingMatchType,
   type GoRoutingDestinationType,
+  type GoAiAgent,
 } from "../../lib/go-api";
 import type { IvrFlowSummary } from "../ivr/ivr.types";
 import { useAuthStore } from "../../stores";
@@ -61,12 +63,14 @@ const DEST_META: Record<
   extension: { label: "Extension", icon: PhoneCall },
   pstn: { label: "PSTN number", icon: PhoneOutgoing },
   voicemail: { label: "Voicemail", icon: Voicemail },
+  ai_agent: { label: "AI agent", icon: Bot },
 };
 
 export function RoutingTab() {
   const myExt = useAuthStore((s) => s.user?.extension) ?? "";
   const [rules, setRules] = useState<GoRoutingRule[] | null>(null);
   const [flows, setFlows] = useState<IvrFlowSummary[]>([]);
+  const [agents, setAgents] = useState<GoAiAgent[]>([]);
   const [loadErr, setLoadErr] = useState(false);
   const [draft, setDraft] = useState<GoRoutingRule | null>(null);
   const [creating, setCreating] = useState(false);
@@ -74,12 +78,14 @@ export function RoutingTab() {
 
   const load = async () => {
     try {
-      const [list, flowList] = await Promise.all([
+      const [list, flowList, agentList] = await Promise.all([
         goApi.routing.list(),
         goApi.ivr.listFlows().catch(() => [] as IvrFlowSummary[]),
+        goApi.aiAgents.list().catch(() => [] as GoAiAgent[]),
       ]);
       setRules(list);
       setFlows(flowList);
+      setAgents(agentList);
     } catch (err) {
       console.error("Failed to load routing rules:", err);
       setLoadErr(true);
@@ -180,6 +186,7 @@ export function RoutingTab() {
               key={r.id}
               rule={r}
               flows={flows}
+              agents={agents}
               onEdit={() => openEdit(r)}
               onDelete={() => setToDelete(r)}
               onToggle={() => toggleEnabled(r)}
@@ -192,6 +199,7 @@ export function RoutingTab() {
         draft={draft}
         creating={creating}
         flows={flows}
+        agents={agents}
         myExt={myExt}
         onClose={() => setDraft(null)}
         onSaved={async () => {
@@ -217,12 +225,14 @@ export function RoutingTab() {
 function RoutingRow({
   rule,
   flows,
+  agents,
   onEdit,
   onDelete,
   onToggle,
 }: {
   rule: GoRoutingRule;
   flows: IvrFlowSummary[];
+  agents: GoAiAgent[];
   onEdit: () => void;
   onDelete: () => void;
   onToggle: () => void;
@@ -251,7 +261,7 @@ function RoutingRow({
               <DestIcon className="h-3.5 w-3.5 shrink-0" />
               <span>
                 {meta.label}
-                {describeDestination(rule, flows)}
+                {describeDestination(rule, flows, agents)}
               </span>
             </div>
           </div>
@@ -287,11 +297,19 @@ function RoutingRow({
 }
 
 // describeDestination renders the human-readable target for a rule's row.
-function describeDestination(rule: GoRoutingRule, flows: IvrFlowSummary[]): string {
+function describeDestination(
+  rule: GoRoutingRule,
+  flows: IvrFlowSummary[],
+  agents: GoAiAgent[],
+): string {
   if (rule.destinationType === "voicemail") return "";
   if (rule.destinationType === "ivr") {
     const flow = flows.find((f) => f.extension === rule.destinationValue);
     return flow ? ` · ${flow.name} (${flow.extension})` : ` · ${rule.destinationValue}`;
+  }
+  if (rule.destinationType === "ai_agent") {
+    const agent = agents.find((a) => String(a.id) === rule.destinationValue);
+    return agent ? ` · ${agent.name}` : ` · #${rule.destinationValue}`;
   }
   return ` · ${rule.destinationValue}`;
 }
@@ -302,6 +320,7 @@ function RoutingDialog({
   draft,
   creating,
   flows,
+  agents,
   myExt,
   onClose,
   onSaved,
@@ -309,6 +328,7 @@ function RoutingDialog({
   draft: GoRoutingRule | null;
   creating: boolean;
   flows: IvrFlowSummary[];
+  agents: GoAiAgent[];
   myExt: string;
   onClose: () => void;
   onSaved: () => void;
@@ -419,6 +439,7 @@ function RoutingDialog({
                 <SelectItem value="extension">Internal extension</SelectItem>
                 <SelectItem value="pstn">PSTN number</SelectItem>
                 <SelectItem value="voicemail">Voicemail</SelectItem>
+                <SelectItem value="ai_agent">AI agent</SelectItem>
               </SelectContent>
             </Select>
           </DialogField>
@@ -444,6 +465,34 @@ function RoutingDialog({
                   {flows.map((f) => (
                     <SelectItem key={f.id} value={f.extension}>
                       {f.name} ({f.extension})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </DialogField>
+          )}
+
+          {destinationType === "ai_agent" && (
+            <DialogField
+              label="AI agent"
+              hint={
+                agents.length === 0
+                  ? "You have no AI agents yet — create one in the AI Agents tab first."
+                  : "One of your own AI voice agents answers the call."
+              }
+            >
+              <Select
+                value={destinationValue}
+                onValueChange={(v) => setDestinationValue(v ?? "")}
+                disabled={agents.length === 0}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select an agent" />
+                </SelectTrigger>
+                <SelectContent>
+                  {agents.map((a) => (
+                    <SelectItem key={a.id} value={String(a.id)}>
+                      {a.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
