@@ -1,9 +1,13 @@
-<configuration name="tts_commandline.conf" description="TextToSpeech Commandline configuration (Piper neural TTS — test override)">
+<configuration name="tts_commandline.conf" description="TextToSpeech Commandline configuration (Piper neural TTS)">
     <settings>
 	<!--
-	Override copy used ONLY by the freeswitch-piper-test container.
-	The original (../../freeswitch_configs/autoload_configs/tts_commandline.conf.xml)
-	is left untouched; this file is bind-mounted on top of it at runtime.
+	Piper TTS engine for mod_tts_commandline. This file is:
+	  1) BAKED into the published image (the Dockerfile COPYs it to
+	     /etc/freeswitch/autoload_configs/tts_commandline.conf.xml) so Piper
+	     works out of the box, and
+	  2) bind-mounted on top of the read-only configs by the
+	     freeswitch-piper-test container.
+	Either way, mounting your own file (or whole /etc/freeswitch) overrides it.
 
 	Variables substituted by mod_tts_commandline:
 	${text}:  input text (quoted)

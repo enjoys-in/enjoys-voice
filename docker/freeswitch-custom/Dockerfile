@@ -58,3 +58,28 @@ RUN echo "freeswitch piper build check" \
  && test -s /tmp/_piper_check.wav \
  && rm -f /tmp/_piper_check.wav \
  && echo "Piper OK"
+
+# ── Wire Piper in as the DEFAULT TTS engine (works out of the box, no mounts) ──
+# The stock image ships mod_tts_commandline DISABLED and pointed at festival's
+# text2wave, so a freshly pulled image would NOT speak with Piper unless you
+# mounted configs. Bake the wiring so it just works:
+#   1) point mod_tts_commandline at the Piper binary (overwrite the festival cfg),
+#   2) load the module (it's commented out in the stock modules.conf.xml),
+#   3) set FreeSWITCH's default tts_engine + tts_voice to Piper + the baked voice.
+#
+# IMPORTANT: at build time there is NO /etc/freeswitch — the base image's
+# /docker-entrypoint.sh copies /usr/share/freeswitch/conf/vanilla/* into
+# /etc/freeswitch on FIRST start (only when /etc/freeswitch/freeswitch.xml is
+# absent). So we patch the VANILLA source. A bare image then boots Piper-wired;
+# bind-mount your own /etc/freeswitch (or a single file) and the entrypoint skips
+# the copy / your mount shadows ours, so YOURS wins.
+COPY config/tts_commandline.conf.xml /usr/share/freeswitch/conf/vanilla/autoload_configs/tts_commandline.conf.xml
+RUN set -eux; \
+    conf=/usr/share/freeswitch/conf/vanilla; \
+    sed -i 's|<!-- *<load module="mod_tts_commandline"/> *-->|<load module="mod_tts_commandline"/>|' \
+        "$conf/autoload_configs/modules.conf.xml"; \
+    grep -q '<load module="mod_tts_commandline"/>' "$conf/autoload_configs/modules.conf.xml"; \
+    sed -i "s|</include>|  <X-PRE-PROCESS cmd=\"set\" data=\"tts_engine=tts_commandline\"/>  <X-PRE-PROCESS cmd=\"set\" data=\"tts_voice=${PIPER_VOICE}\"/></include>|" \
+        "$conf/vars.xml"; \
+    grep -q "tts_voice=${PIPER_VOICE}" "$conf/vars.xml"; \
+    echo "Piper wired as default TTS (engine=tts_commandline, voice=${PIPER_VOICE})"
