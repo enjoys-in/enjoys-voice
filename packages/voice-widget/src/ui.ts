@@ -1,3 +1,4 @@
+import { Ringback } from "./ringback";
 import type { WidgetConfig, WidgetState } from "./types";
 
 // Self-contained, framework-free UI: a floating action button that opens a
@@ -9,6 +10,7 @@ import type { WidgetConfig, WidgetState } from "./types";
 export interface UIOptions {
   position: "bottom-right" | "bottom-left";
   accentColor?: string;
+  theme?: "auto" | "light" | "dark";
   buttonLabel?: string;
   title?: string;
   gifs?: boolean;
@@ -19,8 +21,6 @@ export interface UIOptions {
   onHangup: () => void;
   onDtmf: (tone: string) => void;
 }
-
-const STYLE_ID = "evw-styles";
 
 const PHONE_ICON =
   '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>';
@@ -45,6 +45,7 @@ const STATUS_TEXT: Record<WidgetState, string> = {
 const DTMF_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
 export class WidgetUI {
+  private host: HTMLDivElement;
   private root: HTMLDivElement;
   private fab: HTMLButtonElement;
   private panel: HTMLDivElement;
@@ -63,12 +64,12 @@ export class WidgetUI {
   private connected = false; // SIP transport pre-warmed and ready
   private timerId?: number;
   private callStartedAt?: number;
+  private ringback = new Ringback(); // local "ring-ring" while the call connects
 
   constructor(private opts: UIOptions) {
-    injectStyles(opts.accentColor);
-
     this.root = el("div", `evw-root evw-${opts.position}`);
     this.root.dataset.state = "validating";
+    this.root.dataset.theme = opts.theme ?? "auto";
 
     // ── Call panel ───────────────────────────────────────────
     this.panel = el("div", "evw-panel");
@@ -99,8 +100,13 @@ export class WidgetUI {
     this.actionBtn.type = "button";
     this.actionBtn.disabled = true;
     this.actionBtn.addEventListener("click", () => {
-      if (this.active) this.opts.onHangup();
-      else this.opts.onCall();
+      if (this.active) {
+        this.opts.onHangup();
+      } else {
+        // Unlock audio within the click gesture so the ringback can play.
+        this.ringback.prime();
+        this.opts.onCall();
+      }
     });
 
     this.keypad = el("div", "evw-keypad");
@@ -146,7 +152,17 @@ export class WidgetUI {
     }
 
     this.root.append(this.panel, this.toastEl, fabNode);
-    document.body.appendChild(this.root);
+
+    // Mount the whole widget inside a shadow root so the embedding site's CSS
+    // can't reach in (and ours can't leak out). `:host{all:initial}` also blocks
+    // inherited properties (font/color/line-height…) from crossing the boundary,
+    // so the widget renders identically on every page, light or dark.
+    this.host = el("div", "evw-host");
+    const shadow = this.host.attachShadow({ mode: "open" });
+    const style = document.createElement("style");
+    style.textContent = buildStyles(opts.accentColor);
+    shadow.append(style, this.root);
+    document.body.appendChild(this.host);
   }
 
   /** Mark the widget validated and enable the call action. */
@@ -168,6 +184,11 @@ export class WidgetUI {
   setState(state: WidgetState): void {
     this.active = state === "connecting" || state === "ringing" || state === "in-call";
     this.root.dataset.state = state;
+
+    // Audible ringback while the call is being set up / ringing; silence it once
+    // it's answered, ended, or failed (remote audio takes over on answer).
+    if (state === "connecting" || state === "ringing") this.ringback.start();
+    else this.ringback.stop();
 
     // In-call shows a live timer; every other state shows its label.
     if (state === "in-call") {
@@ -229,9 +250,10 @@ export class WidgetUI {
 
   destroy(): void {
     this.stopTimer();
+    this.ringback.destroy();
     if (this.gifMove) window.removeEventListener("pointermove", this.gifMove);
     if (this.gifTimer) window.clearTimeout(this.gifTimer);
-    this.root.remove();
+    this.host.remove();
   }
 
   /**
@@ -319,13 +341,24 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string): H
   return node;
 }
 
-function injectStyles(accent?: string): void {
-  if (document.getElementById(STYLE_ID)) return;
+const DARK_VARS =
+  "--evw-surface:#0f172a;--evw-text:#e2e8f0;--evw-text-strong:#f1f5f9;--evw-text-soft:#94a3b8;" +
+  "--evw-text-faint:#94a3b8;--evw-border:rgba(255,255,255,.08);--evw-panel-shadow:0 18px 50px rgba(0,0,0,.5);" +
+  "--evw-key-bg:#1e293b;--evw-key-border:#334155;--evw-key-hover:#334155;--evw-key-active:#475569;" +
+  "--evw-close-hover-bg:#1e293b;--evw-dot-idle:#475569;--evw-toast-bg:#1e293b;--evw-toast-text:#fff";
+
+/**
+ * Build the widget's stylesheet. It is injected INSIDE the shadow root (not the
+ * page <head>), so nothing here leaks onto the host page and the host page's CSS
+ * can't reach in. Theme-dependent colors are CSS variables: the light values are
+ * the default; the dark values apply when the host forces data-theme="dark" or
+ * — for data-theme="auto" — when the visitor's OS is in dark mode.
+ */
+function buildStyles(accent?: string): string {
   const color = accent || "#4f46e5";
-  const style = document.createElement("style");
-  style.id = STYLE_ID;
-  style.textContent = `
-.evw-root{position:fixed;z-index:2147483000;bottom:22px;display:flex;flex-direction:column;gap:14px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  return `
+:host{all:initial!important}
+.evw-root{--evw-surface:#fff;--evw-text:#0f172a;--evw-text-strong:#0f172a;--evw-text-soft:#64748b;--evw-text-faint:#94a3b8;--evw-border:rgba(2,6,23,.06);--evw-panel-shadow:0 18px 50px rgba(2,6,23,.28),0 2px 8px rgba(2,6,23,.12);--evw-key-bg:#f8fafc;--evw-key-border:#e2e8f0;--evw-key-hover:#f1f5f9;--evw-key-active:#e2e8f0;--evw-close-hover-bg:#f1f5f9;--evw-dot-idle:#cbd5e1;--evw-toast-bg:#0f172a;--evw-toast-text:#fff;position:fixed;z-index:2147483000;bottom:22px;display:flex;flex-direction:column;gap:14px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
 .evw-bottom-right{right:22px;align-items:flex-end}
 .evw-bottom-left{left:22px;align-items:flex-start}
 /* Reset host-page button styles so a global button{} on the embedding site
@@ -353,7 +386,7 @@ function injectStyles(accent?: string): void {
 .evw-gif--show{opacity:1;transform:translate(-50%,0) scale(1)}
 
 /* Panel */
-.evw-panel{width:300px;background:#fff;color:#0f172a;border-radius:18px;box-shadow:0 18px 50px rgba(2,6,23,.28),0 2px 8px rgba(2,6,23,.12);border:1px solid rgba(2,6,23,.06);padding:18px;opacity:0;transform:translateY(14px) scale(.97);transform-origin:bottom right;pointer-events:none;transition:opacity .2s ease,transform .22s cubic-bezier(.34,1.4,.64,1)}
+.evw-panel{width:300px;background:var(--evw-surface);color:var(--evw-text);border-radius:18px;box-shadow:var(--evw-panel-shadow);border:1px solid var(--evw-border);padding:18px;opacity:0;transform:translateY(14px) scale(.97);transform-origin:bottom right;pointer-events:none;transition:opacity .2s ease,transform .22s cubic-bezier(.34,1.4,.64,1)}
 .evw-bottom-left .evw-panel{transform-origin:bottom left}
 .evw-open .evw-panel{opacity:1;transform:translateY(0) scale(1);pointer-events:auto}
 
@@ -362,16 +395,16 @@ function injectStyles(accent?: string): void {
 .evw-avatar{flex:none;width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;background:linear-gradient(135deg,${color},color-mix(in srgb,${color} 65%,#000));box-shadow:0 4px 12px color-mix(in srgb,${color} 40%,transparent)}
 .evw-avatar svg{width:20px;height:20px}
 .evw-headtext{flex:1;min-width:0}
-.evw-title{font-weight:650;font-size:15px;line-height:1.25;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.evw-title{font-weight:650;font-size:15px;line-height:1.25;color:var(--evw-text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .evw-statusrow{display:flex;align-items:center;gap:6px;margin-top:3px}
-.evw-dot{width:8px;height:8px;border-radius:50%;background:#cbd5e1;flex:none;transition:background .2s ease,box-shadow .2s ease}
-.evw-sub{font-size:12.5px;color:#64748b;line-height:1.2}
+.evw-dot{width:8px;height:8px;border-radius:50%;background:var(--evw-dot-idle);flex:none;transition:background .2s ease,box-shadow .2s ease}
+.evw-sub{font-size:12.5px;color:var(--evw-text-soft);line-height:1.2}
 .evw-connected .evw-dot,.evw-root[data-state="in-call"] .evw-dot{background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.18)}
 .evw-root[data-state="connecting"] .evw-dot,.evw-root[data-state="ringing"] .evw-dot{background:#f59e0b;animation:evw-blink 1s steps(2,start) infinite}
 .evw-root[data-state="error"] .evw-dot,.evw-root[data-state="invalid"] .evw-dot{background:#ef4444}
 @keyframes evw-blink{50%{opacity:.35}}
-.evw-close{flex:none;border:none;background:transparent;color:#94a3b8;cursor:pointer;padding:4px;border-radius:8px;display:flex;transition:background .15s ease,color .15s ease}
-.evw-close:hover{background:#f1f5f9;color:#0f172a}
+.evw-close{flex:none;border:none;background:transparent;color:var(--evw-text-faint);cursor:pointer;padding:4px;border-radius:8px;display:flex;transition:background .15s ease,color .15s ease}
+.evw-close:hover{background:var(--evw-close-hover-bg);color:var(--evw-text-strong)}
 
 /* Primary action */
 .evw-action{width:100%;border:none;border-radius:12px;cursor:pointer;color:#fff;background:linear-gradient(135deg,${color},color-mix(in srgb,${color} 70%,#000));font-size:14px;font-weight:600;padding:12px;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 16px color-mix(in srgb,${color} 35%,transparent);transition:transform .12s ease,box-shadow .2s ease,opacity .2s ease}
@@ -384,29 +417,21 @@ function injectStyles(accent?: string): void {
 /* DTMF keypad */
 .evw-keypad{display:none;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
 .evw-keypad--show{display:grid}
-.evw-key{border:1px solid #e2e8f0;background:#f8fafc;border-radius:10px;padding:11px 0;font-size:16px;font-weight:600;color:#0f172a;cursor:pointer;transition:background .12s ease,transform .08s ease}
-.evw-key:hover{background:#f1f5f9}
-.evw-key:active{background:#e2e8f0;transform:scale(.96)}
+.evw-key{border:1px solid var(--evw-key-border);background:var(--evw-key-bg);border-radius:10px;padding:11px 0;font-size:16px;font-weight:600;color:var(--evw-text);cursor:pointer;transition:background .12s ease,transform .08s ease}
+.evw-key:hover{background:var(--evw-key-hover)}
+.evw-key:active{background:var(--evw-key-active);transform:scale(.96)}
 
 /* Footer */
-.evw-footer{margin-top:14px;font-size:11px;color:#94a3b8;display:flex;align-items:center;justify-content:center;gap:5px}
+.evw-footer{margin-top:14px;font-size:11px;color:var(--evw-text-faint);display:flex;align-items:center;justify-content:center;gap:5px}
 .evw-footer svg{opacity:.8}
 
 /* Error toast */
-.evw-toast{max-width:300px;background:#0f172a;color:#fff;font-size:12.5px;line-height:1.4;padding:10px 13px;border-radius:12px;box-shadow:0 8px 24px rgba(2,6,23,.3);opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .2s ease,transform .2s ease}
+.evw-toast{max-width:300px;background:var(--evw-toast-bg);color:var(--evw-toast-text);font-size:12.5px;line-height:1.4;padding:10px 13px;border-radius:12px;box-shadow:0 8px 24px rgba(2,6,23,.3);opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .2s ease,transform .2s ease}
 .evw-toast--show{opacity:1;transform:translateY(0)}
 
-@media (prefers-color-scheme:dark){
-.evw-panel{background:#0f172a;color:#e2e8f0;border-color:rgba(255,255,255,.08);box-shadow:0 18px 50px rgba(0,0,0,.5)}
-.evw-title{color:#f1f5f9}
-.evw-sub{color:#94a3b8}
-.evw-close{color:#94a3b8}
-.evw-close:hover{background:#1e293b;color:#fff}
-.evw-key{background:#1e293b;border-color:#334155;color:#e2e8f0}
-.evw-key:hover{background:#334155}
-.evw-key:active{background:#475569}
-.evw-dot{background:#475569}
-}
+/* Theme overrides: dark variable values. Forced via data-theme="dark", or
+   applied for data-theme="auto" when the OS prefers dark. Light is the default. */
+.evw-root[data-theme="dark"]{${DARK_VARS}}
+@media (prefers-color-scheme:dark){.evw-root[data-theme="auto"]{${DARK_VARS}}}
 `;
-  document.head.appendChild(style);
 }

@@ -29,6 +29,13 @@ export interface WidgetOptions {
   position?: "bottom-right" | "bottom-left";
   /** Accent color (any CSS color) for the button + primary action. */
   accentColor?: string;
+  /**
+   * Color theme for the widget UI. "auto" (default) follows the visitor's OS
+   * setting (prefers-color-scheme); "light"/"dark" force a fixed theme so it can
+   * match the embedding site. The widget renders in an isolated shadow root, so
+   * the host page's CSS never affects it regardless of theme.
+   */
+  theme?: "auto" | "light" | "dark";
   /** Accessible label for the floating button. Default "Call us". */
   buttonLabel?: string;
   /** Heading shown in the call panel. Defaults to the key's label/destination. */
