@@ -97,13 +97,77 @@ export interface WebhookDeliverJob {
   body: WebhookEventPayload;
 }
 
+/**
+ * Final outcome statuses written to a call record. Defined as a const object so
+ * call sites reference a named, strongly-typed value instead of a bare string
+ * literal scattered through the SIP/IVR code.
+ */
+export const CallStatus = {
+  Ringing: 'ringing',
+  Answered: 'answered',
+  Ended: 'ended',
+  Missed: 'missed',
+  Failed: 'failed',
+  Voicemail: 'voicemail',
+  Unreachable: 'unreachable',
+} as const;
+export type CallStatus = (typeof CallStatus)[keyof typeof CallStatus];
+
+/**
+ * Why a call entered the offline/unreachable fallback chain
+ * (SipServer.routeUnreachable). Controls voicemail gating + the spoken status
+ * tone: only `Offline` may go to voicemail; `Busy`/`NoAnswer` play a tone and
+ * are recorded as missed.
+ */
+export const UnreachableReason = {
+  Busy: 'busy',
+  NoAnswer: 'no_answer',
+  Offline: 'offline',
+} as const;
+export type UnreachableReason = (typeof UnreachableReason)[keyof typeof UnreachableReason];
+
+/** Direction of a call relative to our platform. */
+export const CallDirection = {
+  Inbound: 'inbound',
+  Outbound: 'outbound',
+} as const;
+export type CallDirection = (typeof CallDirection)[keyof typeof CallDirection];
+
+/**
+ * Call-lifecycle events pushed to the caller over the signaling WebSocket
+ * (SipServer.notifyFn). Named constants so producers don't sprinkle bare
+ * string literals; the values are the wire contract the web client listens for.
+ */
+export const CallNotifyEvent = {
+  Ringing: 'ringing',
+  Answered: 'answered',
+  Declined: 'declined',
+  NoAnswer: 'no_answer',
+  Forwarding: 'forwarding',
+  Unavailable: 'unavailable',
+  Failed: 'failed',
+} as const;
+export type CallNotifyEvent = (typeof CallNotifyEvent)[keyof typeof CallNotifyEvent];
+
+/** Why a call-notify event fired (the `reason` field on the notify payload). */
+export const CallNotifyReason = {
+  Blocked: 'blocked',
+  Busy: 'busy',
+  PstnFailed: 'pstn_failed',
+  Voicemail: 'voicemail',
+  Dnd: 'dnd',
+  Error: 'error',
+  ForwardFailed: 'forward_failed',
+} as const;
+export type CallNotifyReason = (typeof CallNotifyReason)[keyof typeof CallNotifyReason];
+
 export interface CallLog {
   id: string;
   from: string;
   to: string;
   fromName: string;
-  status: 'ringing' | 'answered' | 'ended' | 'missed' | 'failed' | 'voicemail' | 'unreachable';
-  direction: 'inbound' | 'outbound';
+  status: CallStatus;
+  direction: CallDirection;
   startTime: string;
   endTime?: string;
   duration?: number;
