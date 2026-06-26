@@ -11,7 +11,7 @@ import { IVRSystem } from './ivr.system';
 import { SipAbuseGuard } from './abuse-guard';
 import {
   TrunkInboundHandler, TeamsMeetingHandler, ConferenceHandler, QueueHandler, EmergencyHandler, IvrHandler,
-  InternalHandler, ExternalHandler, WidgetHandler,
+  InternalHandler, ExternalHandler, SipUriHandler, WidgetHandler,
   type RouteHandler, type CallContext, type RouteServices,
 } from './routes';
 
@@ -42,6 +42,7 @@ export class SipServer {
     new EmergencyHandler(),
     this.ivrHandler,
     this.internalHandler,
+    new SipUriHandler(),
     new ExternalHandler(),
   ];
 
@@ -272,7 +273,11 @@ export class SipServer {
         // extension trying to use our trunk, etc.) is a probe → fast 403, an
         // offense toward an IP ban, and NO "missed call" left behind.
         const fromTrunk = this.trunk.isFromTrunk(ip);
-        const route = this.dialPlan.resolve(calledNumber);
+        // An INVITE whose Request-URI host is an approved external SIP peer is an
+        // outbound SIP-to-SIP call; otherwise fall back to the normal in-domain
+        // (user-part) dial-plan resolution. resolveExternalSip returns null when
+        // no peer matches, so default deployments (no SIP_PEERS) are unaffected.
+        const route = this.dialPlan.resolveExternalSip(req.uri) ?? this.dialPlan.resolve(calledNumber);
         if (!fromTrunk && !widgetClaims && !this.isInviteLegitimate(route, callingNumber)) {
           this.abuse.recordOffense(ip, `unroutable:${route.type}`);
           console.warn(`🚫 Rejected INVITE ${callingNumber} → ${calledNumber} (${route.type}, src ${ip}) — not routable/spoofed`);
@@ -445,6 +450,8 @@ export class SipServer {
       case RouteType.Internal:
         return !!this.db.getUser(route.target);
       case RouteType.External:
+        return this.db.isRegistered(caller);
+      case RouteType.SipUri:
         return this.db.isRegistered(caller);
       case RouteType.Conference:
         return this.db.isRegistered(caller);

@@ -3,7 +3,7 @@ export { TrunkService } from './trunk.service';
 export { AuditService } from './audit.service';
 export { CallMetricsService } from './metrics.service';
 export type { MetricsSnapshot } from './metrics.service';
-export { DialPlanService, RouteType } from './dialplan.service';
+export { DialPlanService, RouteType, findSipPeer } from './dialplan.service';
 export { ConferenceService } from './conference.service';
 export type {
   ConferenceRoom,

@@ -1,5 +1,33 @@
 import { CallLog, SipUser } from './types';
 
+/**
+ * An approved external SIP peer an internal user may place calls to (SIP-to-SIP
+ * federation). `host` is the ALLOWLIST KEY: it is matched against the inbound
+ * INVITE's Request-URI host, so a user can only reach a pre-approved domain —
+ * never an arbitrary one (no open relay / toll-fraud vector). The remaining
+ * fields shape the outbound leg: optional digest `username`/`password`, an
+ * `proxy` (network target when it differs from `host`), and the `from*`
+ * overrides some peers require for their From identity.
+ */
+export interface SipPeer {
+  /** Domain/IP matched against the Request-URI host (the allowlist key). */
+  host: string;
+  /** Outbound port (default: the peer's SIP default, 5060). */
+  port?: number;
+  /** Outbound transport. */
+  transport?: 'udp' | 'tcp' | 'tls';
+  /** Digest auth username (when the peer challenges). */
+  username?: string;
+  /** Digest auth password. */
+  password?: string;
+  /** Outbound proxy (host[:port]) to send to when it differs from `host`. */
+  proxy?: string;
+  /** Override the From user-part (e.g. a fixed auth user / DID the peer expects). */
+  fromUser?: string;
+  /** Override the From host-part (default: our own SIP domain). */
+  fromHost?: string;
+}
+
 export interface AppConfig {
   server: {
     httpPort: number;
@@ -53,6 +81,9 @@ export interface AppConfig {
     // provider's SIP signaling edges (Twilio Elastic SIP Trunk). Empty = none.
     inboundIps: string[];
   };
+  // Approved external SIP peers a registered user may dial (SIP-to-SIP). Empty
+  // (no SIP_PEERS) = feature dormant: no external SIP dialing is possible.
+  sipPeers: SipPeer[];
   ivr: {
     enabled: boolean;
     entryExtension: string;
@@ -280,6 +311,61 @@ function parseQueueDefinitions(raw: string): Array<{ id: string; name: string; a
     .filter((q) => q.id && q.agents.length > 0);
 }
 
+// Parse the SIP_PEERS env var into the external SIP-peer allowlist. Entries are
+// `;`-separated; within an entry, fields are `|`-separated. The FIRST field is
+// the bare host (the allowlist key); the rest are `key=value` options:
+//   host[|port=5060][|transport=udp|tcp|tls][|user=..][|pass=..][|proxy=h:p]
+//   [|fromuser=..][|fromhost=..]
+// e.g. SIP_PEERS="partner.example.com|transport=tls|user=callnet|pass=secret;sip.acme.io|port=5070"
+// A malformed entry (no host) is skipped so one typo can't break the list.
+function parseSipPeers(raw: string): SipPeer[] {
+  const peers: SipPeer[] = [];
+  for (const entry of raw.split(';')) {
+    const parts = entry.split('|').map((p) => p.trim()).filter(Boolean);
+    if (parts.length === 0) continue;
+    const host = parts[0].toLowerCase();
+    // First field must be a bare host, not a key=value option.
+    if (!host || host.includes('=')) continue;
+    const peer: SipPeer = { host };
+    for (const field of parts.slice(1)) {
+      const eq = field.indexOf('=');
+      if (eq < 0) continue;
+      const key = field.slice(0, eq).trim().toLowerCase();
+      const value = field.slice(eq + 1).trim();
+      if (!value) continue;
+      switch (key) {
+        case 'port': {
+          const n = parseInt(value, 10);
+          if (Number.isInteger(n) && n > 0 && n < 65536) peer.port = n;
+          break;
+        }
+        case 'transport':
+          if (value === 'udp' || value === 'tcp' || value === 'tls') peer.transport = value;
+          break;
+        case 'user':
+        case 'username':
+          peer.username = value;
+          break;
+        case 'pass':
+        case 'password':
+          peer.password = value;
+          break;
+        case 'proxy':
+          peer.proxy = value;
+          break;
+        case 'fromuser':
+          peer.fromUser = value;
+          break;
+        case 'fromhost':
+          peer.fromHost = value;
+          break;
+      }
+    }
+    peers.push(peer);
+  }
+  return peers;
+}
+
 export const config: AppConfig = {
   server: {
     httpPort: parseInt(process.env.HTTP_PORT || '3001'),
@@ -338,6 +424,8 @@ export const config: AppConfig = {
       .map((s) => s.trim())
       .filter(Boolean),
   },
+  // External SIP peers a registered user may dial (SIP-to-SIP). Empty by default.
+  sipPeers: parseSipPeers(process.env.SIP_PEERS || ''),
   ivr: {
     enabled: process.env.IVR_ENABLED !== 'false',
     entryExtension: process.env.IVR_ENTRY || '5000',
