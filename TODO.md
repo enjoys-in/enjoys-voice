@@ -267,8 +267,22 @@
 - [ ] STIR/SHAKEN: a verified-but-not-owned number gets ~B-level attestation (fine
       for most; a few carriers may still label the call). Full A-level needs an
       **owned** DID (a larger, separate feature).
-- [ ] Re-verify on number change; expire/invalidate stale verifications; one
-      verified CLI per user for now.
+- [x] Re-verify on number change; expire/invalidate stale verifications; one
+      verified CLI per user. **Implemented (age-based, NO provider re-check):**
+      (1) *re-verify on change* — only the verify flow writes the caller-ID
+      columns; `StartVerification` always resets `caller_id_verified=false` for
+      the new number, and the generic settings update never touches them
+      (`server/internal/service/settings_service.go`). (2) *expiry* — a verified
+      CLI is valid for `CALLER_ID_VERIFY_TTL_DAYS` (default 90); past that the Go
+      status API reports it unverified (`caller_id_service.go` `isStale`/`statusOf`)
+      **and** the Node SQL gate drops it from the call path
+      (`src/services/postgres/detail.repo.ts` — `caller_id_verified_at` within
+      the window), self-healing on the next REGISTER/restart via `settings_changed`
+      NOTIFY. No timestamp ⇒ treated as stale. (3) *one CLI per user* — enforced
+      structurally by the single `outbound_caller_id` column. **Out of scope (by
+      decision):** a provider-side (Twilio `OutgoingCallerIds`) existence re-check
+      — would add a per-call/round-trip dependency; time-based expiry is enough.
+
 - [ ] Provider lock-in: verified caller ID is per-provider (Twilio-only until the
       other providers are wired into the live app).
 - [x] Rate-limit `verify/start` (anti-abuse — each call triggers a real, billable

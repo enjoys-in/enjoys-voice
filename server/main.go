@@ -122,7 +122,7 @@ func main() {
 	// SMS delivery. With no credentials configured it stays disabled and the
 	// dependent endpoints return 503.
 	twilioClient := twilio.NewClient(cfg.Twilio.AccountSID, cfg.Twilio.AuthToken, cfg.Twilio.SMSFrom)
-	callerIDSvc := service.NewCallerIDService(settingsRepo, userRepo, twilioClient, valkey)
+	callerIDSvc := service.NewCallerIDService(settingsRepo, userRepo, twilioClient, valkey, cfg.CallerIDVerifyTTL)
 	// OTP service: SMS one-time passwords for mobile-verified signup and
 	// passwordless login. Reuses authSvc so signup-via-OTP shares account creation.
 	otpSvc := service.NewOTPService(authSvc, userRepo, twilioClient, valkey, cfg.OTPDevEcho)
