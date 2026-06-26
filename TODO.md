@@ -102,12 +102,13 @@
 
 ## Go Voice Core (sipgo)
 
-> Trunk **management** (model + CRUD + persistence + connectivity probe) now
-> lives in the Go API; endpoints are mounted under `/api/g/trunks` and are
-> admin-only (`ADMIN_EXTENSIONS` allow-list). The deeper SIP-signalling pieces
-> (periodic REGISTER, in/outbound call routing in Go, continuous registration
-> health) remain with the Node/drachtio engine and are a separate, larger
-> re-architecture — left unchecked below on purpose.
+> Trunk **management** (model + CRUD + persistence + connectivity probe) lives in
+> the Go API; endpoints are mounted under `/api/g/trunks` and are admin-only
+> (`ADMIN_EXTENSIONS` allow-list). **Decision (2026-06-26): the deeper
+> SIP-signalling work — periodic REGISTER, in/outbound call routing in Go,
+> continuous registration health, config hot-reload, and the Node↔Go re-split —
+> is DROPPED. The Node/drachtio engine remains the call path; only trunk
+> management lives in Go.**
 - [x] Trunk model: `{ id, name, host, port, transport, username, password, callerNumber, prefix, codecs, enabled }`
       (`models.Trunk`; also persists `last_status` / `last_tested_at`. Password is
       stored but never serialized back — the API exposes only `has_password`.)
@@ -118,15 +119,9 @@
   - `PUT /api/g/trunks/:id` — update trunk (omit `password` to keep the stored secret)
   - `DELETE /api/g/trunks/:id` — delete trunk
   - `POST /api/g/trunks/:id/test` — SIP OPTIONS ping (udp/tcp/tls), persists `last_status`
-- [ ] Trunk registration: periodic REGISTER to upstream providers
-- [ ] Outbound routing: Go handles PSTN/external calls via configured trunks
-- [ ] Inbound routing: receive calls from trunks, forward to Node SIP server
-- [~] Health checks: monitor trunk status — partial. `POST /trunks/:id/test`
-      runs an on-demand SIP OPTIONS probe and stores `ok`/`unreachable`;
-      continuous registered/failed/retrying monitoring is still pending.
+- [x] Health checks: on-demand `POST /trunks/:id/test` SIP OPTIONS probe stores
+      `ok`/`unreachable` (continuous registration monitoring is out of scope)
 - [x] Database: PostgreSQL for trunk persistence (`trunks` table, AutoMigrated)
-- [ ] Config hot-reload: update trunk config without restart
-- [ ] Integrate with Node server: Go handles trunks, Node handles WebRTC/WS clients
 - [x] Admin UI: Trunks tab (list / create / edit / delete / test) wired to `goApi.trunks`
 
 ## Sound Upload: IVR Normalization (ffmpeg)
@@ -238,8 +233,6 @@
 - [x] Ownership: derive `extension` / `user_id` from the JWT
       (`c.GetString("extension")`), never from the request body (same IDOR fix as
       voicemail/sounds).
-- [ ] **Out of scope (explicit):** our own SMS OTP sender (`trunk.sendSms`) — the
-      provider performs the verification.
 
 ### Outbound `From` override (Node SIP path)
 - [x] Node: add `outboundCallerId?: string` to `SipUser` (`src/core/types.ts`),
@@ -658,7 +651,6 @@
 - [x] `ARCHITECTURE.md` "Routing & Availability" section (module layers, decision
       order, wiring points, prompt mapping, schedule API) + `ADMIN_EXTENSIONS` env
 - [x] `LEARNING.md` §13.1 "Time-based routing" concept section + interview Q&A
-- [ ] `RoutingDecisionEngine` unit tests (decision matrix + time-boundary cases)
 - [x] Business-hours **exceptions/holidays** (one-off closed/special days) —
       SQL migration `006_business_hours_exceptions.sql` (`closed_all_day` or a
       special start/end window per date); Go model (`BusinessHoursException` +
