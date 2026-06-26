@@ -589,8 +589,28 @@
       **IIFE** `dist/widget.js` for the one-line `<script data-enjoys-key>` embed.
       `build:cdn` copies `widget.js` into `web/public/` (served at
       `https://<domain>/widget.js`).
-- [ ] (Optional, later) True PSTN↔PSTN callback bridge for `sk_` originate; publish
+- [x] (Optional, later) True PSTN↔PSTN callback bridge for `sk_` originate; publish
       the package to npm.
+      - **Bridge:** `IVRSystem.bridgePstnToPstn(trunk, destination, customerNumber,
+        { callerId })` (`src/sip/ivr.system.ts`) originates BOTH legs out the trunk
+        and anchors each on a FreeSWITCH MRF endpoint (`ms.createEndpoint()` →
+        `trunk.createOutboundLeg(srf, …)` → `endpoint.modify(answerSdp)`), then
+        `aLeg.bridge(bLeg)`. Rings the LOCKED destination first, then the visitor;
+        single-shot teardown on any leg destroy (mirrors `joinTeamsMeeting`).
+      - **Endpoint:** `POST /api/n/widget/callback` (`src/http/routes/api.routes.ts`),
+        secret-gated (`Authorization: Bearer sk_live_…` via `ApiKeyService.verifySecret`).
+        Destination is always the key's locked number (never from the request);
+        requires `routeType === 'trunk'`; validates `customerNumber` (E.164-ish);
+        enforces the per-key daily cap (`ApiKeyService.capReached`, now public).
+        Validates synchronously, originates in the background, returns
+        `{ callId, status:'originating' }`.
+      - **Client:** `requestCallback({ apiBase, publicKey, secret, customerNumber })`
+        exported from `@enjoys/voice-widget` (server-side only — never ship the
+        secret to a browser). README documents the flow + a curl example.
+      - **Publish:** package built clean (`bun run build`), version bumped to
+        `0.2.0`, `prepublishOnly: tsup` added, `npm pack --dry-run` verified
+        (7 files, dist + types). NOT yet pushed to npm — needs the maintainer's
+        `npm login` + `npm publish` (irreversible; run from `packages/voice-widget/`).
 
 ## Working Hours & Availability Routing — ✅ DONE
 > **Goal:** centralise the "should this call connect *right now*?" decision in one

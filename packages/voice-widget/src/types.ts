@@ -79,6 +79,19 @@ export interface WidgetSession {
   iceServers: RTCIceServer[];
 }
 
+/** Result of a server-to-server PSTN↔PSTN callback (POST /api/n/widget/callback). */
+export interface CallbackResult {
+  /** Tracking id for the originated bridge (the call rings asynchronously). */
+  callId: string;
+  status: "originating";
+  /** The key's locked destination (leg A). */
+  destination: string;
+  /** The visitor number that was dialed (leg B). */
+  customerNumber: string;
+  /** SIP From identity presented on both legs. */
+  callerId?: string;
+}
+
 /** Error thrown by the widget's API calls; carries the HTTP status when known. */
 export class WidgetError extends Error {
   readonly status?: number;
