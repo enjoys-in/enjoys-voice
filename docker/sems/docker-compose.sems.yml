@@ -1,0 +1,45 @@
+# OPT-IN, ISOLATED SEMS media server.
+#
+# This file is intentionally NOT part of the main voip-stack compose. Run it on
+# its own:
+#
+#   docker compose -f docker-compose.sems.yml build
+#   docker compose -f docker-compose.sems.yml up -d
+#
+# By default it runs on its own bridge network (semsnet) and touches nothing
+# else. To let SEMS reach drachtio/FreeSWITCH, see the commented `external`
+# network block at the bottom.
+
+name: callnet-sems
+
+services:
+  sems:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Override with: docker compose ... build --build-arg SEMS_REF=master
+        SEMS_REF: "2.1.0"
+    image: callnet-sems:latest
+    container_name: callnet-sems
+    ports:
+      - "5080:5080/udp"            # SIP UDP
+      - "5080:5080/tcp"            # SIP TCP
+      - "20000-20100:20000-20100/udp"  # RTP media relay range
+    volumes:
+      # Live-editable config. Maps to the default SEMS config prefix.
+      - ./conf:/usr/local/etc/sems:ro
+    networks:
+      - semsnet
+    restart: unless-stopped
+
+networks:
+  semsnet:
+    driver: bridge
+
+  # --- To attach SEMS to the live stack instead, comment out the `semsnet`
+  # --- block above, set `networks: [voipnet]` on the service, and uncomment:
+  #
+  # voipnet:
+  #   external: true
+  #   name: voip-stack_voipnet   # network created by docker-compose.dev.yml
