@@ -177,8 +177,6 @@
 - [x] Records the call as `voicemail` (message left) or `missed` (no message)
 - [x] Frontend: `dnd` in settings store/type, `go-api` get/updateSettings, DND
       toggle in `SettingsScreen` persisted to the Go settings endpoint
-- [ ] Frontend: add `dnd` to the settings store + a toggle in `SettingsScreen`
-      and persist via the Go settings update (`go-api.ts`)
 
 ## Outbound Caller ID — Verified BYON (per-user real number) — ✅ DONE
 > **Goal:** a browser→PSTN call presents the *caller's own* real mobile as the
@@ -254,8 +252,12 @@
       "Twilio is calling you, enter the code", then a "Done / refresh" that calls
       confirm. Surface the verified / pending / none states.
 - [x] Add the endpoints to `go-api.ts`; add the fields to the settings store.
-- [ ] If outbound is blocked while unverified, the dialer should explain why and
-      deep-link to the verify panel.
+- [x] **N/A by design:** outbound is **not** blocked when the caller ID is
+      unverified — the chosen (b) fallback presents the shared `TRUNK_CALLER_NUMBER`
+      (`sanitizeCallerId(callerId) || trunk.callerNumber` in `createOutboundLeg`),
+      so the call still completes and there is no block to explain. (An optional
+      "verify your number to show your own CLI" nudge in the dialer could be added
+      later, but it is cosmetic, not a gate.)
 
 ### IVR / inbound — unchanged (shared toll-free), note only
 - [ ] No change required: IVR keeps its own **shared** business number; the dial
