@@ -611,7 +611,7 @@ function AvailabilityCard({ users }: { users: UserResponse[] }) {
       <CardContent className="space-y-4">
         <div className="space-y-1">
           <Label className="text-xs">Extension</Label>
-          <Select value={ext} onValueChange={setExt}>
+          <Select value={ext} onValueChange={(v) => setExt(v ?? "")}>
             <SelectTrigger className="w-64">
               <SelectValue placeholder="Select a user…" />
             </SelectTrigger>
