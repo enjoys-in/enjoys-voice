@@ -1,4 +1,6 @@
+import Srf from 'drachtio-srf';
 import { config } from '@/core';
+import type { SipPeer } from '@/core';
 
 export enum RouteType {
   Internal = 'internal',
@@ -8,6 +10,8 @@ export enum RouteType {
   Conference = 'conference',
   Queue = 'queue',
   Blocked = 'blocked',
+  /** Outbound SIP-to-SIP call to an approved external peer (config.sipPeers). */
+  SipUri = 'sip_uri',
 }
 
 export interface DialResult {
@@ -15,6 +19,18 @@ export interface DialResult {
   target: string;
   originalNumber: string;
   normalizedNumber: string;
+}
+
+/**
+ * Find the approved external SIP peer whose host matches `host` (the allowlist
+ * key). Returns undefined when the host isn't in `config.sipPeers`, so callers
+ * fail closed: an un-approved domain is never dialable. Exported so the SIP-URI
+ * route handler can resolve the matched peer's connection details.
+ */
+export function findSipPeer(host: string): SipPeer | undefined {
+  if (!host) return undefined;
+  const h = host.toLowerCase();
+  return config.sipPeers.find((p) => p.host === h);
 }
 
 export class DialPlanService {
@@ -45,7 +61,6 @@ export class DialPlanService {
 
   resolve(dialed: string): DialResult {
     const cleaned = dialed.replace(/[\s\-()]/g, '');
-
     // Emergency check first
     if (this.emergencyNumbers.has(cleaned)) {
       return { type: RouteType.Emergency, target: cleaned, originalNumber: dialed, normalizedNumber: cleaned };
@@ -85,6 +100,38 @@ export class DialPlanService {
 
     // Default: try as internal extension
     return { type: RouteType.Internal, target: cleaned, originalNumber: dialed, normalizedNumber: cleaned };
+  }
+
+  /**
+   * Classify an INVITE Request-URI as an EXTERNAL SIP call when its host matches
+   * an approved peer in `config.sipPeers`. Returns a SipUri DialResult (target
+   * `user@host`), or null when the host is not allowlisted — in which case
+   * normal in-domain extension/number routing applies. This is the ONLY
+   * producer of a SipUri route, so an un-approved domain can never be dialed.
+   *
+   * The browser/SIP client reaches this by dialing the full SIP URI
+   * (`sip:bob@partner.example.com`); drachtio receives the INVITE with that
+   * Request-URI even though we are its outbound proxy, so `parsed.host` is the
+   * external peer's domain (not our own).
+   */
+  resolveExternalSip(uri?: string): DialResult | null {
+    if (!uri || config.sipPeers.length === 0) return null;
+    let parsed: ReturnType<typeof Srf.parseUri> | undefined;
+    try {
+      parsed = Srf.parseUri(uri);
+    } catch {
+      return null;
+    }
+    const host = (parsed?.host || '').toLowerCase();
+    if (!host || !findSipPeer(host)) return null;
+    const user = (parsed?.user || '').trim();
+    const target = user ? `${user}@${host}` : host;
+    return {
+      type: RouteType.SipUri,
+      target,
+      originalNumber: uri,
+      normalizedNumber: `sip:${target}`,
+    };
   }
 
   private normalizeExternal(number: string): string {
