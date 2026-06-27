@@ -8,6 +8,7 @@ import { DatabaseService } from '@/services';
 import { sendConnectorEmail } from '@/services';
 import { runFlow, type FlowRunnerContext, type FlowRunnerHandlers, type FlowResult } from './ivr/flow-runner';
 import type { IvrFlowGraph } from './ivr/flow.types';
+import { DecisionType, UnavailableReason, type RoutingOrchestrator } from '@/modules/routing';
 
 const DEFAULT_DEPARTMENTS: Department[] = [
   { id: 'sales', name: 'Sales', nameHi: 'बिक्री', agents: ['1001', '1002'], queueName: 'sales_queue', maxWait: 120, priority: 2 },
@@ -30,6 +31,7 @@ export class IVRSystem {
     private srf: InstanceType<typeof Srf>,
     private db: DatabaseService,
     departments?: Department[],
+    private routing?: RoutingOrchestrator,
   ) {
     this.mrf = new Mrf(srf);
     this.departments = departments || DEFAULT_DEPARTMENTS;
@@ -886,22 +888,55 @@ export class IVRSystem {
    * named extension) by setting call state and starting hold music, mirroring the
    * built-in menu's behaviour. The agent bridge is driven by the queue/transfer
    * subsystem; this never tears the call down.
+   *
+   * Before parking the caller it consults the routing orchestrator: a transfer
+   * targets a department queue, so an "outside business hours" decision plays the
+   * company-closed announcement and ends the call instead. Resolves `true` when
+   * the caller was parked for the queue, `false` when the transfer was gated.
+   * Backward-compatible: with no business-hours policy the orchestrator reports
+   * open and the caller is parked exactly as before.
    */
   private async flowTransfer(
     endpoint: Mrf.Endpoint,
     state: IVRCallState,
     opts: { department?: string; extension?: string; ringSeconds?: number },
-  ): Promise<void> {
+  ): Promise<boolean> {
+    const dept = opts.department ? this.departments.find((d) => d.id === opts.department) : undefined;
     if (opts.department) {
-      const dept = this.departments.find((d) => d.id === opts.department);
       state.department = dept?.id || opts.department;
     }
+
+    if (this.routing) {
+      try {
+        const decision = await this.routing.evaluate({
+          callId: state.callId,
+          callerNumber: state.callerNumber,
+          calledNumber: state.calledNumber,
+          targetQueueId: dept?.queueName || opts.department,
+          preferQueue: true,
+        });
+        if (
+          decision.type === DecisionType.PlayAnnouncement &&
+          decision.reason === UnavailableReason.OutsideCompanyHours
+        ) {
+          const text = await this.routing.announcement(decision.announcementKey ?? 'company_closed');
+          console.log(`⛔ IVR flow transfer: outside business hours → announcement [${state.callId}]`);
+          await this.playSafe(endpoint, `say:${text ?? 'Our company is currently closed.'}`);
+          this.db.updateCall(state.callId, { status: 'missed' });
+          return false;
+        }
+      } catch (err: any) {
+        console.warn(`⚠️ IVR flow transfer routing gate skipped: ${err?.message} [${state.callId}]`);
+      }
+    }
+
     state.status = 'queued';
     this.db.updateCall(state.callId, { status: 'answered' });
     const where = opts.department ? `dept:${opts.department}` : opts.extension ? `ext:${opts.extension}` : 'queue';
     console.log(`🔀 IVR flow transfer → ${where} [${state.callId}]`);
     // Hold music loops forever — fire-and-forget so we don't block the flow.
     try { endpoint.executeAsync('playback', config.sounds.holdMusic); } catch { /* noop */ }
+    return true;
   }
 
   async handleIncomingCall(req: any, res: any, existingCallId?: string, dialedNumber?: string): Promise<void> {
@@ -960,11 +995,14 @@ export class IVRSystem {
         const result = await this.runFlowForCall(endpoint, flow, state);
         console.log(`🧭 IVR: flow ended (${result}) [${callId}]`);
         // A `transfer` node leaves the call up on hold music for the queue to
-        // pick up; every other outcome (hangup / voicemail / completed / error)
-        // is terminal, so tear the answered leg down here.
+        // pick up; every other outcome (announced / hangup / voicemail /
+        // completed / error) is terminal, so tear the answered leg down here.
+        // `announced` = routing gated the transfer (e.g. outside business hours)
+        // and already played the company-closed prompt, so log it as missed.
         if (result !== 'transferred') {
           this.activeCalls.delete(callId);
-          this.db.updateCall(callId, { status: result === 'voicemail' ? 'voicemail' : 'answered' });
+          const status = result === 'voicemail' ? 'voicemail' : result === 'announced' ? 'missed' : 'answered';
+          this.db.updateCall(callId, { status });
           try { await dialog?.destroy?.(); } catch { /* noop */ }
           try { await endpoint?.destroy?.(); } catch { /* noop */ }
         }

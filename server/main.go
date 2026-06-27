@@ -84,6 +84,7 @@ func main() {
 	trunkRepo := repository.NewTrunkRepository(db)
 	apiKeyRepo := repository.NewAPIKeyRepository(db)
 	connectorRepo := repository.NewConnectorRepository(db)
+	scheduleRepo := repository.NewScheduleRepository(db)
 
 	// ─── Services ────────────────────────────────────────
 	authSvc := service.NewAuthService(userRepo, settingsRepo, valkey)
@@ -102,6 +103,7 @@ func main() {
 	trunkSvc := service.NewTrunkService(trunkRepo)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo)
 	connectorSvc := service.NewConnectorService(connectorRepo)
+	scheduleSvc := service.NewScheduleService(scheduleRepo)
 
 	// Twilio client powers provider-native (BYON) caller-ID verification and OTP
 	// SMS delivery. With no credentials configured it stays disabled and the
@@ -139,6 +141,7 @@ func main() {
 		Trunk:          handler.NewTrunkHandler(trunkSvc, cfg.AdminExtensions),
 		APIKey:         handler.NewAPIKeyHandler(apiKeySvc),
 		Connector:      handler.NewConnectorHandler(connectorSvc),
+		Schedule:       handler.NewScheduleHandler(scheduleSvc, cfg.AdminExtensions),
 	}
 
 	// ─── Ensure upload dir ───────────────────────────────

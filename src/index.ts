@@ -27,6 +27,19 @@ import {
   createMediaStreamRuntime,
   type MediaStreamRuntime,
 } from '@/trunk/streaming';
+import {
+  AvailabilityService,
+  BusinessHoursService,
+  DatabasePresenceProvider,
+  PgAvailabilityRepository,
+  PgBusinessHoursRepository,
+  PgPromptRepository,
+  PgUserProfileRepository,
+  PresenceService,
+  RoutingDecisionEngine,
+  RoutingOrchestrator,
+  RoutingPolicyService,
+} from '@/modules/routing';
 
 class Application {
   private db: DatabaseService;
@@ -47,6 +60,7 @@ class Application {
   private conference: ConferenceService;
   private queue: QueueService;
   private apiKeys: ApiKeyService;
+  private routing: RoutingOrchestrator;
 
   constructor() {
     this.db = new DatabaseService();
@@ -80,7 +94,23 @@ class Application {
       (ext) => this.db.isRegistered(ext),
       (ext) => this.db.getUser(ext)?.name,
     );
-    this.sip = new SipServer(this.db, this.trunk, registrationStore, this.audit, this.conference, this.queue);
+    // Reusable routing module (business-hours + per-user schedule + presence).
+    // Built before the SIP server so it can be injected; the internal extension
+    // path consults it (phase 3) while every other path is untouched. With no
+    // schedule configured the orchestrator reports open/available, so behavior
+    // is unchanged until an admin defines hours.
+    const availabilityRepo = new PgAvailabilityRepository();
+    const businessHoursRepo = new PgBusinessHoursRepository();
+    const userProfileRepo = new PgUserProfileRepository();
+    const presenceProvider = new DatabasePresenceProvider(this.db);
+    const availabilityService = new AvailabilityService(availabilityRepo);
+    const businessHoursService = new BusinessHoursService(businessHoursRepo);
+    const presenceService = new PresenceService(presenceProvider);
+    const policyService = new RoutingPolicyService(availabilityService, businessHoursService, presenceService);
+    const decisionEngine = new RoutingDecisionEngine();
+    const promptRepo = new PgPromptRepository();
+    this.routing = new RoutingOrchestrator(policyService, decisionEngine, userProfileRepo, promptRepo);
+    this.sip = new SipServer(this.db, this.trunk, registrationStore, this.audit, this.conference, this.queue, this.routing);
     this.ws = new SignalingServer(this.db);
     this.ws.setConferenceService(this.conference);
     this.ws.setQueueService(this.queue);

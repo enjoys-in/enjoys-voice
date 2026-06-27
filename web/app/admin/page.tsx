@@ -2,7 +2,7 @@
 
 import { useState, useEffect, type ReactNode } from "react";
 import Link from "next/link";
-import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming, Palette, Save, RotateCcw, Check, Receipt, ScrollText, Radio, Headphones, KeyRound, Link2 } from "lucide-react";
+import { Users, Phone, Activity, Settings, Shield, PhoneForwarded, LogOut, PhoneIncoming, Palette, Save, RotateCcw, Check, Receipt, ScrollText, Radio, Headphones, KeyRound, Link2, Clock } from "lucide-react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -40,11 +40,12 @@ import { TrunksTab } from "./components/TrunksTab";
 import { QueuesTab } from "./components/QueuesTab";
 import { ApiKeysTab } from "./components/ApiKeysTab";
 import { ConnectorsTab } from "./components/ConnectorsTab";
+import { HoursTab } from "./components/HoursTab";
 import { useLiveMetrics } from "../hooks/useLiveMetrics";
 import { useBranding } from "../hooks/useBranding";
 import { CallRecordStatus, type CallRecord } from "../types";
 
-type Tab = "overview" | "users" | "calls" | "customization" | "rates" | "trunks" | "queues" | "apikeys" | "connectors" | "audit" | "config";
+type Tab = "overview" | "users" | "calls" | "customization" | "rates" | "trunks" | "queues" | "hours" | "apikeys" | "connectors" | "audit" | "config";
 
 // Selectable stats windows (days) for the dashboard aggregate metrics/charts.
 const RANGE_OPTIONS = [7, 14, 30] as const;
@@ -109,6 +110,7 @@ export default function AdminPage() {
     { id: "rates", label: "Rates", icon: Receipt },
     { id: "trunks", label: "Trunks", icon: Radio },
     { id: "queues", label: "Queues", icon: Headphones },
+    { id: "hours", label: "Working Hours", icon: Clock },
     { id: "apikeys", label: "API Keys", icon: KeyRound },
     { id: "connectors", label: "Connectors", icon: Link2 },
     { id: "audit", label: "Activity", icon: ScrollText },
@@ -191,6 +193,7 @@ export default function AdminPage() {
             {tab === "rates" && <RatesTab />}
             {tab === "trunks" && <TrunksTab />}
             {tab === "queues" && <QueuesTab />}
+            {tab === "hours" && <HoursTab users={users} />}
             {tab === "apikeys" && <ApiKeysTab />}
             {tab === "connectors" && <ConnectorsTab />}
             {tab === "audit" && <AuditTab />}

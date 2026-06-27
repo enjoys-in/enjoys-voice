@@ -154,3 +154,15 @@ type AuditRepository interface {
 	Query(ctx context.Context, q AuditQuery) ([]models.AuditLog, error)
 	GetByExtension(ctx context.Context, ext string, limit int) ([]models.AuditLog, error)
 }
+
+// ScheduleRepository owns the global business-hours policy and per-user
+// availability windows (SQL migration 005). Business hours are a single
+// upsert-and-replace document; availability is keyed by extension.
+type ScheduleRepository interface {
+	GetBusinessHours(ctx context.Context) (*models.BusinessHoursPolicy, error)
+	SaveBusinessHours(ctx context.Context, timezone string, enabled bool, windows []models.BusinessHoursWindow, exceptions []models.BusinessHoursException) (*models.BusinessHoursPolicy, error)
+	ListAvailability(ctx context.Context, ext string) ([]models.UserAvailabilityWindow, error)
+	ReplaceAvailability(ctx context.Context, ext string, windows []models.UserAvailabilityWindow) error
+	GetPrompts(ctx context.Context) ([]models.RoutingPrompt, error)
+	ReplacePrompts(ctx context.Context, prompts []models.RoutingPrompt) error
+}

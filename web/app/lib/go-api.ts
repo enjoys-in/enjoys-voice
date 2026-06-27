@@ -488,6 +488,70 @@ export interface GoConnectorInput {
   config?: GoConnectorConfig;
 }
 
+// ─── Routing schedules (business hours + per-user availability) ──────────
+
+/** One open interval on a weekday (0 = Sun … 6 = Sat), minutes from midnight. */
+export interface GoScheduleWindow {
+  day_of_week: number;
+  start_minute: number;
+  end_minute: number;
+  /** Per-window enable flag (availability windows only). */
+  enabled?: boolean;
+}
+
+/** A one-off calendar-date override of the weekly business hours. */
+export interface GoBusinessHoursException {
+  id?: number;
+  /** 'YYYY-MM-DD'. */
+  date: string;
+  /** Closed for the whole day; when false, start/end define the open window. */
+  closed_all_day: boolean;
+  start_minute?: number | null;
+  end_minute?: number | null;
+  note?: string;
+}
+
+/** Global business-hours policy returned by GET /business-hours. */
+export interface GoBusinessHours {
+  id: number;
+  timezone: string;
+  enabled: boolean;
+  windows: GoScheduleWindow[];
+  exceptions: GoBusinessHoursException[];
+}
+
+/** Upsert payload for the global business-hours policy (PUT /business-hours). */
+export interface GoBusinessHoursInput {
+  timezone: string;
+  enabled: boolean;
+  windows: GoScheduleWindow[];
+  exceptions: GoBusinessHoursException[];
+}
+
+/** One stored availability window for a user (GET /availability/:ext). */
+export interface GoAvailabilityWindow {
+  id: number;
+  extension: string;
+  day_of_week: number;
+  start_minute: number;
+  end_minute: number;
+  timezone: string;
+  enabled: boolean;
+}
+
+/** Replace payload for a user's availability windows (PUT /availability/:ext). */
+export interface GoAvailabilityInput {
+  timezone: string;
+  windows: GoScheduleWindow[];
+}
+
+/** One admin-overridden routing announcement (GET/PUT /routing-prompts). */
+export interface GoRoutingPrompt {
+  key: string;
+  text: string;
+  updated_at?: string;
+}
+
 // ─── Dashboard stats ────────────────────────────────────
 
 /** One status slice of the call-status breakdown. */
@@ -944,6 +1008,42 @@ export const goApi = {
       return goRequest<unknown>(`/connectors/${id}`, {
         method: "DELETE",
       }).then(() => undefined);
+    },
+  },
+
+  // Routing schedules: global business hours + per-user availability windows.
+  schedule: {
+    getBusinessHours(): Promise<GoBusinessHours> {
+      return goRequest<GoBusinessHours>(`/business-hours`);
+    },
+    saveBusinessHours(input: GoBusinessHoursInput): Promise<GoBusinessHours> {
+      return goRequest<GoBusinessHours>(`/business-hours`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    getAvailability(ext: string): Promise<GoAvailabilityWindow[]> {
+      return goRequest<GoAvailabilityWindow[]>(
+        `/availability/${encodeURIComponent(ext)}`
+      );
+    },
+    saveAvailability(
+      ext: string,
+      input: GoAvailabilityInput
+    ): Promise<GoAvailabilityWindow[]> {
+      return goRequest<GoAvailabilityWindow[]>(
+        `/availability/${encodeURIComponent(ext)}`,
+        { method: "PUT", body: JSON.stringify(input) }
+      );
+    },
+    getPrompts(): Promise<GoRoutingPrompt[]> {
+      return goRequest<GoRoutingPrompt[]>(`/routing-prompts`);
+    },
+    savePrompts(prompts: GoRoutingPrompt[]): Promise<GoRoutingPrompt[]> {
+      return goRequest<GoRoutingPrompt[]>(`/routing-prompts`, {
+        method: "PUT",
+        body: JSON.stringify({ prompts }),
+      });
     },
   },
 };

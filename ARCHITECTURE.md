@@ -216,6 +216,89 @@ Tried in order; the first that applies wins. The call is always recorded
 > from a stale registration) does **not** close the caller's leg — keeping it open
 > lets steps 3–4 answer the caller for voicemail or the announcement.
 
+## Routing & Availability (business hours + user schedules)
+
+A reusable, framework-agnostic module under `src/modules/routing/` centralises
+the "should this call connect right now?" decision so the SIP/IVR handlers no
+longer hard-code schedule logic. It follows a clean/hexagonal layout:
+
+| Layer | Path | Responsibility |
+|-------|------|----------------|
+| Domain | `domain/{entities,value-objects,enums}` | `RoutingContext`, `RoutingDecision`, `DecisionType`, `UnavailableReason` — plain types, no I/O |
+| Contracts | `contracts/` | Repository/provider interfaces (`AvailabilityRepository`, `BusinessHoursRepository`, `PresenceProvider`, `UserProfileRepository`) |
+| Services | `services/` | `AvailabilityService`, `BusinessHoursService`, `PresenceService`, `RoutingPolicyService` build a policy snapshot |
+| Engine | `services/RoutingDecisionEngine.ts` | **Pure**, side-effect-free decision tree (`decide(ctx, policy)`) |
+| Application | `application/RoutingOrchestrator.ts` | Facade: loads the user profile, builds the policy snapshot, calls the engine — `evaluate(ctx)` |
+| Infrastructure | `infrastructure/{postgres,adapters}` | `Pg*Repository` + `DatabasePresenceProvider` (wraps the registration store) |
+
+### Decision order (engine)
+
+```mermaid
+flowchart TD
+    A["evaluate(ctx)"] --> B{Company open?}
+    B -- no --> B1["PlayAnnouncement<br/>OutsideCompanyHours → company_closed"]
+    B -- yes --> C{User within hours?}
+    C -- no --> C1["PlayAnnouncement<br/>OutsideUserHours → user_unavailable_by_schedule"]
+    C -- yes --> D{User DND?}
+    D -- yes --> D1[RouteToVoicemail]
+    D -- no --> E{User online?}
+    E -- yes --> E1[RouteToExtension]
+    E -- no --> F{preferQueue & targetQueueId?}
+    F -- yes --> F1[RouteToQueue]
+    F -- no --> G[RouteToVoicemail]
+```
+
+> **Backward-compatible by default.** No business-hours policy ⇒ always open; no
+> user-availability windows ⇒ always available. With nothing configured the
+> engine never emits `PlayAnnouncement`, so existing call flows are unchanged.
+
+### Where it's wired in
+
+| Call path | File · Function | Gate |
+|-----------|-----------------|------|
+| Internal extension | `internal.handler.ts` · `handle()` | Consults `routing.evaluate({…, targetExtension})`; a `PlayAnnouncement` decision plays the mapped prompt and ends the call (`missed`) before the registration/ring logic |
+| Queue entry | `queue.handler.ts` · `handle()` | Pre-enqueue: business-hours gate (`company_closed`) **+** a distinct no-agents-online gate via `QueueService.agentAvailability()` (`no_agents_online`); "all agents busy" stays the existing hold/timeout prompt |
+| IVR transfer node | `ivr.system.ts` · `flowTransfer()` | A flow `transfer` targets a department queue, so an `OutsideCompanyHours` decision plays `company_closed` on the live endpoint and returns `announced` (the flow runner then tears the leg down as `missed`) instead of parking on hold music |
+
+All gates wrap the orchestrator call in try/catch and log-and-continue on error,
+so a routing fault can never break a call.
+
+### Prompt mapping
+
+`constants/TtsPrompts.ts` is the single source of announcement wording. Each
+`RoutingDecision.announcementKey` maps to a `say:`-prefixed prompt via
+`ANNOUNCEMENT_PROMPTS`; `announcementText(key)` strips the prefix for callers
+(like `playUnavailable`) that re-add the engine prefix themselves.
+
+| Key | Prompt |
+|-----|--------|
+| `company_closed` | "Our company is currently closed…" |
+| `user_unavailable_by_schedule` | "The person you are trying to reach is currently unavailable…" |
+| `user_unreachable` | "…leave a message after the beep." |
+| `all_agents_busy` | "All of our agents are currently busy…" |
+| `no_agents_online` | "No agents are currently online…" |
+
+### Schedule storage & admin API
+
+The Go API owns schedule persistence (SQL migration `005_routing_hours_and_availability.sql`).
+All schedule **writes are admin-only** (the `ADMIN_EXTENSIONS` allow-list); reads
+stay open to authenticated users. The Next.js admin **Working Hours** tab
+(`web/app/admin/components/HoursTab.tsx`) drives both editors.
+
+| Method · Route | Auth | Purpose |
+|----------------|------|---------|
+| `GET /business-hours` | authenticated | Read the global policy (weekly windows + holiday exceptions) |
+| `PUT /business-hours` | **admin** | Replace timezone + enabled + weekly windows + exceptions |
+| `GET /availability/:ext` | authenticated | Read a user's availability windows |
+| `PUT /availability/:ext` | **admin** | Replace a user's timezone + windows |
+
+| Table | Key columns |
+|-------|-------------|
+| `business_hours_policies` | `timezone`, `enabled` (single global row) |
+| `business_hours_windows` | `policy_id`, `day_of_week` (0–6), `start_minute`/`end_minute` (0–1440) |
+| `user_availability_windows` | `extension`, `day_of_week`, `start_minute`/`end_minute`, `timezone`, `enabled` |
+| `business_hours_exceptions` (migration 006) | `policy_id`, `exception_date`, `closed_all_day`, optional `start_minute`/`end_minute`, `note` — a date override that beats the weekly windows |
+
 ## Live Data Sync (LISTEN/NOTIFY)
 
 The Go API owns all persistent writes (users + per-user settings). The Node SIP
@@ -302,3 +385,4 @@ sequenceDiagram
 | `WIDGET_ENABLED` | `true` | Enable the click-to-call widget endpoints (`/api/n/widget/*`) |
 | `PUBLIC_SIP_WS_URL` | — | `wss://` URL the widget's SIP.js client connects to |
 | `PUBLIC_ICE_SERVERS` | — | JSON array of ICE servers handed to the widget (defaults to a public STUN) |
+| `ADMIN_EXTENSIONS` | — | Comma-separated allow-list of extensions permitted to perform admin writes (incl. business hours + user availability) — Go API |

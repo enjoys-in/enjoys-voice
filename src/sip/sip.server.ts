@@ -6,6 +6,7 @@ import { SipStatus } from '@/core/types';
 import { DatabaseService, TrunkService, AuditService, DialPlanService, RouteType } from '@/services';
 import type { DialResult, ConferenceService, QueueService } from '@/services';
 import type { RegistrationStore } from '@/services/registration';
+import type { RoutingOrchestrator } from '@/modules/routing';
 import { IVRSystem } from './ivr.system';
 import { SipAbuseGuard } from './abuse-guard';
 import {
@@ -47,6 +48,7 @@ export class SipServer {
     private audit: AuditService,
     private conference: ConferenceService,
     private queue: QueueService,
+    private routing?: RoutingOrchestrator,
   ) {
     this.srf = new Srf();
     // Pre-bind to avoid allocating new functions on every INVITE
@@ -129,7 +131,7 @@ export class SipServer {
     if (!config.ivr.enabled || this.ivr) return;
 
     console.log('🔄 IVR: Connecting to FreeSWITCH...');
-    this.ivr = new IVRSystem(this.srf, this.db);
+    this.ivr = new IVRSystem(this.srf, this.db, undefined, this.routing);
     if (this.notifyFn) this.ivr.setNotifier(this.notifyFn);
     const ok = await this.ivr.initialize();
     if (ok) console.log('🎙️ IVR: Ready');
@@ -297,6 +299,7 @@ export class SipServer {
           conference: this.conference,
           queue: this.queue,
           notifyFn: this.notifyFn,
+          routing: this.routing,
           routeToExtension: this.boundRouteToExtension,
           forwardCall: this.boundForwardCall,
           routeUnreachable: this.boundRouteUnreachable,

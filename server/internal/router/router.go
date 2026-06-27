@@ -26,6 +26,7 @@ type Handlers struct {
 	Trunk          *handler.TrunkHandler
 	APIKey         *handler.APIKeyHandler
 	Connector      *handler.ConnectorHandler
+	Schedule       *handler.ScheduleHandler
 }
 
 func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
@@ -186,6 +187,20 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager) {
 			// Forwarding
 			protected.GET("/forwarding/:ext", h.Forwarding.Get)
 			protected.POST("/forwarding/:ext", h.Forwarding.Set)
+
+			// Routing schedules: global business hours and per-user availability
+			// windows. All writes are admin-only (ADMIN_EXTENSIONS); reads stay
+			// open to authenticated users. Empty/disabled config = always open.
+			protected.GET("/business-hours", h.Schedule.GetBusinessHours)
+			protected.PUT("/business-hours", h.Schedule.SaveBusinessHours)
+			protected.GET("/availability/:ext", h.Schedule.ListAvailability)
+			protected.PUT("/availability/:ext", h.Schedule.SaveAvailability)
+
+			// Routing announcement wording. Read is open (engine/UI resolve
+			// effective text); write is admin-only. Empty/missing key = engine
+			// default, so an empty table preserves the shipped wording.
+			protected.GET("/routing-prompts", h.Schedule.GetPrompts)
+			protected.PUT("/routing-prompts", h.Schedule.SavePrompts)
 
 			// Sounds (upload)
 			protected.POST("/sounds/upload", h.Sound.Upload)
