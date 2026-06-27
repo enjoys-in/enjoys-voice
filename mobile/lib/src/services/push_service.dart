@@ -52,7 +52,10 @@ class PushService {
   PushService(this._api);
 
   final ApiClient _api;
-  final FirebaseMessaging _fm = FirebaseMessaging.instance;
+
+  /// Lazily resolved so constructing the service never touches Firebase (which
+  /// isn't initialised on web / before [init]).
+  FirebaseMessaging get _fm => FirebaseMessaging.instance;
 
   /// Called for a foreground `incoming_call` data message (so we can also show
   /// CallKit / navigate when the app is already open).
@@ -60,6 +63,8 @@ class PushService {
 
   /// Initialise Firebase, request permission, register the token, wire handlers.
   Future<void> init() async {
+    // Firebase Messaging / CallKit are mobile-only; skip on web.
+    if (kIsWeb) return;
     await Firebase.initializeApp();
     FirebaseMessaging.onBackgroundMessage(firebaseBackgroundHandler);
 
@@ -77,6 +82,7 @@ class PushService {
   /// Push the current FCM token (Android) and VoIP token (iOS) to the backend.
   /// Call this once the user is authenticated.
   Future<void> registerWithBackend() async {
+    if (kIsWeb) return; // No FCM/CallKit on web.
     try {
       final fcmToken = await _fm.getToken();
       if (fcmToken != null) await _sendFcmToken(fcmToken);
@@ -106,6 +112,7 @@ class PushService {
 
   /// Remove this device's tokens on logout.
   Future<void> unregister() async {
+    if (kIsWeb) return;
     try {
       final fcmToken = await _fm.getToken();
       if (fcmToken != null) {

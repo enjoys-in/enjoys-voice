@@ -10,22 +10,24 @@ class AppConfig {
 
   /// Base URL of the Go REST API. All auth lives under `<base>/api/g`.
   ///
-  /// Defaults to the Android-emulator host alias (`10.0.2.2` == the dev
-  /// machine's `localhost`). Override for real devices / iOS simulator.
+  /// Defaults to the production host (TLS, behind Caddy). For local dev
+  /// override with `--dart-define=GO_API_BASE=http://10.0.2.2:3003` (the
+  /// Android-emulator host alias) or your LAN IP for a real device.
   static const String goApiBase = String.fromEnvironment(
     'GO_API_BASE',
-    defaultValue: 'http://10.0.2.2:3003',
+    defaultValue: 'https://voice.enjoys.in',
   );
 
   /// Convenience: the `/api/g` prefix that every auth route hangs off.
   static String get authBase => '$goApiBase/api/g';
 
   /// Base URL of the Node SIP engine REST API (push registration lives under
-  /// `<base>/api/n`). Dev default is the emulator host alias on port 3001;
-  /// in prod this is usually the same origin as [goApiBase] behind a proxy.
+  /// `<base>/api/n`). In prod this is the same origin as [goApiBase] behind
+  /// Caddy. For local dev override with
+  /// `--dart-define=NODE_API_BASE=http://10.0.2.2:3001`.
   static const String nodeApiBase = String.fromEnvironment(
     'NODE_API_BASE',
-    defaultValue: 'http://10.0.2.2:3001',
+    defaultValue: 'https://voice.enjoys.in',
   );
 
   /// The `/api/n` prefix for the Node engine routes.
@@ -54,12 +56,13 @@ class AppConfig {
     defaultValue: '',
   );
 
-  /// Fallback ICE servers (Google STUN + the dev TURN). Replace the TURN
-  /// credentials for production via `--dart-define=ICE_SERVERS=...`.
+  /// Fallback ICE servers: Google STUN + the production coturn TURN relay
+  /// (voice.enjoys.in == 77.237.241.24) needed for reliable two-way audio
+  /// through NAT. Override with `--dart-define=ICE_SERVERS=[...]` if needed.
   static const List<Map<String, dynamic>> defaultIceServers = [
     {'urls': 'stun:stun.l.google.com:19302'},
     {
-      'urls': 'turn:192.168.1.48:3478',
+      'urls': 'turn:77.237.241.24:3478?transport=udp',
       'username': 'callnet',
       'credential': 'devsecret123',
     },

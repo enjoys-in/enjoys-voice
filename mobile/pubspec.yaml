@@ -32,10 +32,46 @@ dependencies:
   permission_handler: ^11.3.1
   uuid: ^4.5.1
 
+  # Reads the installed app version/build number for the Settings screen.
+  package_info_plus: ^8.0.0
+
+  # Local tone synthesis (DTMF key tones + outgoing ringback beep).
+  audioplayers: ^6.1.0
+
 dev_dependencies:
   flutter_lints: ^4.0.0
   flutter_test:
     sdk: flutter
 
+  # Generates the launcher (app install) icons + adaptive icons from the brand mark.
+  flutter_launcher_icons: ^0.14.0
+  # Generates the native opening / loading splash screen (incl. Android 12+).
+  flutter_native_splash: ^2.4.0
+
 flutter:
   uses-material-design: true
+
+# Brand launcher icon (run: dart run flutter_launcher_icons)
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/branding/icon.png"
+  adaptive_icon_background: "assets/branding/icon_background.png"
+  adaptive_icon_foreground: "assets/branding/icon_foreground.png"
+  min_sdk_android: 21
+  remove_alpha_ios: true
+
+# Native splash / opening screen (run: dart run flutter_native_splash:create)
+flutter_native_splash:
+  color: "#FFFFFF"
+  image: assets/branding/splash.png
+  color_dark: "#0B0B12"
+  image_dark: assets/branding/splash.png
+  android_12:
+    image: assets/branding/icon_foreground.png
+    color: "#6366F1"
+    image_dark: assets/branding/icon_foreground.png
+    color_dark: "#6366F1"
+  android: true
+  ios: true
+  web: false

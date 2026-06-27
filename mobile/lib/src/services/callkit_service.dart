@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_callkit_incoming/entities/entities.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:uuid/uuid.dart';
@@ -9,7 +10,11 @@ import 'package:uuid/uuid.dart';
 /// the phone ring on the lock screen / when the app is backgrounded.
 class CallKitService {
   CallKitService() {
-    _subscription = FlutterCallkitIncoming.onEvent.listen(_handleEvent);
+    // The native plugin only exists on Android/iOS; skip the event channel on
+    // web/desktop so the UI can still run for previews.
+    if (!kIsWeb) {
+      _subscription = FlutterCallkitIncoming.onEvent.listen(_handleEvent);
+    }
   }
 
   StreamSubscription<CallEvent?>? _subscription;
@@ -52,6 +57,7 @@ class CallKitService {
     Map<String, dynamic> extra = const {},
   }) async {
     final id = callId.isNotEmpty ? callId : const Uuid().v4();
+    if (kIsWeb) return id; // No native CallKit on web.
     final params = CallKitParams(
       id: id,
       nameCaller: callerName.isNotEmpty ? callerName : callerNumber,
@@ -92,10 +98,12 @@ class CallKitService {
 
   /// Promote a CallKit entry to the "connected" state (after SIP answers).
   Future<void> setConnected(String callId) async {
+    if (kIsWeb) return;
     await FlutterCallkitIncoming.setCallConnected(callId);
   }
 
   Future<void> endCall(String callId) async {
+    if (kIsWeb) return;
     if (callId.isEmpty) {
       await FlutterCallkitIncoming.endAllCalls();
       return;
@@ -103,7 +111,10 @@ class CallKitService {
     await FlutterCallkitIncoming.endCall(callId);
   }
 
-  Future<void> endAll() => FlutterCallkitIncoming.endAllCalls();
+  Future<void> endAll() async {
+    if (kIsWeb) return;
+    await FlutterCallkitIncoming.endAllCalls();
+  }
 
   void dispose() {
     _subscription?.cancel();

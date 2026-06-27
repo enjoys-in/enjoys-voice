@@ -75,6 +75,16 @@ class ApiClient {
             body: jsonEncode(body),
           ));
 
+  Future<dynamic> put(String path, Map<String, dynamic> body) =>
+      _authed(() async => _http.put(
+            _uri(path),
+            headers: await _headers(),
+            body: jsonEncode(body),
+          ));
+
+  Future<dynamic> delete(String path) =>
+      _authed(() async => _http.delete(_uri(path), headers: await _headers()));
+
   /// Runs an authenticated request, retrying once after a token refresh on 401.
   Future<dynamic> _authed(Future<http.Response> Function() send) async {
     var res = await send();

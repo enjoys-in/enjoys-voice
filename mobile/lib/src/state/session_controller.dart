@@ -143,14 +143,88 @@ class SessionController extends ChangeNotifier {
     }
   }
 
-  Future<void> logout() async {
+  /// Request an SMS one-time code for login or signup. Returns false (with
+  /// errorMessage set) only on a transport error; the backend always reports
+  /// success otherwise.
+  Future<bool> requestOtp(String mobile, String purpose) async {
+    _setBusy(true);
+    errorMessage = null;
     try {
-      await _push.unregister();
-    } catch (_) {}
-    await _phone.unregister();
-    await _callkit.endAll();
-    await _auth.logout();
+      await _auth.requestOtp(mobile, purpose);
+      return true;
+    } catch (e) {
+      errorMessage = _humanError(e);
+      notifyListeners();
+      return false;
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  Future<bool> loginOtp(String mobile, String code) async {
+    _setBusy(true);
+    errorMessage = null;
+    try {
+      final result = await _auth.loginOtp(mobile, code);
+      user = result.user;
+      _setStatus(AuthStatus.loggedIn);
+      await _afterLogin(result);
+      return true;
+    } catch (e) {
+      errorMessage = _humanError(e);
+      notifyListeners();
+      return false;
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  Future<bool> signupVerify({
+    required String name,
+    required String mobile,
+    required String password,
+    required String code,
+  }) async {
+    _setBusy(true);
+    errorMessage = null;
+    try {
+      final result = await _auth.signupVerify(
+        name: name,
+        mobile: mobile,
+        password: password,
+        code: code,
+      );
+      user = result.user;
+      _setStatus(AuthStatus.loggedIn);
+      await _afterLogin(result);
+      return true;
+    } catch (e) {
+      errorMessage = _humanError(e);
+      notifyListeners();
+      return false;
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  Future<void> logout() async {
+    // Tear everything down best-effort: a failure in any single step must never
+    // prevent the user from actually returning to the login screen.
+    for (final step in <Future<void> Function()>[
+      _push.unregister,
+      _phone.unregister,
+      _callkit.endAll,
+      _auth.logout,
+    ]) {
+      try {
+        await step();
+      } catch (_) {
+        // ignore and continue tearing down
+      }
+    }
     user = null;
+    errorMessage = null;
+    _pendingAccept = false;
     _setStatus(AuthStatus.loggedOut);
   }
 

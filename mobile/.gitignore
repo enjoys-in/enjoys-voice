@@ -1,25 +1,64 @@
-# Flutter / Dart
+# ─── Flutter / Dart ──────────────────────────────────────────────────────────
 .dart_tool/
 .packages
+.pub-cache/
+.pub/
 build/
 .flutter-plugins
 .flutter-plugins-dependencies
-.pub-cache/
-.pub/
+**/doc/api/
+flutter_*.png
+linked_*.ds
+unlinked.ds
+unlinked_spec.ds
+
+# ─── IDE / editor ────────────────────────────────────────────────────────────
 *.iml
+*.ipr
+*.iws
 .idea/
+.DS_Store
+*.swp
 
-# Generated platform folders (run `flutter create .` to regenerate)
-# Keep these if you commit native customisations; otherwise ignore.
-# android/.gradle/
-# ios/Pods/
+# ─── Android (generated / local build state) ─────────────────────────────────
+.gradle/
+.kotlin/
+**/android/**/gradle-wrapper.jar
+**/android/captures/
+**/android/gradlew
+**/android/gradlew.bat
+**/android/local.properties
+**/android/key.properties
+**/android/**/GeneratedPluginRegistrant.java
+**/android/app/.cxx/
 
-# Firebase config (DO NOT commit real keys)
+# ─── iOS / Xcode (generated / local build state) ─────────────────────────────
+**/ios/**/Pods/
+**/ios/**/.symlinks/
+**/ios/**/xcuserdata/
+**/ios/**/DerivedData/
+**/ios/.generated/
+**/ios/Flutter/.last_build_id
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/ephemeral/
+**/ios/Flutter/app.flx
+**/ios/Flutter/app.zip
+**/ios/Flutter/flutter_assets/
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/ServiceDefinitions.json
+**/ios/Runner/GeneratedPluginRegistrant.*
+
+# ─── Secrets / Firebase (DO NOT commit real keys) ────────────────────────────
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
 lib/firebase_options.dart
-
-# Secrets
 *.keystore
 *.jks
 key.properties
+
+# ─── Local scratch (temp preview screenshots, etc.) ──────────────────────────
+.prod_preview.png
+.branding_*.png

@@ -4,14 +4,18 @@ import 'package:provider/provider.dart';
 import 'src/services/api_client.dart';
 import 'src/services/auth_service.dart';
 import 'src/services/callkit_service.dart';
+import 'src/services/directory_service.dart';
 import 'src/services/phone_service.dart';
 import 'src/services/push_service.dart';
+import 'src/services/settings_service.dart';
 import 'src/services/token_store.dart';
+import 'src/services/tone_service.dart';
 import 'src/state/session_controller.dart';
 import 'src/ui/call_screen.dart';
 import 'src/ui/home_screen.dart';
 import 'src/ui/login_screen.dart';
 import 'src/ui/splash_screen.dart';
+import 'src/ui/theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,6 +23,9 @@ Future<void> main() async {
   final tokens = TokenStore();
   final api = ApiClient(tokens);
   final auth = AuthService(api, tokens);
+  final directory = DirectoryService(api);
+  final settings = SettingsService(api);
+  final tones = ToneService();
   final phone = PhoneService();
   final callkit = CallKitService();
   final push = PushService(api);
@@ -36,14 +43,30 @@ Future<void> main() async {
     await push.init();
   } catch (_) {}
 
-  runApp(EnjoysVoiceApp(session: session, phone: phone));
+  runApp(EnjoysVoiceApp(
+    session: session,
+    phone: phone,
+    directory: directory,
+    settings: settings,
+    tones: tones,
+  ));
 }
 
 class EnjoysVoiceApp extends StatelessWidget {
-  const EnjoysVoiceApp({super.key, required this.session, required this.phone});
+  const EnjoysVoiceApp({
+    super.key,
+    required this.session,
+    required this.phone,
+    required this.directory,
+    required this.settings,
+    required this.tones,
+  });
 
   final SessionController session;
   final PhoneService phone;
+  final DirectoryService directory;
+  final SettingsService settings;
+  final ToneService tones;
 
   @override
   Widget build(BuildContext context) {
@@ -51,17 +74,16 @@ class EnjoysVoiceApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider.value(value: session),
         ChangeNotifierProvider.value(value: phone),
+        ChangeNotifierProvider.value(value: settings),
+        Provider.value(value: directory),
+        Provider.value(value: tones),
       ],
       child: MaterialApp(
         title: 'Enjoys Voice',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF0a2540),
-            brightness: Brightness.dark,
-          ),
-        ),
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: ThemeMode.system,
         home: const _Root(),
       ),
     );
