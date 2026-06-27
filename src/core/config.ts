@@ -206,6 +206,13 @@ export interface AppConfig {
     // that hasn't set up a rate book still places calls normally.
     blockUnrated: boolean;
   };
+  // BYON outbound caller-ID expiry. A provider-verified number is presented for
+  // at most verifyTtlDays; past that the SQL gate drops it so the user must
+  // re-verify (no provider round-trip). 0 disables expiry. MUST match the Go
+  // API's CALLER_ID_VERIFY_TTL_DAYS so both ends agree on the window.
+  callerId: {
+    verifyTtlDays: number;
+  };
 }
 
 // ─── Recordings base dirs ────────────────────────────────────────────────
@@ -432,5 +439,8 @@ export const config: AppConfig = {
     prepaidEnabled: process.env.BILLING_PREPAID_ENABLED === 'true',
     currency: (process.env.BILLING_CURRENCY || 'USD').trim(),
     blockUnrated: process.env.BILLING_BLOCK_UNRATED === 'true',
+  },
+  callerId: {
+    verifyTtlDays: parseInt(process.env.CALLER_ID_VERIFY_TTL_DAYS || '90'),
   },
 };

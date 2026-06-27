@@ -154,7 +154,12 @@ export class ApiKeyService {
     return allowed.some((entry) => ipMatches(entry, ip));
   }
 
-  private capReached(key: ResolvedApiKey): boolean {
+  /**
+   * Whether this key has hit its per-UTC-day call cap. Public so the
+   * server-to-server callback/originate path can enforce the same cap the
+   * browser widget path checks inside {@link validate}.
+   */
+  capReached(key: ResolvedApiKey): boolean {
     if (key.dailyCap <= 0) return false;
     const entry = this.dayCounters.get(key.id);
     if (!entry || entry.day !== this.utcDay()) return false;

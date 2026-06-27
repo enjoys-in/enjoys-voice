@@ -312,3 +312,6 @@ for production deployment. To stand up the AI voice agent, see
 - https://github.com/drachtio/docker-drachtio-freeswitch-mrf
 - https://github.com/PatrickBaus/freeswitch-docker
 - https://developer.signalwire.com/freeswitch/
+- https://yate.ro/
+- https://github.com/sems-server/sems
+- https://github.com/open5gs

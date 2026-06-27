@@ -25,6 +25,10 @@ type callerIDService struct {
 	userRepo     repository.UserRepository
 	twilio       *twilio.Client
 	cache        cache.Cache
+	// verifyTTL is how long a verified caller ID stays valid before the user must
+	// re-verify. Zero disables expiry. The Node SQL gate mirrors this window so an
+	// expired number is never presented on a call.
+	verifyTTL time.Duration
 }
 
 func NewCallerIDService(
@@ -32,8 +36,9 @@ func NewCallerIDService(
 	ur repository.UserRepository,
 	tw *twilio.Client,
 	c cache.Cache,
+	verifyTTL time.Duration,
 ) CallerIDService {
-	return &callerIDService{settingsRepo: sr, userRepo: ur, twilio: tw, cache: c}
+	return &callerIDService{settingsRepo: sr, userRepo: ur, twilio: tw, cache: c, verifyTTL: verifyTTL}
 }
 
 // toE164 builds an E.164 number from an optional country code and the raw
@@ -135,7 +140,7 @@ func (s *callerIDService) ConfirmVerification(ctx context.Context, ext string) (
 	}
 
 	if settings.CallerIDVerified {
-		return statusOf(settings), nil
+		return s.statusOf(settings), nil
 	}
 
 	// Twilio only lists a number under OutgoingCallerIds once the user has
@@ -146,7 +151,7 @@ func (s *callerIDService) ConfirmVerification(ctx context.Context, ext string) (
 	}
 	if found == nil {
 		// Still pending — surface current (unverified) status.
-		return statusOf(settings), nil
+		return s.statusOf(settings), nil
 	}
 
 	now := time.Now()
@@ -158,7 +163,7 @@ func (s *callerIDService) ConfirmVerification(ctx context.Context, ext string) (
 	}
 	s.invalidate(ctx, ext)
 
-	return statusOf(settings), nil
+	return s.statusOf(settings), nil
 }
 
 func (s *callerIDService) Get(ctx context.Context, ext string) (*CallerIDStatus, error) {
@@ -167,7 +172,7 @@ func (s *callerIDService) Get(ctx context.Context, ext string) (*CallerIDStatus,
 		// No settings row yet → no caller id configured.
 		return &CallerIDStatus{}, nil
 	}
-	return statusOf(settings), nil
+	return s.statusOf(settings), nil
 }
 
 func (s *callerIDService) Delete(ctx context.Context, ext string) error {
@@ -207,4 +212,29 @@ func statusOf(s *models.UserSettings) *CallerIDStatus {
 		Verified:   s.CallerIDVerified,
 		VerifiedAt: s.CallerIDVerifiedAt,
 	}
+}
+
+// statusOf builds the API view of a settings row, applying age-based expiry: a
+// verified caller ID older than verifyTTL is reported as unverified so the UI
+// prompts a re-verification. No provider round-trip is involved; the Node SQL
+// gate enforces the same window on the call path.
+func (s *callerIDService) statusOf(settings *models.UserSettings) *CallerIDStatus {
+	st := statusOf(settings)
+	if s.isStale(settings) {
+		st.Verified = false
+	}
+	return st
+}
+
+// isStale reports whether a verified caller ID has aged past verifyTTL. A zero
+// TTL disables expiry. A verified row with no timestamp is treated as stale —
+// we can't prove freshness, so force re-verification.
+func (s *callerIDService) isStale(settings *models.UserSettings) bool {
+	if s.verifyTTL <= 0 || !settings.CallerIDVerified {
+		return false
+	}
+	if settings.CallerIDVerifiedAt == nil {
+		return true
+	}
+	return time.Since(*settings.CallerIDVerifiedAt) > s.verifyTTL
 }

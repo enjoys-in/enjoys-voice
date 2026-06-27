@@ -27,15 +27,15 @@ script's origin (the CDN), which is wrong:
 
 ```html
 <script
-  src="https://cdn.jsdelivr.net/npm/@enjoys/voice-widget@0.1.1/dist/widget.js"
+  src="https://cdn.jsdelivr.net/npm/@enjoys/voice-widget@0.2.0/dist/widget.js"
   data-enjoys-key="pk_live_xxxxxxxx"
   data-api-base="https://voice.yourdomain.com"
   defer
 ></script>
 ```
 
-unpkg is equivalent — `https://unpkg.com/@enjoys/voice-widget@0.1.1/dist/widget.js`. Pin
-a version (`@0.1.1`) rather than `@latest` so the CDN can cache aggressively.
+unpkg is equivalent — `https://unpkg.com/@enjoys/voice-widget@0.2.0/dist/widget.js`. Pin
+a version (`@0.2.0`) rather than `@latest` so the CDN can cache aggressively.
 
 ## npm
 
@@ -75,6 +75,40 @@ const widget = CallWidget.init({ publicKey: "pk_live_xxxx", autoButton: false })
 await widget.ready;
 myButton.onclick = () => widget.startCall();
 ```
+
+## Server-to-server callback (PSTN↔PSTN)
+
+Instead of a browser leg, your **backend** can ask the API to ring the key's
+locked destination, then ring a visitor's phone, and bridge the two over the
+PSTN — a classic "request a callback" flow. This uses the **secret** key
+(`sk_…`) and must run only from your server (never the browser).
+
+```ts
+// Node / backend only — keep the secret server-side.
+import { requestCallback } from "@enjoys/voice-widget";
+
+const { callId } = await requestCallback({
+  apiBase: "https://voice.yourdomain.com",
+  publicKey: "pk_live_xxxxxxxx",
+  secret: process.env.ENJOYS_SECRET!, // sk_live_…
+  customerNumber: "+15551234567",      // the visitor to call back
+});
+```
+
+Or with plain `curl`:
+
+```bash
+curl -X POST https://voice.yourdomain.com/api/n/widget/callback \
+  -H "Authorization: Bearer sk_live_xxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"publicKey":"pk_live_xxxxxxxx","customerNumber":"+15551234567"}'
+```
+
+The API responds immediately with `{ callId, status: "originating", … }`; the
+legs then ring asynchronously and bridge once both answer. The destination is
+**always** the one locked to the key (never taken from the request), the key
+must be trunk-routed, and the per-key daily cap applies the same as the browser
+flow. Both PSTN legs are billable.
 
 ## Security
 

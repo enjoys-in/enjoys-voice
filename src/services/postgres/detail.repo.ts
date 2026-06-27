@@ -1,4 +1,18 @@
 import { getPool } from './pool';
+import { config } from '../../core/config';
+
+/** SQL fragment that drops a verified outbound caller ID once it has aged past
+ * the configured TTL, so a stale verification is never presented on a call. The
+ * window mirrors the Go API's CALLER_ID_VERIFY_TTL_DAYS; 0 disables expiry. The
+ * day count is a validated integer from our own config (never user input), so
+ * inlining it is injection-safe. */
+function callerIdFreshClause(): string {
+  const days = Number(config.callerId.verifyTtlDays);
+  if (!Number.isInteger(days) || days <= 0) return '';
+  return ` AND caller_id_verified_at > NOW() - INTERVAL '${days} days'`;
+}
+
+const CALLER_ID_FRESH_SQL = callerIdFreshClause();
 
 /**
  * Per-user routing detail stored by the Go API in separate tables. Node reads
@@ -31,8 +45,9 @@ export interface PstnRow {
   dnd: boolean;
   /** Assigned billing rate plan id, or null to use the workspace default. */
   rate_plan_id: number | null;
-  /** Verified outbound caller ID, or null when unset/unverified. The SQL gates
-   * this on caller_id_verified so Node never sees an unverified number. */
+  /** Verified outbound caller ID, or null when unset/unverified/expired. The
+   * SQL gates this on caller_id_verified AND freshness (caller_id_verified_at
+   * within the TTL) so Node never sees an unverified or stale number. */
   outbound_caller_id: string | null;
 }
 
@@ -69,7 +84,7 @@ export async function loadForwardingByExtension(extension: string): Promise<Forw
 export async function loadAllPstn(): Promise<PstnRow[]> {
   const { rows } = await getPool().query<PstnRow>(
     `SELECT extension, pstn_enabled, pstn_mobile, COALESCE(dnd, false) AS dnd, rate_plan_id,
-            CASE WHEN COALESCE(caller_id_verified, false) THEN outbound_caller_id ELSE NULL END AS outbound_caller_id
+            CASE WHEN COALESCE(caller_id_verified, false)${CALLER_ID_FRESH_SQL} THEN outbound_caller_id ELSE NULL END AS outbound_caller_id
      FROM user_settings`,
   );
   return rows;
@@ -78,7 +93,7 @@ export async function loadAllPstn(): Promise<PstnRow[]> {
 export async function loadPstnByExtension(extension: string): Promise<PstnRow | null> {
   const { rows } = await getPool().query<PstnRow>(
     `SELECT extension, pstn_enabled, pstn_mobile, COALESCE(dnd, false) AS dnd, rate_plan_id,
-            CASE WHEN COALESCE(caller_id_verified, false) THEN outbound_caller_id ELSE NULL END AS outbound_caller_id
+            CASE WHEN COALESCE(caller_id_verified, false)${CALLER_ID_FRESH_SQL} THEN outbound_caller_id ELSE NULL END AS outbound_caller_id
      FROM user_settings WHERE extension = $1 LIMIT 1`,
     [extension],
   );

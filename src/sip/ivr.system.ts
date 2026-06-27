@@ -404,6 +404,91 @@ export class IVRSystem {
   }
 
   /**
+   * Originate TWO outbound PSTN legs and bridge them — a true server-driven
+   * click-to-call "callback". Unlike {@link joinTeamsMeeting} there is NO inbound
+   * caller: both legs are dialed OUT through the trunk and anchored on FreeSWITCH
+   * (each FS endpoint provides the offer SDP; we re-point it at the PSTN answer),
+   * so the media is relayed/transcoded FS-side and neither party has to be a
+   * registered SIP endpoint.
+   *
+   * Sequencing mirrors a standard callback: the locked `destination` (the
+   * business/agent line) is rung FIRST; only once it answers is the visitor's
+   * `customerNumber` dialed, then the two are bridged. Ringing the destination
+   * first means we never ring a customer just to connect them to a phone that
+   * turns out to be unreachable. `createOutboundLeg` resolves on 200 OK, so each
+   * `await` below already implies "answered".
+   *
+   * Fire-and-forget by design: the HTTP route pre-validates and kicks this off,
+   * so the returned result exists purely for logging — the bridged call then
+   * lives on its own destroy listeners until either side hangs up (teardown
+   * fires exactly once regardless of which leg ends first, mirroring routeCall).
+   *
+   * @returns ok=true once both legs are bridged; ok=false (with a reason) on any
+   *   pre-bridge failure (media down, either leg not answered, internal error).
+   */
+  async bridgePstnToPstn(
+    trunk: { isEnabled: boolean; createOutboundLeg: (srf: any, number: string, localSdp: string, callerId?: string) => Promise<any | null> },
+    destination: string,
+    customerNumber: string,
+    opts?: { callerId?: string },
+  ): Promise<{ ok: boolean; reason?: string }> {
+    if (!trunk.isEnabled) return { ok: false, reason: 'trunk_disabled' };
+    if (!(await this.ensureConnected())) return { ok: false, reason: 'media_unavailable' };
+
+    let aLeg: Mrf.Endpoint | undefined;
+    let bLeg: Mrf.Endpoint | undefined;
+    let uacA: any;
+    let uacB: any;
+    let torndown = false;
+
+    // Tear down both legs + both endpoints exactly once, no matter which ends first.
+    const teardown = () => {
+      if (torndown) return;
+      torndown = true;
+      try { uacA?.destroy?.(); } catch { /* noop */ }
+      try { uacB?.destroy?.(); } catch { /* noop */ }
+      try { aLeg?.destroy?.(); } catch { /* noop */ }
+      try { bLeg?.destroy?.(); } catch { /* noop */ }
+    };
+
+    const callerId = opts?.callerId;
+
+    try {
+      // Leg A — ring the LOCKED destination first and anchor it on FreeSWITCH.
+      aLeg = await this.ms!.createEndpoint();
+      uacA = await trunk.createOutboundLeg(this.srf, destination, aLeg.local.sdp || '', callerId);
+      if (!uacA) { teardown(); return { ok: false, reason: 'destination_unreachable' }; }
+      await aLeg.modify(uacA.remote?.sdp || '');
+      await this.prepareVoice(aLeg);
+      await this.playSafe(aLeg, 'say:Please hold while we connect your call.');
+
+      // Leg B — destination is up; now ring the visitor and anchor that leg too.
+      bLeg = await this.ms!.createEndpoint();
+      uacB = await trunk.createOutboundLeg(this.srf, customerNumber, bLeg.local.sdp || '', callerId);
+      if (!uacB) {
+        await this.playSafe(aLeg, 'say:The other party could not be reached. Goodbye.');
+        teardown();
+        return { ok: false, reason: 'customer_unreachable' };
+      }
+      await bLeg.modify(uacB.remote?.sdp || '');
+
+      // Any hang-up (either PSTN leg or either FS endpoint) tears the bridge down.
+      uacA.on('destroy', teardown);
+      uacB.on('destroy', teardown);
+      aLeg.on('destroy', teardown);
+      bLeg.on('destroy', teardown);
+
+      await aLeg.bridge(bLeg);
+      console.log(`✅ Callback: bridged ${destination} ↔ ${customerNumber}`);
+      return { ok: true };
+    } catch (err: any) {
+      console.error('❌ Callback bridge error:', err?.message || err);
+      teardown();
+      return { ok: false, reason: 'bridge_error' };
+    }
+  }
+
+  /**
    * Answer a caller and join their leg into a FreeSWITCH conference room.
    *
    * The browser dials `conf-<roomId>`; we anchor the leg on the media server

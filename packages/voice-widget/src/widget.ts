@@ -45,6 +45,7 @@ export class CallWidget {
       this.ui = new WidgetUI({
         position: options.position ?? "bottom-right",
         accentColor: options.accentColor,
+        theme: options.theme,
         buttonLabel: options.buttonLabel,
         title: options.title,
         gifs: options.gifs,

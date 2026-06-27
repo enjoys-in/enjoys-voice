@@ -216,8 +216,9 @@ export interface SipUser {
   /** Billing rate plan assigned to this user; undefined → workspace default plan. */
   ratePlanId?: number;
   /** Verified outbound caller ID (BYON) to present on browser→PSTN calls. Node
-   * only ever receives this once the Go verify flow has confirmed ownership
-   * (the SQL gates it on caller_id_verified), so its mere presence means trusted.
+   * only ever receives this once the Go verify flow has confirmed ownership and
+   * while it is still fresh (the SQL gates it on caller_id_verified AND the
+   * CALLER_ID_VERIFY_TTL_DAYS window), so its mere presence means trusted.
    * Undefined → fall back to the shared trunk caller number. */
   outboundCallerId?: string;
   /** Prepaid wallet balance in `balanceCurrency`. Hydrated from Postgres and

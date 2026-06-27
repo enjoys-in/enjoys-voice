@@ -70,10 +70,12 @@ function boot(): void {
 
   const position = attr(script, "data-position");
   const gifBlend = attr(script, "data-gif-blend");
+  const theme = attr(script, "data-theme");
   const options: WidgetOptions = {
     publicKey,
     apiBase: attr(script, "data-api-base") || originOf(script?.src),
     accentColor: attr(script, "data-accent"),
+    theme: theme === "light" || theme === "dark" ? theme : "auto",
     buttonLabel: attr(script, "data-label"),
     title: attr(script, "data-title"),
     position: position === "bottom-left" ? "bottom-left" : "bottom-right",

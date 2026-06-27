@@ -177,8 +177,6 @@
 - [x] Records the call as `voicemail` (message left) or `missed` (no message)
 - [x] Frontend: `dnd` in settings store/type, `go-api` get/updateSettings, DND
       toggle in `SettingsScreen` persisted to the Go settings endpoint
-- [ ] Frontend: add `dnd` to the settings store + a toggle in `SettingsScreen`
-      and persist via the Go settings update (`go-api.ts`)
 
 ## Outbound Caller ID — Verified BYON (per-user real number) — ✅ DONE
 > **Goal:** a browser→PSTN call presents the *caller's own* real mobile as the
@@ -254,8 +252,12 @@
       "Twilio is calling you, enter the code", then a "Done / refresh" that calls
       confirm. Surface the verified / pending / none states.
 - [x] Add the endpoints to `go-api.ts`; add the fields to the settings store.
-- [ ] If outbound is blocked while unverified, the dialer should explain why and
-      deep-link to the verify panel.
+- [x] **N/A by design:** outbound is **not** blocked when the caller ID is
+      unverified — the chosen (b) fallback presents the shared `TRUNK_CALLER_NUMBER`
+      (`sanitizeCallerId(callerId) || trunk.callerNumber` in `createOutboundLeg`),
+      so the call still completes and there is no block to explain. (An optional
+      "verify your number to show your own CLI" nudge in the dialer could be added
+      later, but it is cosmetic, not a gate.)
 
 ### IVR / inbound — unchanged (shared toll-free), note only
 - [ ] No change required: IVR keeps its own **shared** business number; the dial
@@ -267,8 +269,22 @@
 - [ ] STIR/SHAKEN: a verified-but-not-owned number gets ~B-level attestation (fine
       for most; a few carriers may still label the call). Full A-level needs an
       **owned** DID (a larger, separate feature).
-- [ ] Re-verify on number change; expire/invalidate stale verifications; one
-      verified CLI per user for now.
+- [x] Re-verify on number change; expire/invalidate stale verifications; one
+      verified CLI per user. **Implemented (age-based, NO provider re-check):**
+      (1) *re-verify on change* — only the verify flow writes the caller-ID
+      columns; `StartVerification` always resets `caller_id_verified=false` for
+      the new number, and the generic settings update never touches them
+      (`server/internal/service/settings_service.go`). (2) *expiry* — a verified
+      CLI is valid for `CALLER_ID_VERIFY_TTL_DAYS` (default 90); past that the Go
+      status API reports it unverified (`caller_id_service.go` `isStale`/`statusOf`)
+      **and** the Node SQL gate drops it from the call path
+      (`src/services/postgres/detail.repo.ts` — `caller_id_verified_at` within
+      the window), self-healing on the next REGISTER/restart via `settings_changed`
+      NOTIFY. No timestamp ⇒ treated as stale. (3) *one CLI per user* — enforced
+      structurally by the single `outbound_caller_id` column. **Out of scope (by
+      decision):** a provider-side (Twilio `OutgoingCallerIds`) existence re-check
+      — would add a per-call/round-trip dependency; time-based expiry is enough.
+
 - [ ] Provider lock-in: verified caller ID is per-provider (Twilio-only until the
       other providers are wired into the live app).
 - [x] Rate-limit `verify/start` (anti-abuse — each call triggers a real, billable
@@ -573,8 +589,28 @@
       **IIFE** `dist/widget.js` for the one-line `<script data-enjoys-key>` embed.
       `build:cdn` copies `widget.js` into `web/public/` (served at
       `https://<domain>/widget.js`).
-- [ ] (Optional, later) True PSTN↔PSTN callback bridge for `sk_` originate; publish
+- [x] (Optional, later) True PSTN↔PSTN callback bridge for `sk_` originate; publish
       the package to npm.
+      - **Bridge:** `IVRSystem.bridgePstnToPstn(trunk, destination, customerNumber,
+        { callerId })` (`src/sip/ivr.system.ts`) originates BOTH legs out the trunk
+        and anchors each on a FreeSWITCH MRF endpoint (`ms.createEndpoint()` →
+        `trunk.createOutboundLeg(srf, …)` → `endpoint.modify(answerSdp)`), then
+        `aLeg.bridge(bLeg)`. Rings the LOCKED destination first, then the visitor;
+        single-shot teardown on any leg destroy (mirrors `joinTeamsMeeting`).
+      - **Endpoint:** `POST /api/n/widget/callback` (`src/http/routes/api.routes.ts`),
+        secret-gated (`Authorization: Bearer sk_live_…` via `ApiKeyService.verifySecret`).
+        Destination is always the key's locked number (never from the request);
+        requires `routeType === 'trunk'`; validates `customerNumber` (E.164-ish);
+        enforces the per-key daily cap (`ApiKeyService.capReached`, now public).
+        Validates synchronously, originates in the background, returns
+        `{ callId, status:'originating' }`.
+      - **Client:** `requestCallback({ apiBase, publicKey, secret, customerNumber })`
+        exported from `@enjoys/voice-widget` (server-side only — never ship the
+        secret to a browser). README documents the flow + a curl example.
+      - **Publish:** package built clean (`bun run build`), version bumped to
+        `0.2.0`, `prepublishOnly: tsup` added, `npm pack --dry-run` verified
+        (7 files, dist + types). NOT yet pushed to npm — needs the maintainer's
+        `npm login` + `npm publish` (irreversible; run from `packages/voice-widget/`).
 
 ## Working Hours & Availability Routing — ✅ DONE
 > **Goal:** centralise the "should this call connect *right now*?" decision in one

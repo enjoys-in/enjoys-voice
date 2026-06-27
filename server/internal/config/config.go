@@ -45,6 +45,11 @@ type Config struct {
 	// instead of requiring a live SMS gateway. It NEVER returns the code in an
 	// HTTP response. Intended for local development only; leave false in prod.
 	OTPDevEcho bool
+	// CallerIDVerifyTTL is how long a provider-verified outbound caller ID stays
+	// valid before the user must re-verify. The Go status API and the Node SQL
+	// gate both read the same window (CALLER_ID_VERIFY_TTL_DAYS) so they agree on
+	// when a verification has gone stale. Zero disables expiry.
+	CallerIDVerifyTTL time.Duration
 }
 
 // BillingConfig controls the prepaid wallet. When PrepaidEnabled is false the
@@ -159,6 +164,9 @@ func Load() *Config {
 		},
 		AdminExtensions: getEnvList("ADMIN_EXTENSIONS"),
 		OTPDevEcho:      getEnvBool("OTP_DEV_ECHO", false),
+		// Days a verified caller ID stays fresh; 0 disables expiry. Converted to a
+		// duration here so the service can compare against caller_id_verified_at.
+		CallerIDVerifyTTL: time.Duration(getEnvInt("CALLER_ID_VERIFY_TTL_DAYS", 90)) * 24 * time.Hour,
 	}
 }
 

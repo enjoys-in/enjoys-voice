@@ -1,6 +1,6 @@
 {
   "name": "@enjoys/voice-widget",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Embeddable click-to-call widget for Enjoys Voice — browser WebRTC, API-key gated, locked to a single destination.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -23,7 +23,8 @@
     "build": "tsup",
     "build:cdn": "tsup && node scripts/copy-cdn.mjs",
     "dev": "tsup --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "tsup"
   },
   "keywords": [
     "webrtc",

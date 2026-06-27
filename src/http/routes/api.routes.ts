@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { DatabaseService, TrunkService } from '@/services';
 import type { CallMetricsService, ApiKeyService, ApiKeyDenyReason } from '@/services';
 import { SipServer } from '@/sip';
@@ -240,6 +241,10 @@ export function createRoutes(
   //   POST /widget/token    → server-to-server: authenticate with the SECRET key
   //                           (Authorization: Bearer sk_live_…) to mint a token
   //                           without Origin/IP limits (trusted backend caller).
+  //   POST /widget/callback → server-to-server (Authorization: Bearer sk_live_…):
+  //                           true PSTN↔PSTN callback. No browser/token: we dial
+  //                           the key's LOCKED destination, then the supplied
+  //                           customerNumber, and bridge them via FreeSWITCH.
   const widget = Router();
 
   // Pull the publishable key (JSON body or X-Api-Key header) plus the caller's
@@ -338,6 +343,63 @@ export function createRoutes(
       destination: result.key.destination,
       callerId: result.key.callerId,
       ...widgetConnect(),
+    });
+  });
+
+  // Server-to-server PSTN↔PSTN callback. Authenticated with the SECRET key only
+  // (no Origin/IP gate — the secret IS the auth), this dials the key's locked
+  // destination and the caller-supplied customerNumber and bridges them through
+  // FreeSWITCH. Two PSTN legs are billable, so the per-key daily cap is enforced
+  // here exactly as the browser path enforces it. The bridge rings for many
+  // seconds, so we validate synchronously then originate in the background and
+  // return 202-style { callId, status:'originating' } immediately.
+  widget.post('/callback', async (req: Request, res: Response) => {
+    if (!apiKeys || !config.widget.enabled) { fail(res, 503, 'Widget not available'); return; }
+    const { key } = widgetMeta(req);
+    const auth = req.get('authorization') || '';
+    const secret = /^bearer /i.test(auth) ? auth.slice(7).trim() : '';
+    const body = (req.body ?? {}) as { customerNumber?: unknown; to?: unknown };
+    const rawTo =
+      (typeof body.customerNumber === 'string' && body.customerNumber) ||
+      (typeof body.to === 'string' && body.to) || '';
+    if (!key || !secret) { fail(res, 400, 'publicKey and a Bearer secret are required'); return; }
+    if (!rawTo) { fail(res, 400, 'customerNumber is required'); return; }
+
+    const result = await apiKeys.verifySecret(key, secret);
+    if (!result.ok) { const d = widgetDeny(result.reason); fail(res, d.status, d.message); return; }
+    const apiKey = result.key;
+
+    // A PSTN↔PSTN callback only makes sense for a trunk-routed key; ivr/extension
+    // keys resolve to internal targets that have no second PSTN leg to bridge.
+    if (apiKey.routeType !== 'trunk') { fail(res, 400, 'Callback bridge requires a trunk-routed key'); return; }
+    if (!trunk.isEnabled) { fail(res, 503, 'Outbound trunk not available'); return; }
+
+    // Sanitize the visitor's number (the destination is locked server-side and
+    // never taken from the request, so only this leg needs validation).
+    const customerNumber = rawTo.replace(/[^\d+]/g, '');
+    if (!/^\+?\d{6,15}$/.test(customerNumber)) { fail(res, 400, 'Invalid customerNumber'); return; }
+
+    if (apiKeys.capReached(apiKey)) { fail(res, 429, 'Daily call cap reached'); return; }
+
+    const ivr = sip.ivrSystem;
+    if (!ivr || !ivr.isConnected()) { fail(res, 503, 'Media server not available'); return; }
+
+    // Count the attempt against the daily cap up-front, then originate both legs
+    // in the background — the API answers right away with a tracking id.
+    apiKeys.noteCall(apiKey.id, apiKey.dailyCap);
+    const callId = crypto.randomUUID();
+    console.log(`📞 Callback: key=${apiKey.publicKey} ${apiKey.destination} ↔ ${customerNumber} (callId=${callId})`);
+
+    void ivr.bridgePstnToPstn(trunk, apiKey.destination, customerNumber, { callerId: apiKey.callerId })
+      .then((r) => { if (!r.ok) console.warn(`⚠️ Callback ${callId} failed: ${r.reason}`); })
+      .catch((err) => console.error(`❌ Callback ${callId} error:`, err?.message || err));
+
+    created(res, {
+      callId,
+      status: 'originating',
+      destination: apiKey.destination,
+      customerNumber,
+      callerId: apiKey.callerId,
     });
   });
 
