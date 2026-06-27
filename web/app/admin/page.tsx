@@ -379,7 +379,7 @@ function OverviewTab({
           <CardContent>
             {statsLoading ? (
               <Skeleton className="h-64 w-full rounded-lg" />
-            ) : stats && stats.series.length > 0 ? (
+            ) : stats && (stats.series?.length ?? 0) > 0 ? (
               <CallsOverTimeChart series={stats.series} />
             ) : (
               <EmptyChart label="No calls in this range" />
@@ -393,7 +393,7 @@ function OverviewTab({
           <CardContent>
             {statsLoading ? (
               <Skeleton className="h-64 w-full rounded-lg" />
-            ) : stats && stats.statusBreakdown.length > 0 ? (
+            ) : stats && (stats.statusBreakdown?.length ?? 0) > 0 ? (
               <StatusBreakdownChart data={stats.statusBreakdown} />
             ) : (
               <EmptyChart label="No data" />
@@ -414,7 +414,7 @@ function OverviewTab({
             {statsLoading ? (
               <Skeleton className="h-56 w-full rounded-lg" />
             ) : (
-              <SpendOverTimeChart series={stats.series} />
+              <SpendOverTimeChart series={stats.series ?? []} />
             )}
           </CardContent>
         </Card>
