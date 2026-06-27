@@ -562,7 +562,8 @@ export type GoRoutingDestinationType =
   | "ivr"
   | "extension"
   | "pstn"
-  | "voicemail";
+  | "voicemail"
+  | "ai_agent";
 
 /** A user's per-user inbound call-routing rule. Owner-scoped: the API only
  * ever returns the caller's own rules. A rule sends the user's inbound calls
@@ -639,6 +640,61 @@ export interface GoWebhookInput {
   url?: string;
   secret?: string;
   events?: GoWebhookEvent[];
+  enabled?: boolean;
+}
+
+// ─── AI voice agents (per-user configurable speech agents) ──────────
+
+/** Selectable speech-to-text providers for an AI agent. */
+export const GO_AI_AGENT_STT_PROVIDERS = ["speechmatics", "deepgram"] as const;
+/** Selectable LLM providers for an AI agent. */
+export const GO_AI_AGENT_LLM_PROVIDERS = ["openai", "gemini"] as const;
+/** Selectable text-to-speech providers for an AI agent. */
+export const GO_AI_AGENT_TTS_PROVIDERS = ["sarvam", "deepgram", "speechmatics"] as const;
+
+export type GoAiAgentSttProvider = (typeof GO_AI_AGENT_STT_PROVIDERS)[number];
+export type GoAiAgentLlmProvider = (typeof GO_AI_AGENT_LLM_PROVIDERS)[number];
+export type GoAiAgentTtsProvider = (typeof GO_AI_AGENT_TTS_PROVIDERS)[number];
+
+/** A per-user AI voice agent (owner-scoped). Provider API keys are NOT stored
+ * here — they live server-side in the engine's env — so this view has no
+ * secrets to redact. */
+export interface GoAiAgent {
+  id: number;
+  ownerExtension: string;
+  name: string;
+  /** Spoken greeting the agent opens the call with. */
+  greeting: string;
+  /** BCP-47-ish language tag the STT/TTS use (e.g. "en"). */
+  language: string;
+  sttProvider: string;
+  llmProvider: string;
+  /** LLM model id (e.g. "gpt-4o-mini" or a Gemini model). */
+  llmModel: string;
+  /** System prompt that shapes the agent's persona / task. */
+  systemPrompt: string;
+  /** LLM sampling temperature, 0–2. */
+  temperature: number;
+  ttsProvider: string;
+  /** Provider-specific voice id (empty = provider default). */
+  ttsVoice: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Partial create/update of an AI voice agent. Only sent fields are applied. */
+export interface GoAiAgentInput {
+  name?: string;
+  greeting?: string;
+  language?: string;
+  sttProvider?: string;
+  llmProvider?: string;
+  llmModel?: string;
+  systemPrompt?: string;
+  temperature?: number;
+  ttsProvider?: string;
+  ttsVoice?: string;
   enabled?: boolean;
 }
 
@@ -1253,6 +1309,32 @@ export const goApi = {
     },
     remove(id: number): Promise<void> {
       return goRequest<unknown>(`/webhooks/${id}`, {
+        method: "DELETE",
+      }).then(() => undefined);
+    },
+  },
+
+  // Per-user AI voice agents (owner-scoped CRUD). Each agent picks its STT/LLM/
+  // TTS providers + prompt; the media-streaming engine builds a brain from it
+  // per call (provider API keys are server-side env, never sent here).
+  aiAgents: {
+    list(): Promise<GoAiAgent[]> {
+      return goRequest<GoAiAgent[]>(`/ai-agents`);
+    },
+    create(input: GoAiAgentInput): Promise<GoAiAgent> {
+      return goRequest<GoAiAgent>(`/ai-agents`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(id: number, input: GoAiAgentInput): Promise<GoAiAgent> {
+      return goRequest<GoAiAgent>(`/ai-agents/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(id: number): Promise<void> {
+      return goRequest<unknown>(`/ai-agents/${id}`, {
         method: "DELETE",
       }).then(() => undefined);
     },

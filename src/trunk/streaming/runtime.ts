@@ -8,10 +8,28 @@
 
 import { MediaStreamServer } from "./media-stream.server";
 import { BrowserBridge } from "./browser-bridge";
-import { createAiHandlers, createDefaultBrain } from "./ai/ai.handlers";
+import {
+  createAiHandlers,
+  createAgentAwareHandlers,
+  createDefaultBrain,
+} from "./ai/ai.handlers";
+import { buildBrainFromAgent } from "./ai/agent.brain";
+import type { AgentRuntimeConfig } from "./ai/providers/types";
 import type { MediaStreamHandlers } from "./types";
 
 export type MediaStreamMode = "log" | "bridge" | "ai" | "auto";
+
+/** Resolve a per-call agent config from the `agentId` stream parameter. */
+export type AgentResolver = (agentId: string) => Promise<AgentRuntimeConfig | undefined>;
+
+export interface MediaStreamRuntimeOptions {
+  /**
+   * Optional per-user agent resolver. When provided, AI calls build their brain
+   * from the agent named by the stream's `agentId` parameter (falling back to
+   * the default stub brain when absent/unknown). Omit for a single global brain.
+   */
+  resolveAgent?: AgentResolver;
+}
 
 export interface MediaStreamRuntime {
   readonly mode: MediaStreamMode;
@@ -93,13 +111,36 @@ export function createRoutingHandlers(
 
 /**
 /**
+ * Build the AI handler set. With a `resolveAgent` it is agent-aware (per-call
+ * brain from the `agentId` parameter, default brain as fallback); without one it
+ * runs a single global default brain.
+ */
+function buildAiHandlers(resolveAgent?: AgentResolver): MediaStreamHandlers {
+  if (!resolveAgent) return createAiHandlers(createDefaultBrain());
+  const fallback = createDefaultBrain();
+  return createAgentAwareHandlers(async (meta) => {
+    const agentId = meta.parameters?.agentId;
+    if (!agentId) return fallback;
+    try {
+      const cfg = await resolveAgent(agentId);
+      return cfg ? buildBrainFromAgent(cfg) : fallback;
+    } catch (err) {
+      console.error(`❌ AI: agent ${agentId} resolve failed — ${(err as Error).message}`);
+      return fallback;
+    }
+  });
+}
+
+/**
  * Build the media-streaming WS runtime for the current MEDIA_STREAM_MODE:
  *   auto   (default) route each call by its `mode` param: bridge | ai
  *   bridge force every call to a browser listener (also starts the bridge WS)
- *   ai     force the Speechmatics voice agent for every call
+ *   ai     force the voice agent for every call
  *   log    log frame activity only (no audio routing)
  */
-export function createMediaStreamRuntime(): MediaStreamRuntime {
+export function createMediaStreamRuntime(
+  opts: MediaStreamRuntimeOptions = {},
+): MediaStreamRuntime {
   const mode = (process.env.MEDIA_STREAM_MODE || "auto").toLowerCase() as MediaStreamMode;
 
   let bridge: BrowserBridge | undefined;
@@ -111,7 +152,7 @@ export function createMediaStreamRuntime(): MediaStreamRuntime {
     handlers = createRoutingHandlers(
       {
         bridge: bridge.handlers(),
-        ai: createAiHandlers(createDefaultBrain()),
+        ai: buildAiHandlers(opts.resolveAgent),
         log: createLogHandlers(),
       },
       "bridge",
@@ -120,7 +161,7 @@ export function createMediaStreamRuntime(): MediaStreamRuntime {
     bridge = new BrowserBridge();
     handlers = bridge.handlers();
   } else if (mode === "ai") {
-    handlers = createAiHandlers(createDefaultBrain());
+    handlers = buildAiHandlers(opts.resolveAgent);
   } else {
     handlers = createLogHandlers();
   }

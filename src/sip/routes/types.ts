@@ -1,6 +1,7 @@
 import type { DatabaseService, TrunkService, AuditService, DialResult } from '@/services';
 import type { ConferenceService, QueueService } from '@/services';
 import type { WidgetTokenClaims } from '@/core';
+import type { UnreachableReason } from '@/core';
 import type { RoutingOrchestrator } from '@/modules/routing';
 import type { IVRSystem } from '../ivr.system';
 
@@ -37,12 +38,14 @@ export interface RouteServices {
   routeToExtension: (req: any, res: any, contact: string, callId: string) => Promise<void>;
   forwardCall: (req: any, res: any, target: string, callId: string, callingNumber: string) => Promise<void>;
   /**
-   * Run the offline/unreachable fallback chain (forward → PSTN → voicemail →
-   * "unavailable" announcement) for a known extension and record the call as
-   * missed. Used for both never-registered users and stale-registration (410)
-   * failures so both paths behave identically.
+   * Run the offline/unreachable fallback chain (PSTN → forward → voicemail →
+   * spoken status tone) for a known extension. `reason` controls voicemail
+   * gating + wording: 'offline' (default) runs the full chain incl. voicemail
+   * and records `unreachable`; 'busy'/'no_answer' skip voicemail, play a
+   * "currently busy"/"not answering" tone and record `missed`. Used for
+   * never-registered users, stale-registration (410), and busy/no-answer.
    */
-  routeUnreachable: (req: any, res: any, calledExt: string, callId: string, callingNumber: string) => Promise<void>;
+  routeUnreachable: (req: any, res: any, calledExt: string, callId: string, callingNumber: string, reason?: UnreachableReason) => Promise<void>;
   /**
    * Handle a call to a registered user who has Do Not Disturb enabled: skip
    * ringing and send the caller straight to voicemail (or a silent SIP 480 when

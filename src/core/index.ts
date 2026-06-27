@@ -6,5 +6,5 @@ export { signWidgetToken, verifyWidgetToken, WIDGET_TOKEN_TTL_SECONDS } from './
 export type { WidgetTokenClaims } from './widget-token';
 export { buildIceServers, mintTurnCredential } from './turn';
 export type { IceServer } from './turn';
-export { DbEvent, WriteJob } from './types';
+export { DbEvent, WriteJob, CallStatus, UnreachableReason, CallDirection, CallNotifyEvent, CallNotifyReason } from './types';
 export type { CallLog, SipUser, SipRegistration, Department, IVRCallState, Voicemail, BalanceDebitJob, WebhookCallSnapshot, WebhookEventPayload, WebhookDeliverJob } from './types';

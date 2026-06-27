@@ -13,6 +13,7 @@ import {
   WebhookSyncListener,
   WebhookDispatcher,
   deliverWebhook,
+  AiAgentSyncListener,
   RatingService,
   WriteQueue,
   ensureCallSchema,
@@ -25,11 +26,15 @@ import {
 import { SipServer } from '@/sip';
 import { SignalingServer } from '@/websocket';
 import { HttpServer } from '@/http';
-import { createTrunkProvider, type ITrunkProvider } from '@/trunk';
+import { createTrunkProvider, type ITrunkProvider, type TrunkProviderName } from '@/trunk';
 import {
   streamingConfig,
   createMediaStreamRuntime,
   type MediaStreamRuntime,
+  type AgentRuntimeConfig,
+  type SttProvider,
+  type LlmProvider,
+  type TtsProvider,
 } from '@/trunk/streaming';
 import {
   AvailabilityService,
@@ -62,6 +67,7 @@ class Application {
   private routingSync: RoutingRuleSyncListener;
   private webhookSync: WebhookSyncListener;
   private webhookDispatcher: WebhookDispatcher;
+  private aiAgentSync: AiAgentSyncListener;
   private rating: RatingService;
   private writeQueue: WriteQueue;
   private conference: ConferenceService;
@@ -72,10 +78,13 @@ class Application {
   constructor() {
     this.db = new DatabaseService();
     this.trunk = new TrunkService();
-    // Twilio PSTN provider (REST Voice API + media streaming). Configured from
-    // TWILIO_* env; `isEnabled` is false until credentials are set. Runs
-    // ALONGSIDE the legacy SIP TrunkService — it does not replace it.
-    this.twilioTrunk = createTrunkProvider('twilio');
+    // PSTN provider (REST Voice API + media streaming) selected by
+    // SIP_TRUNK_PROVIDER (twilio|plivo|telnyx|vonage); configured from that
+    // provider's *_* env. `isEnabled` stays false until its credentials are set,
+    // so this is inert until configured. Runs ALONGSIDE the legacy SIP
+    // TrunkService — it does not replace it.
+    const trunkProviderName = (process.env.SIP_TRUNK_PROVIDER || 'twilio') as TrunkProviderName;
+    this.twilioTrunk = createTrunkProvider(trunkProviderName);
     this.audit = new AuditService();
     // Call-rating engine: prices billable (external) calls at end-of-call using
     // the workspace rate plans. Injected into the DatabaseService so cost is
@@ -142,9 +151,14 @@ class Application {
     this.http = new HttpServer(this.db, this.trunk, this.sip, this.twilioTrunk, this.metrics, this.apiKeys);
     // Twilio media-streaming WS server (separate port, like SignalingServer). Its
     // HTTP voice webhook rides on the existing HttpServer above. Opt-in via
-    // MEDIA_STREAM_ENABLED; MEDIA_STREAM_MODE selects log|bridge|ai.
+    // MEDIA_STREAM_ENABLED; MEDIA_STREAM_MODE selects log|bridge|ai. The voice
+    // agent is resolved per-call from the `agentId` stream parameter, so each
+    // DID/IVR/rule can answer with its own configured agent (falls back to the
+    // env-default brain when no agent is selected or it can't be loaded).
     if (streamingConfig.enabled) {
-      this.media = createMediaStreamRuntime();
+      this.media = createMediaStreamRuntime({
+        resolveAgent: (agentId) => this.resolveAgentConfig(agentId),
+      });
     }
     // Keep the in-memory user store in sync with Postgres in near real time:
     // any account created/edited/deleted via the Go API is reconciled here
@@ -200,6 +214,14 @@ class Application {
       onChanged: () => this.db.clearWebhookCache(),
       onReconnect: () => this.db.clearWebhookCache(),
     });
+    // Live-reconcile per-user AI voice agents the moment one is created/edited/
+    // deleted in the dashboard (written by the Go API), so a call always builds
+    // its brain from current config. Per-id + per-owner caches are small, so any
+    // change clears the whole agent cache and the next call lazily reloads it.
+    this.aiAgentSync = new AiAgentSyncListener({
+      onChanged: () => this.db.clearAiAgentCache(),
+      onReconnect: () => this.db.clearAiAgentCache(),
+    });
     // Write-behind queue: call-record upserts are emitted as events, enqueued to
     // Valkey, and applied to the shared Postgres by a worker. This keeps the SIP
     // path off the DB write latency. (Voicemails write to Postgres directly.)
@@ -234,7 +256,9 @@ class Application {
     console.log(`   HTTP:   :${config.server.httpPort}`);
     console.log(`   WS:     :${config.server.wsPort}`);
     console.log(`   Trunk:  ${config.trunk.enabled ? config.trunk.host : 'disabled'}`);
-    console.log(`   Twilio: ${this.twilioTrunk?.isEnabled ? 'enabled' : 'disabled'}`);
+    console.log(
+      `   PSTN:   ${this.twilioTrunk ? `${this.twilioTrunk.name} (${this.twilioTrunk.isEnabled ? 'enabled' : 'disabled'})` : 'disabled'}`,
+    );
     console.log(
       `   Media:  ${this.media ? `enabled (${this.media.mode}, ws :${streamingConfig.wsPort})` : 'disabled'}`,
     );
@@ -278,6 +302,12 @@ class Application {
     this.webhookSync.start().catch((err: any) =>
       console.warn(`   Sync:   ⚠️  webhook-sync listener failed to start (${err?.message})`),
     );
+    // And for per-user AI voice agents (configurable STT/LLM/TTS). Best-effort:
+    // if the ai_agents table doesn't exist yet, the listener no-ops and calls
+    // fall back to the env-default brain.
+    this.aiAgentSync.start().catch((err: any) =>
+      console.warn(`   Sync:   ⚠️  ai-agent-sync listener failed to start (${err?.message})`),
+    );
     // Start the write-behind queue worker (voicemail → Postgres). Best-effort:
     // if Valkey is unreachable, voicemails still record (in memory + on disk),
     // they just aren't mirrored to the shared DB until it recovers.
@@ -309,6 +339,33 @@ class Application {
     this.ws.start();
     this.http.start();
     this.media?.start();
+  }
+
+  /**
+   * Resolve a stream `agentId` parameter to a runtime brain config. Reads the
+   * per-id AI-agent cache (negative-cached + LISTEN/NOTIFY-invalidated), so the
+   * media path never touches Postgres per call. Returns undefined for an unknown
+   * / disabled / malformed id, in which case the runtime uses its default brain.
+   */
+  private async resolveAgentConfig(agentId: string): Promise<AgentRuntimeConfig | undefined> {
+    const id = Number(agentId);
+    if (!Number.isFinite(id) || id <= 0) return undefined;
+    const a = await this.db.getAiAgent(id);
+    if (!a) return undefined;
+    return {
+      id: a.id,
+      name: a.name,
+      greeting: a.greeting,
+      language: a.language,
+      stt: { provider: a.sttProvider as SttProvider },
+      llm: {
+        provider: a.llmProvider as LlmProvider,
+        model: a.llmModel,
+        systemPrompt: a.systemPrompt,
+        temperature: a.temperature,
+      },
+      tts: { provider: a.ttsProvider as TtsProvider, voice: a.ttsVoice },
+    };
   }
 
   /** Best-effort graceful shutdown: persist any buffered audit events before exit. */

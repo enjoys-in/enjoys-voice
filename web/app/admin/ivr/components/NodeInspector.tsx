@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-import { goApi, type GoConnector } from "../../../lib/go-api";
+import { goApi, type GoConnector, type GoAiAgent } from "../../../lib/go-api";
 import { useBuilderStore } from "../store/builder.store";
 import {
   NODE_META,
@@ -38,6 +38,7 @@ import {
   type ConditionVariable,
   type DtmfDigit,
   type EmailNodeData,
+  type AiAgentNodeData,
   type IvrNode,
 } from "../ivr.types";
 import { PromptEditor } from "./PromptEditor";
@@ -469,6 +470,15 @@ function NodeFields({
         />
       );
 
+    case "ai_agent":
+      return (
+        <AiAgentFields
+          nodeId={node.id}
+          data={data}
+          updateNodeData={updateNodeData}
+        />
+      );
+
     case "hangup":
       return (
         <p className="text-sm text-muted-foreground">
@@ -587,3 +597,82 @@ function EmailFields({
     </>
   );
 }
+
+// ─── ai agent ───────────────────────────────────────────
+
+function AiAgentFields({
+  nodeId,
+  data,
+  updateNodeData,
+}: {
+  nodeId: string;
+  data: AiAgentNodeData;
+  updateNodeData: (id: string, patch: Record<string, unknown>) => void;
+}) {
+  const [agents, setAgents] = useState<GoAiAgent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    goApi.aiAgents
+      .list()
+      .then((all) => {
+        if (active) setAgents(all);
+      })
+      .catch((e) => {
+        if (active)
+          setError(e instanceof Error ? e.message : "Failed to load AI agents");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return (
+    <>
+      <p className="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-2 text-[11px] leading-snug text-cyan-700 dark:text-cyan-400">
+        Hands the live call to an AI voice agent. The agent talks with the caller
+        and owns the call from here — this is a terminal block.
+      </p>
+
+      <Field label="AI agent">
+        <Select
+          value={data.agentId || undefined}
+          onValueChange={(agentId) => updateNodeData(nodeId, { agentId })}
+          disabled={loading || agents.length === 0}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue
+              placeholder={
+                loading
+                  ? "Loading…"
+                  : agents.length === 0
+                    ? "No AI agents"
+                    : "Select an agent"
+              }
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {agents.map((a) => (
+              <SelectItem key={a.id} value={String(a.id)}>
+                {a.name}
+                {!a.enabled && " (disabled)"}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {error && <p className="text-[11px] text-destructive">{error}</p>}
+        {!loading && !error && agents.length === 0 && (
+          <p className="text-[11px] text-muted-foreground/70">
+            Create an AI agent under Admin → AI Agents first.
+          </p>
+        )}
+      </Field>
+    </>
+  );
+}
+

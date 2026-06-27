@@ -57,6 +57,7 @@ func main() {
 		&models.Contact{},
 		&models.RoutingRule{},
 		&models.Webhook{},
+		&models.AiAgent{},
 	); err != nil {
 		log.Fatalf("Failed to migrate: %v", err)
 	}
@@ -93,6 +94,7 @@ func main() {
 	contactRepo := repository.NewContactRepository(db)
 	routingRuleRepo := repository.NewRoutingRuleRepository(db)
 	webhookRepo := repository.NewWebhookRepository(db)
+	aiAgentRepo := repository.NewAiAgentRepository(db)
 
 	// ─── Services ────────────────────────────────────────
 	authSvc := service.NewAuthService(userRepo, settingsRepo, valkey)
@@ -115,6 +117,7 @@ func main() {
 	contactSvc := service.NewContactService(contactRepo)
 	routingRuleSvc := service.NewRoutingRuleService(routingRuleRepo)
 	webhookSvc := service.NewWebhookService(webhookRepo)
+	aiAgentSvc := service.NewAiAgentService(aiAgentRepo)
 	// Twilio client powers provider-native (BYON) caller-ID verification and OTP
 	// SMS delivery. With no credentials configured it stays disabled and the
 	// dependent endpoints return 503.
@@ -155,6 +158,7 @@ func main() {
 		Contact:        handler.NewContactHandler(contactSvc),
 		RoutingRule:    handler.NewRoutingRuleHandler(routingRuleSvc),
 		Webhook:        handler.NewWebhookHandler(webhookSvc),
+		AiAgent:        handler.NewAiAgentHandler(aiAgentSvc),
 	}
 
 	// ─── Ensure upload dir ───────────────────────────────

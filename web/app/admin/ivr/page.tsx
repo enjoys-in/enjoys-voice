@@ -8,7 +8,6 @@ import { FlowList } from "./components/FlowList";
 import { IvrBuilder } from "./components/IvrBuilder";
 import { useBuilderStore } from "./store/builder.store";
 import { ivrApi } from "./ivr.api";
-import { useAuthStore } from "../../stores";
 
 export default function IvrPage() {
   const [editing, setEditing] = useState(false);
@@ -16,14 +15,15 @@ export default function IvrPage() {
   const startNewFlow = useBuilderStore((s) => s.startNewFlow);
   const setReadOnly = useBuilderStore((s) => s.setReadOnly);
   const reset = useBuilderStore((s) => s.reset);
-  const isAdmin = !!useAuthStore((s) => s.user?.isAdmin);
 
   const openFlow = async (id: string) => {
     const flow = await ivrApi.getFlow(id);
     if (flow) {
       loadFlow(flow);
-      // Non-admins may inspect their flow but not change or save it.
-      setReadOnly(!isAdmin);
+      // IVR is self-service: the list only ever returns flows the caller may
+      // manage (their own; admins see all), and the API enforces ownership on
+      // every save — so the builder is always editable here.
+      setReadOnly(false);
       setEditing(true);
     }
   };
@@ -48,7 +48,7 @@ export default function IvrPage() {
           ← Back to Control Plane
         </a>
       </div>
-      <FlowList onOpen={openFlow} onCreate={createFlow} canEdit={isAdmin} />
+      <FlowList onOpen={openFlow} onCreate={createFlow} />
     </div>
   );
 }

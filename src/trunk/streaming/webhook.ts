@@ -20,9 +20,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { TwilioClient } from "../twilio";
+import { PlivoClient } from "../plivo/plivo.client";
 import { streamingConfig } from "./config";
 import { decideCall, type CallRouterDb } from "./call-router";
 import { rejectTwiml, forwardTwiml, voicemailTwiml } from "./twiml";
+import { rejectPlivo, forwardPlivo, voicemailPlivo } from "./plivo.twiml";
 
 /** A stored voicemail record (structural — matches core's Voicemail shape). */
 interface VoicemailRecord {
@@ -41,6 +43,12 @@ export interface StreamingWebhookDeps {
   /** Live database for presence / block / forwarding lookups. Omit = bridge-only. */
   db?: CallRouterDb & {
     addVoicemail?(vm: VoicemailRecord): Promise<void> | void;
+    /** Resolve the inbound routing rule for a dialed number (for an ai_agent override). */
+    getRoutingRule?(
+      number: string,
+    ): Promise<{ destinationType: string; destinationValue: string } | undefined>;
+    /** The owner's default (most-recent enabled) AI agent, used for the offline DID fallback. */
+    getDefaultAiAgentForOwner?(owner: string): Promise<{ id: number } | undefined>;
   };
   /** Whether voicemail is enabled (from core config.voicemail.enabled). */
   voicemailEnabled?: boolean;
@@ -48,13 +56,19 @@ export interface StreamingWebhookDeps {
   voicemailMaxSec?: number;
 }
 
-/** Build the public wss URL Twilio connects to, appending the auth token. */
-export function buildMediaStreamUrl(): string {
+/** Build the public wss URL the provider connects to, appending the auth token
+ * and any extra params (Plivo carries call params here since it has no native
+ * custom parameters). */
+export function buildMediaStreamUrl(extra: Record<string, string> = {}): string {
   const base =
     streamingConfig.publicWsUrl || `ws://localhost:${streamingConfig.wsPort}`;
-  if (!streamingConfig.authToken) return base;
+  const query = new URLSearchParams();
+  if (streamingConfig.authToken) query.set("token", streamingConfig.authToken);
+  for (const [k, v] of Object.entries(extra)) query.set(k, v);
+  const qs = query.toString();
+  if (!qs) return base;
   const sep = base.includes("?") ? "&" : "?";
-  return `${base}${sep}token=${encodeURIComponent(streamingConfig.authToken)}`;
+  return `${base}${sep}${qs}`;
 }
 
 /**
@@ -65,19 +79,67 @@ export function buildMediaStreamUrl(): string {
  */
 export function createStreamingWebhookRouter(deps: StreamingWebhookDeps = {}): Router {
   const router = Router();
-  // buildStreamInstruction is pure, so empty credentials are fine here — this
-  // client is used ONLY to render TwiML, never to call the Twilio REST API.
-  const twiml = new TwilioClient({ accountSid: "", authToken: "" });
+  const provider = streamingConfig.provider;
+  // buildStreamInstruction is pure, so empty credentials are fine here — these
+  // clients are used ONLY to render the answer XML, never to call the REST API.
+  const twilio = new TwilioClient({ accountSid: "", authToken: "" });
+  const plivo = new PlivoClient({ authId: "", authToken: "" });
 
-  /** <Connect><Stream> TwiML carrying the per-call mode (bridge|ai) + ids. */
-  const streamTwiml = (mode: "bridge" | "ai", params: Record<string, string>): string =>
-    twiml.buildStreamInstruction({
+  /** Stream answer XML carrying the per-call mode (bridge|ai) + ids. Twilio gets
+   * native <Parameter>s; Plivo can't, so the params ride on the ws URL query. */
+  const streamXml = (mode: "bridge" | "ai", params: Record<string, string>): string => {
+    const parameters = { mode, ...params };
+    if (provider === "plivo") {
+      return plivo.buildStreamInstruction({
+        wsUrl: buildMediaStreamUrl({ provider: "plivo", ...parameters }),
+        bidirectional: true,
+        contentType: "audio/x-mulaw;rate=8000",
+      });
+    }
+    return twilio.buildStreamInstruction({
       wsUrl: buildMediaStreamUrl(),
       bidirectional: true,
-      parameters: { mode, ...params },
+      parameters,
     });
+  };
 
-  const respond = (req: Request, res: Response): void => {
+  /** Reject / forward / voicemail answer XML for the active provider. */
+  const rejectXml = (reason: "rejected" | "busy" = "rejected"): string =>
+    provider === "plivo" ? rejectPlivo(reason) : rejectTwiml(reason);
+  const forwardXml = (target: string, callerId?: string): string =>
+    provider === "plivo" ? forwardPlivo(target, callerId) : forwardTwiml(target, callerId);
+  const voicemailXml = (opts: {
+    greeting: string;
+    maxSeconds: number;
+    recordingCallbackUrl: string;
+  }): string => (provider === "plivo" ? voicemailPlivo(opts) : voicemailTwiml(opts));
+
+  /**
+   * Resolve which AI agent should answer an offline call to `owner` on
+   * `calledNumber`. A routing rule with an `ai_agent` destination wins (explicit
+   * per-DID choice); otherwise the owner's default enabled agent is used. Returns
+   * undefined when neither exists, so the runtime falls back to its default brain.
+   */
+  const resolveAgentId = async (
+    owner: string,
+    calledNumber: string,
+  ): Promise<string | undefined> => {
+    const db = deps.db;
+    if (!db) return undefined;
+    try {
+      const rule = calledNumber ? await db.getRoutingRule?.(calledNumber) : undefined;
+      if (rule && rule.destinationType === "ai_agent" && rule.destinationValue) {
+        return rule.destinationValue;
+      }
+      const agent = await db.getDefaultAiAgentForOwner?.(owner);
+      return agent ? String(agent.id) : undefined;
+    } catch (err) {
+      console.error(`❌ resolveAgentId(${owner}): ${(err as Error).message}`);
+      return undefined;
+    }
+  };
+
+  const respond = async (req: Request, res: Response): Promise<void> => {
     const calledNumber = (req.body?.To as string) || (req.query.To as string) || "";
     const callerNumber = (req.body?.From as string) || (req.query.From as string) || "";
 
@@ -87,7 +149,7 @@ export function createStreamingWebhookRouter(deps: StreamingWebhookDeps = {}): R
         (typeof req.query.bridgeId === "string" && req.query.bridgeId) ||
         calledNumber ||
         "demo";
-      res.type("text/xml").send(streamTwiml("bridge", { bridgeId }));
+      res.type("text/xml").send(streamXml("bridge", { bridgeId }));
       return;
     }
 
@@ -103,17 +165,24 @@ export function createStreamingWebhookRouter(deps: StreamingWebhookDeps = {}): R
     let doc: string;
     switch (decision.action) {
       case "bridge":
-        doc = streamTwiml("bridge", {
+        doc = streamXml("bridge", {
           bridgeId: decision.bridgeId,
           extension: decision.extension,
           from: callerNumber,
         });
         break;
-      case "ai":
-        doc = streamTwiml("ai", { extension: decision.extension });
+      case "ai": {
+        // Attach the per-DID / per-owner agent so the media runtime builds the
+        // right brain; omit the param to let it use the env-default brain.
+        const agentId = await resolveAgentId(decision.extension, calledNumber);
+        doc = streamXml("ai", {
+          extension: decision.extension,
+          ...(agentId ? { agentId } : {}),
+        });
         break;
+      }
       case "forward":
-        doc = forwardTwiml(decision.target, callerNumber || undefined);
+        doc = forwardXml(decision.target, callerNumber || undefined);
         break;
       case "voicemail": {
         const base =
@@ -123,7 +192,7 @@ export function createStreamingWebhookRouter(deps: StreamingWebhookDeps = {}): R
           `${base}${req.baseUrl}/voicemail-status` +
           `?mailbox=${encodeURIComponent(decision.extension)}` +
           `&from=${encodeURIComponent(callerNumber)}`;
-        doc = voicemailTwiml({
+        doc = voicemailXml({
           greeting: "The person you are calling is not available. Please leave a message after the beep.",
           maxSeconds: deps.voicemailMaxSec ?? 120,
           recordingCallbackUrl: cbUrl,
@@ -132,7 +201,7 @@ export function createStreamingWebhookRouter(deps: StreamingWebhookDeps = {}): R
       }
       case "reject":
       default:
-        doc = rejectTwiml("rejected");
+        doc = rejectXml("rejected");
         break;
     }
     res.type("text/xml").send(doc);
@@ -141,18 +210,19 @@ export function createStreamingWebhookRouter(deps: StreamingWebhookDeps = {}): R
   router.post("/voice", respond);
   router.get("/voice", respond);
 
-  // Twilio recording callback: persist the finished voicemail. Twilio hosts the
-  // audio at RecordingUrl; downloading it into the local voicemail store (so it
-  // plays alongside FreeSWITCH voicemails) is a follow-up — we store the URL now.
+  // Recording callback: persist the finished voicemail. Field names differ by
+  // provider — Twilio posts RecordingUrl/RecordingSid, Plivo posts RecordUrl/
+  // RecordingID — so we accept either. The provider hosts the audio; downloading
+  // it into the local voicemail store is a follow-up — we store the URL now.
   router.post("/voicemail-status", async (req: Request, res: Response) => {
     try {
       const mailbox = String(req.query.mailbox || "");
       const from = String(req.query.from || req.body?.From || "unknown");
-      const recordingUrl = String(req.body?.RecordingUrl || "");
+      const recordingUrl = String(req.body?.RecordingUrl || req.body?.RecordUrl || "");
       const duration = parseInt(String(req.body?.RecordingDuration || "0"), 10);
       if (mailbox && recordingUrl && deps.db?.addVoicemail) {
         await deps.db.addVoicemail({
-          id: String(req.body?.RecordingSid || randomUUID()),
+          id: String(req.body?.RecordingSid || req.body?.RecordingID || randomUUID()),
           mailbox,
           from,
           fromName: from,

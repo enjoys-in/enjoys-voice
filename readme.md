@@ -289,7 +289,8 @@ prod/        Production deploy          — Caddy, coTURN, compose
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for call-flow diagrams and [SETUP.md](SETUP.md)
-for production deployment.
+for production deployment. To stand up the AI voice agent, see
+[AI_AGENT_SETUP.md](AI_AGENT_SETUP.md).
 
 ## Features
 
@@ -300,6 +301,7 @@ for production deployment.
 - Online user presence
 - Call history (recents) and voicemail with in-browser playback
 - IVR flow builder (visual, persisted in Postgres)
+- AI voice agent (per-user, configurable STT/LLM/TTS) — see [AI_AGENT_SETUP.md](AI_AGENT_SETUP.md)
 - Call recording
 - JWT authentication with refresh + boot-time session validation
 - SIP trunk for PSTN; internal-only mode with no external dependency

@@ -162,6 +162,12 @@ func validateRoutingRule(r *models.RoutingRule) error {
 		if r.DestinationValue == "" {
 			return ErrRoutingRuleInvalid
 		}
+	case "ai_agent":
+		// DestinationValue is the id of an AI agent the owner configured. The
+		// Node runtime resolves it to a live speech→LLM→speech pipeline.
+		if r.DestinationValue == "" {
+			return ErrRoutingRuleInvalid
+		}
 	case "voicemail":
 		r.DestinationValue = ""
 	default:

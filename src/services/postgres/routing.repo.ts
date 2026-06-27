@@ -16,8 +16,8 @@ export interface RoutingRuleRecord {
   matchType: 'all' | 'number';
   /** The dialed number to match when matchType is "number". */
   matchNumber: string;
-  destinationType: 'ivr' | 'extension' | 'pstn' | 'voicemail';
-  /** IVR entry extension, target extension, or PSTN number. Empty for voicemail. */
+  destinationType: 'ivr' | 'extension' | 'pstn' | 'voicemail' | 'ai_agent';
+  /** IVR entry extension, target extension, PSTN number, or AI agent id. Empty for voicemail. */
   destinationValue: string;
   enabled: boolean;
 }

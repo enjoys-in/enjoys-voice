@@ -10,6 +10,7 @@ import { ConditionNode } from "./ConditionNode";
 import { TransferNode } from "./TransferNode";
 import { VoicemailNode } from "./VoicemailNode";
 import { EmailNode } from "./EmailNode";
+import { AiAgentNode } from "./AiAgentNode";
 import { HangupNode } from "./HangupNode";
 
 export const ivrNodeTypes = {
@@ -20,5 +21,6 @@ export const ivrNodeTypes = {
   transfer: TransferNode,
   voicemail: VoicemailNode,
   email: EmailNode,
+  ai_agent: AiAgentNode,
   hangup: HangupNode,
 } as unknown as NodeTypes;

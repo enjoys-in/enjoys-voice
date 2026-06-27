@@ -39,6 +39,8 @@ export { RoutingRuleSyncListener } from './postgres';
 export type { RoutingRuleSyncOptions, RoutingRuleRecord } from './postgres';
 export { WebhookSyncListener } from './postgres';
 export type { WebhookSyncOptions, WebhookRecord } from './postgres';
+export { AiAgentSyncListener } from './postgres';
+export type { AiAgentSyncOptions, AiAgentRecord } from './postgres';
 export { deliverWebhook, WebhookDispatcher } from './webhook';
 export type { WebhookDispatcherDeps } from './webhook';
 export { sendConnectorEmail } from './mailer';

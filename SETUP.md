@@ -406,11 +406,20 @@ MEDIA_STREAM_AUTH_TOKEN=CHANGE_ME_STREAM_SECRET # validated on the WS handshake
 MEDIA_STREAM_PUBLIC_URL=wss://your-domain.com/media       # wss base for <Stream>
 MEDIA_STREAM_PUBLIC_HTTP_URL=https://your-domain.com      # https base for callbacks
 
-# ─── AI fallback (optional offline path) ──────────────────────
+# ─── AI voice agent (optional) ────────────────────────────────
 MEDIA_STREAM_AI_ENABLED=false                   # true to let AI answer when offline
-SPEECHMATICS_API_KEY=                            # required if AI enabled (real ASR)
-SPEECHMATICS_RT_URL=                             # optional region endpoint
 MEDIA_STREAM_AI_LANGUAGE=en
+# Provider keys — set only the ones your agents select (see AI_AGENT_SETUP.md):
+SPEECHMATICS_API_KEY=                            # STT/TTS provider "speechmatics"
+SPEECHMATICS_RT_URL=                             # optional region endpoint
+DEEPGRAM_API_KEY=                                # STT + TTS provider "deepgram"
+OPENAI_API_KEY=                                  # LLM provider "openai"
+GEMINI_API_KEY=                                  # LLM provider "gemini"
+SARVAM_API_KEY=                                  # TTS provider "sarvam"
+
+# ─── Media/trunk provider (twilio default; plivo also supported) ─
+MEDIA_STREAM_PROVIDER=twilio                     # twilio | plivo (wins over SIP_TRUNK_PROVIDER)
+# SIP_TRUNK_PROVIDER=twilio                      # also selects the outbound trunk provider
 
 # ─── Voicemail (shared with the SIP/IVR voicemail store) ──────
 VOICEMAIL_ENABLED=true
@@ -518,6 +527,10 @@ curl -s -X POST https://your-domain.com/api/n/media/voice \
 - Voicemails captured here store Twilio's hosted `RecordingUrl` in the shared
   `voicemails` table (durable, visible to the dashboard). Downloading the audio
   into the local FreeSWITCH voicemail store is a follow-up.
-- The AI branch needs `MEDIA_STREAM_AI_ENABLED=true` **and** `SPEECHMATICS_API_KEY`.
-  ASR is real; the LLM responder and TTS synthesizer are pluggable stubs today.
+- The AI branch needs `MEDIA_STREAM_AI_ENABLED=true` plus the API key(s) for the
+  providers your agent selects. STT, LLM and TTS are all real and configurable
+  per agent (Speechmatics/Deepgram · OpenAI/Gemini · Sarvam/Deepgram/Speechmatics).
+  See **[AI_AGENT_SETUP.md](AI_AGENT_SETUP.md)** for the full agent walkthrough.
 - This path is fully independent of the SIP trunk. You can run either, or both.
+- Carries calls over **Twilio or Plivo** — set `MEDIA_STREAM_PROVIDER=plivo` to
+  switch the webhook XML dialect and media codec path.
