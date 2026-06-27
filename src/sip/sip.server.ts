@@ -5,6 +5,7 @@ import type { WidgetTokenClaims } from '@/core';
 import { SipStatus, CallStatus, CallDirection, UnreachableReason, CallNotifyEvent, CallNotifyReason } from '@/core/types';
 import { DatabaseService, TrunkService, AuditService, DialPlanService, RouteType } from '@/services';
 import type { DialResult, ConferenceService, QueueService, RoutingRuleRecord } from '@/services';
+import { PushService } from '@/services';
 import type { RegistrationStore } from '@/services/registration';
 import type { RoutingOrchestrator } from '@/modules/routing';
 import { IVRSystem } from './ivr.system';
@@ -54,6 +55,11 @@ export class SipServer {
     private conference: ConferenceService,
     private queue: QueueService,
     private routing?: RoutingOrchestrator,
+    // Mobile push wake-up for the Flutter softphone. Owned here so the INVITE
+    // pipeline can wake a backgrounded callee; the HTTP layer reaches it via the
+    // `pushService` getter to register/unregister device tokens. Inert unless
+    // PUSH_ENABLED=true.
+    private readonly push: PushService = new PushService(),
   ) {
     this.srf = new Srf();
     // Pre-bind to avoid allocating new functions on every INVITE
@@ -124,6 +130,11 @@ export class SipServer {
 
   get isConnected(): boolean {
     return this.connected;
+  }
+
+  /** Mobile push registry — the HTTP layer registers/unregisters device tokens. */
+  get pushService(): PushService {
+    return this.push;
   }
 
   get ivrSystem(): IVRSystem | null {
@@ -334,6 +345,23 @@ export class SipServer {
               destinationValue: routingRule.destinationValue || routingRule.ownerExtension,
             }, ip);
             if (await this.dispatchRoutingRule(ctx, services, routingRule)) return;
+          }
+        }
+
+        // ─── Mobile push wake-up ────────────────────────────────────────
+        // If the call targets a real internal extension whose softphone may be
+        // backgrounded/asleep, fire a high-priority push so the device wakes and
+        // raises its native incoming-call UI. By default we only push when the
+        // callee is NOT currently SIP-registered (no live WS = needs waking);
+        // PUSH_ALWAYS=true pushes regardless. Fully inert unless PUSH_ENABLED.
+        // Fire-and-forget so it never delays the INVITE pipeline.
+        if (this.push.enabled && !widgetClaims) {
+          const callee = this.db.getUser(calledNumber);
+          if (callee && (config.push.always || !this.db.isRegistered(calledNumber))) {
+            const fromName = this.db.getUser(callingNumber)?.name || callingNumber;
+            void this.push.sendIncomingCall(calledNumber, {
+              callId, from: callingNumber, fromName, to: calledNumber,
+            });
           }
         }
 

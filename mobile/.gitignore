@@ -1,0 +1,25 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+*.iml
+.idea/
+
+# Generated platform folders (run `flutter create .` to regenerate)
+# Keep these if you commit native customisations; otherwise ignore.
+# android/.gradle/
+# ios/Pods/
+
+# Firebase config (DO NOT commit real keys)
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+lib/firebase_options.dart
+
+# Secrets
+*.keystore
+*.jks
+key.properties
