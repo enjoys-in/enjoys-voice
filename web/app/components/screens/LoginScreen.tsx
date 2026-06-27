@@ -46,6 +46,7 @@ export function LoginScreen() {
         username: data.user.username,
         name: data.user.name,
         mobile: data.user.mobile,
+        isAdmin: data.user.isAdmin,
       },
       data.token,
       data.refreshToken,

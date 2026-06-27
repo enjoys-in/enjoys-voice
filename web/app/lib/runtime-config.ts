@@ -63,12 +63,31 @@ export function getGoApiBase(): string {
  */
 export function getSignalingUrl(): string {
   const base = runtimeConfig().SIGNAL_URL;
-  if (base) return base;
+  if (base) return withSignalPath(base);
   if (typeof window !== "undefined") {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     return `${proto}//${window.location.hostname}:3002/signal`;
   }
   return "";
+}
+
+/**
+ * The signaling server only accepts WebSocket upgrades on the `/signal` path
+ * (see src/websocket/signaling.server.ts → `path: '/signal'`). A configured
+ * SIGNAL_URL / PUBLIC_WS_URL that omits it (e.g. "ws://localhost:3002") would
+ * connect to "/" and get rejected by the handshake, so default the path to
+ * `/signal` whenever none was supplied. An explicit non-root path is trusted
+ * as-is (e.g. a custom Caddy mount).
+ */
+function withSignalPath(url: string): string {
+  try {
+    const u = new URL(url);
+    if (u.pathname === "" || u.pathname === "/") u.pathname = "/signal";
+    return u.toString();
+  } catch {
+    // Not a parseable absolute URL — best-effort: append /signal unless present.
+    return /\/signal\/?$/.test(url) ? url : `${url.replace(/\/+$/, "")}/signal`;
+  }
 }
 
 /**

@@ -773,7 +773,8 @@ export class IVRSystem {
     // Let any DTMF key stop the prompt the instant it is pressed (barge-in).
     await endpoint.execute('set', 'playback_terminators=0123456789*#');
 
-    for (let attempt = 1; attempt <= tries; attempt++) {
+    let aborted = false; // set true when the caller hangs up mid-prompt
+    for (let attempt = 1; attempt <= tries && !aborted; attempt++) {
       const digit = await new Promise<string>((resolve) => {
         let settled = false;
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -783,6 +784,7 @@ export class IVRSystem {
           settled = true;
           if (timer) clearTimeout(timer);
           endpoint.removeListener('dtmf', onDtmf);
+          endpoint.removeListener('destroy', onDestroy);
           resolve(d);
         };
 
@@ -790,7 +792,12 @@ export class IVRSystem {
           console.log(`   ⌨️ ${label}: DTMF received "${evt.dtmf}"`);
           finish(evt.dtmf);
         };
+        // Caller hung up while the prompt was playing / awaiting input: resolve
+        // immediately instead of waiting out the no-input timeout, and stop the
+        // retry loop.
+        const onDestroy = () => { aborted = true; finish(''); };
         endpoint.on('dtmf', onDtmf);
+        endpoint.once('destroy', onDestroy);
 
         // Play the WHOLE prompt. A barge-in keypress resolves via onDtmf
         // before playback finishes; otherwise we wait waitMs for a key after.
@@ -805,6 +812,10 @@ export class IVRSystem {
           });
       });
 
+      if (aborted) {
+        console.log(`   📴 ${label}: caller hung up`);
+        break;
+      }
       if (digit && (!opts.valid || opts.valid.includes(digit))) {
         console.log(`   ✅ ${label}: accepted "${digit}"`);
         return digit;
@@ -832,6 +843,11 @@ export class IVRSystem {
       dialedNumber: state.calledNumber,
     };
     const fromName = this.db.getUser(state.callerNumber)?.name || state.callerNumber;
+    // Track caller hangup once for the whole flow so the interpreter can bail
+    // out between nodes instead of walking the rest of the graph.
+    let hungUp = false;
+    const onHangup = () => { hungUp = true; };
+    endpoint.once('destroy', onHangup);
     const handlers: FlowRunnerHandlers = {
       play: (file) => this.playSafe(endpoint, file),
       collect: (prompt, opts) => this.promptAndCollect(endpoint, prompt, opts),
@@ -840,8 +856,13 @@ export class IVRSystem {
       },
       transfer: (opts) => this.flowTransfer(endpoint, state, opts),
       sendEmail: (opts) => this.flowSendEmail(state, opts),
+      isHungUp: () => hungUp,
     };
-    return runFlow(flow, ctx, handlers);
+    try {
+      return await runFlow(flow, ctx, handlers);
+    } finally {
+      endpoint.removeListener('destroy', onHangup);
+    }
   }
 
   /**

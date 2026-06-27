@@ -9,6 +9,7 @@ import (
 	"github.com/enjoys-in/enjoys-voice/api/internal/config"
 	"github.com/enjoys-in/enjoys-voice/api/internal/database"
 	"github.com/enjoys-in/enjoys-voice/api/internal/handler"
+	"github.com/enjoys-in/enjoys-voice/api/internal/middleware"
 	"github.com/enjoys-in/enjoys-voice/api/internal/models"
 	"github.com/enjoys-in/enjoys-voice/api/internal/repository"
 	"github.com/enjoys-in/enjoys-voice/api/internal/router"
@@ -47,11 +48,15 @@ func main() {
 		&models.SystemSettings{},
 		&models.RatePlan{},
 		&models.Rate{},
+		&models.UserRateOverride{},
 		&models.UserBalance{},
 		&models.BalanceTxn{},
 		&models.Trunk{},
 		&models.APIKey{},
 		&models.Connector{},
+		&models.Contact{},
+		&models.RoutingRule{},
+		&models.Webhook{},
 	); err != nil {
 		log.Fatalf("Failed to migrate: %v", err)
 	}
@@ -85,6 +90,9 @@ func main() {
 	apiKeyRepo := repository.NewAPIKeyRepository(db)
 	connectorRepo := repository.NewConnectorRepository(db)
 	scheduleRepo := repository.NewScheduleRepository(db)
+	contactRepo := repository.NewContactRepository(db)
+	routingRuleRepo := repository.NewRoutingRuleRepository(db)
+	webhookRepo := repository.NewWebhookRepository(db)
 
 	// ─── Services ────────────────────────────────────────
 	authSvc := service.NewAuthService(userRepo, settingsRepo, valkey)
@@ -104,7 +112,9 @@ func main() {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo)
 	connectorSvc := service.NewConnectorService(connectorRepo)
 	scheduleSvc := service.NewScheduleService(scheduleRepo)
-
+	contactSvc := service.NewContactService(contactRepo)
+	routingRuleSvc := service.NewRoutingRuleService(routingRuleRepo)
+	webhookSvc := service.NewWebhookService(webhookRepo)
 	// Twilio client powers provider-native (BYON) caller-ID verification and OTP
 	// SMS delivery. With no credentials configured it stays disabled and the
 	// dependent endpoints return 503.
@@ -142,6 +152,9 @@ func main() {
 		APIKey:         handler.NewAPIKeyHandler(apiKeySvc),
 		Connector:      handler.NewConnectorHandler(connectorSvc),
 		Schedule:       handler.NewScheduleHandler(scheduleSvc, cfg.AdminExtensions),
+		Contact:        handler.NewContactHandler(contactSvc),
+		RoutingRule:    handler.NewRoutingRuleHandler(routingRuleSvc),
+		Webhook:        handler.NewWebhookHandler(webhookSvc),
 	}
 
 	// ─── Ensure upload dir ───────────────────────────────
@@ -155,7 +168,7 @@ func main() {
 
 	// ─── Router ──────────────────────────────────────────
 	r := gin.Default()
-	router.Setup(r, handlers, tokenMgr)
+	router.Setup(r, handlers, tokenMgr, middleware.AdminSet(cfg.AdminExtensions))
 
 	// ─── Start ───────────────────────────────────────────
 	log.Printf("Enjoys Voice API starting on :%s", cfg.Port)

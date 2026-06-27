@@ -132,12 +132,15 @@ interface BuilderState {
   future: HistorySnapshot[];
   dirty: boolean;
   saving: boolean;
+  // When true the flow is shown view-only (non-admin); all mutations are no-ops.
+  readOnly: boolean;
 
   // lifecycle
   loadFlow: (flow: IvrFlow) => void;
   startNewFlow: (name: string, extension: string) => void;
   save: () => Promise<IvrFlow | null>;
   reset: () => void;
+  setReadOnly: (v: boolean) => void;
 
   // flow meta
   setMeta: (patch: Partial<Pick<IvrFlow, "name" | "extension" | "enabled">>) => void;
@@ -189,6 +192,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   future: [],
   dirty: false,
   saving: false,
+  readOnly: false,
 
   loadFlow: (flow) =>
     set({
@@ -227,7 +231,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
   save: async () => {
     const s = get();
-    if (!s.flowId) return null;
+    if (s.readOnly || !s.flowId) return null;
     set({ saving: true });
     try {
       const saved = await ivrApi.saveFlow({
@@ -264,10 +268,17 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       saving: false,
     }),
 
-  setMeta: (patch) => set((s) => ({ ...s, ...patch, dirty: true })),
+  setReadOnly: (v) => set({ readOnly: v }),
+
+  setMeta: (patch) => set((s) => (s.readOnly ? s : { ...s, ...patch, dirty: true })),
 
   onNodesChange: (changes) =>
     set((s) => {
+      if (s.readOnly) {
+        // View-only: keep selection/measurement, drop position/add/remove.
+        const safe = changes.filter((c) => c.type === "select" || c.type === "dimensions");
+        return { nodes: applyNodeChanges(safe, s.nodes) };
+      }
       // Record one undo checkpoint per discrete edit: at the start of a drag
       // (so undo restores the pre-drag layout) and on any node removal.
       const hasRemove = changes.some((c) => c.type === "remove");
@@ -290,6 +301,10 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
   onEdgesChange: (changes) =>
     set((s) => {
+      if (s.readOnly) {
+        const safe = changes.filter((c) => c.type === "select");
+        return { edges: applyEdgeChanges(safe, s.edges) };
+      }
       const hist = changes.some((c) => c.type === "remove")
         ? pushHistory(s)
         : {};
@@ -298,6 +313,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
   onConnect: (connection) =>
     set((s) => {
+      if (s.readOnly) return s;
       // A source handle may only fan out once: replace any existing edge from
       // the same source+handle so a digit can't point at two destinations.
       const filtered = s.edges.filter(
@@ -312,6 +328,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
   addNode: (kind, position) =>
     set((s) => {
+      if (s.readOnly) return s;
       const node: IvrNode = {
         id: newNodeId(kind),
         type: kind,
@@ -322,7 +339,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     }),
 
   updateNodeData: (id, patch) =>
-    set((s) => ({
+    set((s) => (s.readOnly ? s : {
       nodes: s.nodes.map((n) =>
         n.id === id
           ? ({ ...n, data: { ...n.data, ...patch } } as IvrNode)
@@ -333,6 +350,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
   removeNode: (id) =>
     set((s) => {
+      if (s.readOnly) return s;
       const node = s.nodes.find((n) => n.id === id);
       // The start node is the flow entry and cannot be deleted.
       if (node?.type === "start") return s;
@@ -346,7 +364,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     }),
 
   removeEdge: (id) =>
-    set((s) => ({ ...pushHistory(s), edges: s.edges.filter((e) => e.id !== id), dirty: true })),
+    set((s) => (s.readOnly ? s : { ...pushHistory(s), edges: s.edges.filter((e) => e.id !== id), dirty: true })),
 
   selectNode: (id) => set({ selectedNodeId: id }),
 

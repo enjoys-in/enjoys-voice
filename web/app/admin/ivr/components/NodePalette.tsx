@@ -10,11 +10,15 @@ import type { IvrNodeKind } from "../ivr.types";
 
 export function NodePalette() {
   const addNode = useBuilderStore((s) => s.addNode);
+  const readOnly = useBuilderStore((s) => s.readOnly);
 
   const onDragStart = (e: React.DragEvent, kind: IvrNodeKind) => {
     e.dataTransfer.setData("application/ivr-node", kind);
     e.dataTransfer.effectAllowed = "move";
   };
+
+  // View-only sessions can't add blocks, so the palette is hidden entirely.
+  if (readOnly) return null;
 
   return (
     <div className="w-56 shrink-0 border-r border-border/50 bg-card/30 p-3">

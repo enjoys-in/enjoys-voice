@@ -5,6 +5,7 @@
 
 import { getApiBase } from "./runtime-config";
 import { getAccessToken, refreshAccessToken } from "./go-api";
+import { cachedGet } from "./request-cache";
 
 // ─── Request Types ──────────────────────────────────────
 
@@ -116,7 +117,7 @@ interface Envelope<T> {
   data: T | null;
 }
 
-async function request<T>(
+async function rawRequest<T>(
   endpoint: string,
   options?: RequestInit,
   retryOn401 = true
@@ -140,7 +141,7 @@ async function request<T>(
 
   if (res.status === 401 && retryOn401) {
     const newToken = await refreshAccessToken();
-    if (newToken) return request<T>(endpoint, options, false);
+    if (newToken) return rawRequest<T>(endpoint, options, false);
   }
 
   // Every Node endpoint replies with { success, message, data }; unwrap to the
@@ -158,6 +159,33 @@ async function request<T>(
   }
 
   return body.data as T;
+}
+
+// Live/streaming GETs that must always hit the network (never cached). The
+// metrics REST snapshot is the polling fallback for the dashboard socket — it
+// has to stay fresh on every tick.
+const NO_DEDUPE = new Set(["/metrics"]);
+
+async function request<T>(
+  endpoint: string,
+  options?: RequestInit,
+  retryOn401 = true
+): Promise<T> {
+  const method = (options?.method ?? "GET").toUpperCase();
+
+  // Only GETs are dedupe-able, and live endpoints opt out entirely.
+  if (method !== "GET" || NO_DEDUPE.has(endpoint)) {
+    return rawRequest<T>(endpoint, options, retryOn401);
+  }
+
+  // Dedupe-only (ttl 0): coalesce concurrent identical GETs without ever
+  // serving stale data — kills the StrictMode / role-resolution double-fetch
+  // (e.g. /health, /users) at zero staleness risk.
+  return cachedGet<T>(
+    `n:${endpoint}`,
+    () => rawRequest<T>(endpoint, options, retryOn401),
+    { ttl: 0 }
+  );
 }
 
 // ─── API Methods ────────────────────────────────────────

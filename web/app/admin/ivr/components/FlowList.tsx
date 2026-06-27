@@ -32,9 +32,11 @@ function isProtectedFlow(f: IvrFlowSummary): boolean {
 export function FlowList({
   onOpen,
   onCreate,
+  canEdit = true,
 }: {
   onOpen: (id: string) => void;
   onCreate: (name: string, extension: string) => void;
+  canEdit?: boolean;
 }) {
   const [flows, setFlows] = useState<IvrFlowSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,9 +82,11 @@ export function FlowList({
             Visual call-flow agents. Each flow answers one entry extension.
           </p>
         </div>
-        <Button onClick={() => setShowCreate(true)}>
-          <Plus className="mr-1 h-4 w-4" /> New flow
-        </Button>
+        {canEdit && (
+          <Button onClick={() => setShowCreate(true)}>
+            <Plus className="mr-1 h-4 w-4" /> New flow
+          </Button>
+        )}
       </div>
 
       {loading ? (
@@ -92,11 +96,13 @@ export function FlowList({
           <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
             <PhoneIncoming className="h-10 w-10 text-muted-foreground/40" />
             <p className="text-sm text-muted-foreground">
-              No flows yet. Create your first IVR agent.
+              {canEdit ? "No flows yet. Create your first IVR agent." : "No flows yet."}
             </p>
-            <Button onClick={() => setShowCreate(true)}>
-              <Plus className="mr-1 h-4 w-4" /> New flow
-            </Button>
+            {canEdit && (
+              <Button onClick={() => setShowCreate(true)}>
+                <Plus className="mr-1 h-4 w-4" /> New flow
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -124,11 +130,11 @@ export function FlowList({
                     size="icon"
                     className="h-8 w-8"
                     onClick={() => onOpen(f.id)}
-                    title="Edit"
+                    title={canEdit ? "Edit" : "View"}
                   >
                     <Pencil className="h-4 w-4" />
                   </Button>
-                  {!isProtectedFlow(f) && (
+                  {canEdit && !isProtectedFlow(f) && (
                     <Button
                       variant="ghost"
                       size="icon"

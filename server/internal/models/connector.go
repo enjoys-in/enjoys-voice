@@ -8,13 +8,16 @@ import "time"
 // column; secret fields are redacted from API responses (see the service's
 // ConnectorView). There can be many connectors of each type.
 type Connector struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	Name      string    `gorm:"size:120;not null" json:"name"`
-	Type      string    `gorm:"size:20;not null;index" json:"type"` // email | webhook
-	Enabled   bool      `gorm:"default:true" json:"enabled"`
-	Config    JSONB     `gorm:"type:jsonb" json:"-"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID   uint   `gorm:"primaryKey" json:"id"`
+	Name string `gorm:"size:120;not null" json:"name"`
+	Type string `gorm:"size:20;not null;index" json:"type"` // email | webhook
+	// OwnerExtension is the user who created/owns this connector. Empty on
+	// legacy rows (visible only to admins).
+	OwnerExtension string    `gorm:"index;size:20" json:"ownerExtension,omitempty"`
+	Enabled        bool      `gorm:"default:true" json:"enabled"`
+	Config         JSONB     `gorm:"type:jsonb" json:"-"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 func (Connector) TableName() string { return "connectors" }

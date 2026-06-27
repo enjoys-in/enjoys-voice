@@ -9,6 +9,7 @@
  * `api.ts` is unchanged — these helpers target only the routes ported to Go.
  */
 import { getGoApiBase } from "./runtime-config";
+import { cachedGet, invalidateCache } from "./request-cache";
 import type { IvrFlow, IvrFlowSummary } from "../admin/ivr/ivr.types";
 import type { CallRecord } from "../types";
 
@@ -93,7 +94,7 @@ export function refreshAccessToken(): Promise<string | null> {
   return refreshInFlight;
 }
 
-async function goRequest<T>(
+async function rawGoRequest<T>(
   endpoint: string,
   options: RequestInit = {},
   retryOn401 = true
@@ -118,7 +119,7 @@ async function goRequest<T>(
   if (res.status === 401 && retryOn401) {
     const newToken = await refreshAccessToken();
     if (newToken) {
-      return goRequest<T>(endpoint, options, false);
+      return rawGoRequest<T>(endpoint, options, false);
     }
     // Refresh failed → session is dead; clear it.
     if (typeof window !== "undefined") {
@@ -142,6 +143,44 @@ async function goRequest<T>(
   return body.data;
 }
 
+/**
+ * Cache-aware entry point used by every `goApi.*` method.
+ *
+ * GET responses are served from a short-lived in-memory cache and concurrent
+ * identical GETs are coalesced into a single network call — this kills the
+ * double-fetch caused by React Strict Mode, the role re-resolution on hydration
+ * and re-opening a tab. Any mutation (POST/PUT/PATCH/DELETE) invalidates the
+ * cached reads for that resource family so the next GET re-fetches fresh data.
+ */
+async function goRequest<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  retryOn401 = true
+): Promise<T> {
+  const method = (options.method ?? "GET").toUpperCase();
+
+  if (method === "GET") {
+    return cachedGet<T>(`g:${endpoint}`, () => rawGoRequest<T>(endpoint, options, retryOn401));
+  }
+
+  const data = await rawGoRequest<T>(endpoint, options, retryOn401);
+  invalidateGoCache(endpoint);
+  return data;
+}
+
+/** Drop cached GET reads affected by a write to `endpoint`. */
+function invalidateGoCache(endpoint: string): void {
+  // Auth flows swap the signed-in user entirely → wipe every cached read so no
+  // data leaks across sessions.
+  if (endpoint.startsWith("/auth")) {
+    invalidateCache();
+    return;
+  }
+  // e.g. "/webhooks/5" or "/webhooks/5/test" → drop the whole "/webhooks" family.
+  const base = "/" + endpoint.replace(/^\/+/, "").split("/")[0];
+  invalidateCache(`g:${base}`);
+}
+
 // ─── Payload types ──────────────────────────────────────
 
 export interface AuthUser {
@@ -149,6 +188,10 @@ export interface AuthUser {
   name: string;
   username: string;
   mobile?: string;
+  // True when the caller's extension is in the server's ADMIN_EXTENSIONS
+  // allow-list. Only the /auth/me response sets this (login does not), so the
+  // app fills it in from the background /me refresh on boot.
+  isAdmin?: boolean;
 }
 
 export interface AuthSipConfig {
@@ -488,6 +531,117 @@ export interface GoConnectorInput {
   config?: GoConnectorConfig;
 }
 
+// ─── Personal contacts (per-user address book) ──────────
+
+/** A user's personal address-book entry. Owner-scoped: the API only ever
+ * returns the caller's own contacts (not the global SIP directory). */
+export interface GoContact {
+  id: number;
+  ownerExtension: string;
+  name: string;
+  extension: string;
+  username?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Partial create/update of a personal contact. */
+export interface GoContactInput {
+  name?: string;
+  extension?: string;
+  username?: string;
+}
+
+// ─── Per-user inbound routing rules ─────────────────────
+
+/** How a routing rule matches inbound calls. */
+export type GoRoutingMatchType = "all" | "number";
+
+/** Where a matched call is routed. */
+export type GoRoutingDestinationType =
+  | "ivr"
+  | "extension"
+  | "pstn"
+  | "voicemail";
+
+/** A user's per-user inbound call-routing rule. Owner-scoped: the API only
+ * ever returns the caller's own rules. A rule sends the user's inbound calls
+ * to an IVR flow, another extension, a PSTN number, or voicemail. */
+export interface GoRoutingRule {
+  id: number;
+  ownerExtension: string;
+  /** "all" → every inbound call to the owner; "number" → a specific dialed number. */
+  matchType: GoRoutingMatchType;
+  /** The dialed number to match when matchType is "number". */
+  matchNumber?: string;
+  destinationType: GoRoutingDestinationType;
+  /** IVR entry extension, target extension, or PSTN number. Empty for voicemail. */
+  destinationValue?: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Partial create/update of a routing rule. */
+export interface GoRoutingRuleInput {
+  matchType?: GoRoutingMatchType;
+  matchNumber?: string;
+  destinationType?: GoRoutingDestinationType;
+  destinationValue?: string;
+  enabled?: boolean;
+}
+
+// ─── Webhooks (per-user outbound call-event callbacks) ──────────────
+
+/** Canonical call-event names a webhook can subscribe to. */
+export type GoWebhookEvent =
+  | "call.ringing"
+  | "call.answered"
+  | "call.completed"
+  | "call.missed"
+  | "call.failed"
+  | "call.unreachable"
+  | "call.voicemail"
+  | "call.transferred"
+  | "call.routed";
+
+/** The full ordered set of webhook events (for building selectors). */
+export const GO_WEBHOOK_EVENTS: GoWebhookEvent[] = [
+  "call.ringing",
+  "call.answered",
+  "call.completed",
+  "call.missed",
+  "call.failed",
+  "call.unreachable",
+  "call.voicemail",
+  "call.transferred",
+  "call.routed",
+];
+
+/** A per-user outbound call-event webhook (owner-scoped). */
+export interface GoWebhook {
+  id: number;
+  ownerExtension: string;
+  name: string;
+  url: string;
+  /** Subscribed events. An empty array means “all events”. */
+  events: GoWebhookEvent[];
+  /** Whether a signing secret is configured (the secret itself is never returned). */
+  hasSecret: boolean;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Partial create/update of a webhook. A non-empty `secret` rotates the signing key. */
+export interface GoWebhookInput {
+  name?: string;
+  url?: string;
+  secret?: string;
+  events?: GoWebhookEvent[];
+  enabled?: boolean;
+}
+
 // ─── Routing schedules (business hours + per-user availability) ──────────
 
 /** One open interval on a weekday (0 = Sun … 6 = Sat), minutes from midnight. */
@@ -592,6 +746,15 @@ export interface CallStats {
   currency: string;
   statusBreakdown: StatusCount[];
   series: CallStatsBucket[];
+}
+
+// A single persisted audit-log row, as returned by the Go `/audit` API.
+export interface GoAuditLog {
+  id: number;
+  extension: string;
+  event: string;
+  detail: string;
+  createdAt: string;
 }
 
 // ─── Client ─────────────────────────────────────────────
@@ -962,6 +1125,14 @@ export const goApi = {
     return goRequest<CallStats>(`/stats?days=${encodeURIComponent(days)}`);
   },
 
+  // Persisted audit history for one extension (read-only). Self-or-admin on the
+  // server, so a regular user can read their own activity.
+  getAudit(ext: string, limit = 50): Promise<GoAuditLog[]> {
+    return goRequest<GoAuditLog[]>(
+      `/audit/${encodeURIComponent(ext)}?limit=${encodeURIComponent(limit)}`
+    );
+  },
+
   // IVR flows
   ivr: {
     listFlows(): Promise<IvrFlowSummary[]> {
@@ -1006,6 +1177,82 @@ export const goApi = {
     },
     remove(id: number): Promise<void> {
       return goRequest<unknown>(`/connectors/${id}`, {
+        method: "DELETE",
+      }).then(() => undefined);
+    },
+  },
+
+  // Personal address book: each user's own contacts (owner-scoped CRUD).
+  contacts: {
+    list(): Promise<GoContact[]> {
+      return goRequest<GoContact[]>(`/contacts`);
+    },
+    create(input: GoContactInput): Promise<GoContact> {
+      return goRequest<GoContact>(`/contacts`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(id: number, input: GoContactInput): Promise<GoContact> {
+      return goRequest<GoContact>(`/contacts/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(id: number): Promise<void> {
+      return goRequest<unknown>(`/contacts/${id}`, {
+        method: "DELETE",
+      }).then(() => undefined);
+    },
+  },
+
+  // Per-user inbound routing rules: each user's own rules (owner-scoped CRUD).
+  // A rule routes the user's inbound calls to an IVR flow, another extension,
+  // a PSTN number, or voicemail.
+  routing: {
+    list(): Promise<GoRoutingRule[]> {
+      return goRequest<GoRoutingRule[]>(`/routing-rules`);
+    },
+    create(input: GoRoutingRuleInput): Promise<GoRoutingRule> {
+      return goRequest<GoRoutingRule>(`/routing-rules`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(id: number, input: GoRoutingRuleInput): Promise<GoRoutingRule> {
+      return goRequest<GoRoutingRule>(`/routing-rules/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(id: number): Promise<void> {
+      return goRequest<unknown>(`/routing-rules/${id}`, {
+        method: "DELETE",
+      }).then(() => undefined);
+    },
+  },
+
+  // Per-user outbound call-event webhooks (owner-scoped CRUD). The SIP engine
+  // POSTs a signed JSON payload to each enabled webhook on matching call events
+  // involving the owner (asynchronously, off the call path).
+  webhooks: {
+    list(): Promise<GoWebhook[]> {
+      return goRequest<GoWebhook[]>(`/webhooks`);
+    },
+    create(input: GoWebhookInput): Promise<GoWebhook> {
+      return goRequest<GoWebhook>(`/webhooks`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(id: number, input: GoWebhookInput): Promise<GoWebhook> {
+      return goRequest<GoWebhook>(`/webhooks/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(id: number): Promise<void> {
+      return goRequest<unknown>(`/webhooks/${id}`, {
         method: "DELETE",
       }).then(() => undefined);
     },

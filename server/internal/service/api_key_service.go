@@ -34,13 +34,16 @@ func (s *apiKeyService) List(ctx context.Context, owner string) ([]models.APIKey
 }
 
 func (s *apiKeyService) Create(ctx context.Context, owner string, input *APIKeyInput) (*models.APIKeyResponse, error) {
-	if input == nil || input.DestinationNumber == nil || strings.TrimSpace(*input.DestinationNumber) == "" {
-		return nil, ErrAPIKeyInvalid
-	}
-
 	key := &models.APIKey{OwnerExtension: owner, Active: true}
 	applyAPIKeyInput(key, input)
 	normalizeAPIKey(key)
+	// After normalization a blank destination has already fallen back to the
+	// owner's own extension (the default "route to me" behavior), so this only
+	// trips if the owner extension itself is somehow empty — never the case for
+	// an authenticated caller.
+	if strings.TrimSpace(key.DestinationNumber) == "" {
+		return nil, ErrAPIKeyInvalid
+	}
 
 	// Publishable identifier (safe for browser code) + a one-time secret for
 	// server-to-server use. The secret is a high-entropy random token, so it is
@@ -149,6 +152,13 @@ func normalizeAPIKey(k *models.APIKey) {
 		k.RouteType = models.RouteTypeExtension
 	default:
 		k.RouteType = models.RouteTypeTrunk
+	}
+	// No destination configured → the key routes every call to its owner's own
+	// extension (the default "ring me" behavior). This overrides the selected
+	// route type, since trunk/IVR are meaningless without a target.
+	if k.DestinationNumber == "" {
+		k.RouteType = models.RouteTypeExtension
+		k.DestinationNumber = k.OwnerExtension
 	}
 	if k.DailyCap < 0 {
 		k.DailyCap = 0

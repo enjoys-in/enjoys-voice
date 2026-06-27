@@ -11,6 +11,7 @@ import (
 // used by the IVR flow builder.
 type ConnectorRepository interface {
 	List(ctx context.Context) ([]models.Connector, error)
+	ListByOwner(ctx context.Context, owner string) ([]models.Connector, error)
 	Get(ctx context.Context, id uint) (*models.Connector, error)
 	Create(ctx context.Context, conn *models.Connector) error
 	Update(ctx context.Context, conn *models.Connector) error
@@ -28,6 +29,12 @@ func NewConnectorRepository(db *gorm.DB) ConnectorRepository {
 func (r *connectorRepo) List(ctx context.Context) ([]models.Connector, error) {
 	var conns []models.Connector
 	err := r.db.WithContext(ctx).Order("id asc").Find(&conns).Error
+	return conns, err
+}
+
+func (r *connectorRepo) ListByOwner(ctx context.Context, owner string) ([]models.Connector, error) {
+	var conns []models.Connector
+	err := r.db.WithContext(ctx).Where("owner_extension = ?", owner).Order("id asc").Find(&conns).Error
 	return conns, err
 }
 

@@ -91,6 +91,7 @@ export function NodeInspector() {
   const addMenuOption = useBuilderStore((s) => s.addMenuOption);
   const updateMenuOption = useBuilderStore((s) => s.updateMenuOption);
   const removeMenuOption = useBuilderStore((s) => s.removeMenuOption);
+  const readOnly = useBuilderStore((s) => s.readOnly);
 
   if (!node) {
     return (
@@ -110,7 +111,7 @@ export function NodeInspector() {
       <div className="flex items-center gap-2 border-b border-border/50 p-3">
         <Icon className={cn("h-4 w-4", meta.accent.split(" ")[0])} />
         <span className="flex-1 text-sm font-semibold">{meta.title}</span>
-        {node.data.kind !== "start" && (
+        {node.data.kind !== "start" && !readOnly && (
           <Button
             variant="ghost"
             size="icon"
@@ -123,7 +124,7 @@ export function NodeInspector() {
         )}
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto p-4">
+      <fieldset disabled={readOnly} className="flex-1 space-y-4 overflow-y-auto p-4 min-w-0">
         <Field label="Label">
           <Input
             value={node.data.label}
@@ -139,7 +140,7 @@ export function NodeInspector() {
           updateMenuOption={updateMenuOption}
           removeMenuOption={removeMenuOption}
         />
-      </div>
+      </fieldset>
     </div>
   );
 }

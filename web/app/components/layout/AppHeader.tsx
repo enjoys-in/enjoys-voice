@@ -34,10 +34,10 @@ export function AppHeader() {
           target="_blank"
           rel="noopener noreferrer"
           className={buttonVariants({ variant: "outline", size: "sm" })}
-          title="Open the admin dashboard in a new tab"
+          title={user.isAdmin ? "Open the Control Plane in a new tab" : "Open your Control Plane (read-only) in a new tab"}
         >
           <Shield />
-          Admin
+          Control Plane
         </Link>
         <Badge variant="secondary" className="text-[10px]">Online</Badge>
       </div>

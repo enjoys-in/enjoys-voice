@@ -21,6 +21,10 @@ func (s *ivrService) List(ctx context.Context) ([]models.IvrFlow, error) {
 	return s.repo.GetAll(ctx)
 }
 
+func (s *ivrService) ListByOwner(ctx context.Context, owner string) ([]models.IvrFlow, error) {
+	return s.repo.GetAllByOwner(ctx, owner)
+}
+
 func (s *ivrService) Get(ctx context.Context, id string) (*models.IvrFlow, error) {
 	return s.repo.GetByID(ctx, id)
 }

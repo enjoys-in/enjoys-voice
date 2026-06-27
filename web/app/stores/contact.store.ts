@@ -1,7 +1,22 @@
 import { create } from "zustand";
 import { api } from "../lib/api";
+import { goApi, type GoContact } from "../lib/go-api";
 import { useAuthStore } from "./auth.store";
 import type { Contact } from "../types";
+
+/** Map a persisted Go contact to the app's Contact shape. Presence flags are
+ * unknown for an address-book entry (it may be an external number) — they're
+ * resolved live against the directory in findContact / the UI. */
+function toContact(c: GoContact): Contact {
+  return {
+    id: c.id,
+    extension: c.extension,
+    name: c.name,
+    username: c.username || c.extension,
+    online: false,
+    registered: false,
+  };
+}
 
 /**
  * Exclude the logged-in user from their own contact directory — you are not a
@@ -16,6 +31,7 @@ function excludeSelf(contacts: Contact[]): Contact[] {
 }
 
 interface ContactStore {
+  // ── Global SIP directory (live presence; drives name resolution) ──
   contacts: Contact[];
   searchQuery: string;
   /** 0 = never loaded. Set by the first WS presence snapshot or fetchContacts. */
@@ -33,11 +49,19 @@ interface ContactStore {
    * live `online` flag already set by presence.
    */
   fetchContacts: (force?: boolean) => Promise<void>;
-  addContact: (contact: Contact) => void;
-  updateContact: (extension: string, data: Partial<Contact>) => void;
-  removeContact: (extension: string) => void;
-  filteredContacts: () => Contact[];
   findContact: (numberOrExt: string) => Contact | undefined;
+
+  // ── Personal address book (per-user, persisted via the Go API) ──
+  myContacts: Contact[];
+  /** 0 = never loaded. */
+  myLoadedAt: number;
+  myLoading: boolean;
+  /** Load the caller's own contacts once; `force` re-fetches (refresh button). */
+  fetchMyContacts: (force?: boolean) => Promise<void>;
+  addContact: (input: { name: string; extension: string }) => Promise<void>;
+  updateContact: (id: number, data: { name?: string; extension?: string }) => Promise<void>;
+  removeContact: (id: number) => Promise<void>;
+  filteredMyContacts: () => Contact[];
 }
 
 export const useContactStore = create<ContactStore>((set, get) => ({
@@ -45,6 +69,9 @@ export const useContactStore = create<ContactStore>((set, get) => ({
   searchQuery: "",
   loadedAt: 0,
   loading: false,
+  myContacts: [],
+  myLoadedAt: 0,
+  myLoading: false,
   setContacts: (contacts) => set({ contacts: excludeSelf(contacts), loadedAt: Date.now() }),
   setSearch: (query) => set({ searchQuery: query }),
   fetchContacts: async (force = false) => {
@@ -76,30 +103,54 @@ export const useContactStore = create<ContactStore>((set, get) => ({
       set({ loading: false });
     }
   },
-  addContact: (contact) => set((s) => ({ contacts: [...s.contacts, contact] })),
-  updateContact: (extension, data) =>
+  fetchMyContacts: async (force = false) => {
+    const { myLoading, myLoadedAt } = get();
+    if (myLoading) return;
+    // Loaded once already → don't auto-refetch; only an explicit refresh re-hits.
+    if (!force && myLoadedAt > 0) return;
+    set({ myLoading: true });
+    try {
+      const rows = await goApi.contacts.list();
+      set({ myContacts: rows.map(toContact), myLoadedAt: Date.now() });
+    } catch {
+      /* ignore — keep any previously loaded contacts */
+    } finally {
+      set({ myLoading: false });
+    }
+  },
+  addContact: async (input) => {
+    const created = await goApi.contacts.create({
+      name: input.name,
+      extension: input.extension,
+    });
+    set((s) => ({ myContacts: [...s.myContacts, toContact(created)] }));
+  },
+  updateContact: async (id, data) => {
+    const updated = await goApi.contacts.update(id, data);
     set((s) => ({
-      contacts: s.contacts.map((c) => (c.extension === extension ? { ...c, ...data } : c)),
-    })),
-  removeContact: (extension) =>
-    set((s) => ({ contacts: s.contacts.filter((c) => c.extension !== extension) })),
-  filteredContacts: () => {
-    const { contacts, searchQuery } = get();
+      myContacts: s.myContacts.map((c) => (c.id === id ? toContact(updated) : c)),
+    }));
+  },
+  removeContact: async (id) => {
+    await goApi.contacts.remove(id);
+    set((s) => ({ myContacts: s.myContacts.filter((c) => c.id !== id) }));
+  },
+  filteredMyContacts: () => {
+    const { myContacts, searchQuery } = get();
     const q = searchQuery.toLowerCase();
     const filtered = q
-      ? contacts.filter(
+      ? myContacts.filter(
           (c) =>
             c.name.toLowerCase().includes(q) ||
             c.extension.includes(q)
         )
-      : contacts;
-    // Online users first
-    return filtered.sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0));
+      : myContacts;
+    return [...filtered].sort((a, b) => a.name.localeCompare(b.name));
   },
   findContact: (numberOrExt) => {
     if (!numberOrExt) return undefined;
     const digits = numberOrExt.replace(/\D/g, "");
-    return get().contacts.find((c) => {
+    const match = (c: Contact) => {
       const ext = c.extension.replace(/\D/g, "");
       const user = c.username.replace(/\D/g, "");
       return (
@@ -107,6 +158,8 @@ export const useContactStore = create<ContactStore>((set, get) => ({
         c.username === numberOrExt ||
         (!!digits && (ext === digits || user === digits || ext.endsWith(digits) || digits.endsWith(ext)))
       );
-    });
+    };
+    // Personal contacts take priority (a user's own naming), then the directory.
+    return get().myContacts.find(match) ?? get().contacts.find(match);
   },
 }));

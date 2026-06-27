@@ -21,6 +21,7 @@ export type AuditEvent =
   | 'call_ended'
   | 'call_failed'
   | 'call_forwarded'
+  | 'call_routed'
   | 'voicemail_left'  
   | 'voicemail_received'
   | 'voicemail_deleted'

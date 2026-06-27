@@ -10,9 +10,10 @@ import (
 )
 
 // ScheduleHandler exposes the global business-hours policy and per-user
-// availability windows. All timing is global config managed by admins, so
-// every write (business hours and per-user availability) is gated by the
-// ADMIN_EXTENSIONS allow-list; reads stay available to authenticated users.
+// availability windows. The global business-hours policy and announcement
+// prompts are admin-only writes; per-user availability is owner-or-admin
+// (gated by the selfOrAdmin route guard). Reads stay available to
+// authenticated users.
 type ScheduleHandler struct {
 	svc    service.ScheduleService
 	admins map[string]bool
@@ -67,11 +68,9 @@ func (h *ScheduleHandler) ListAvailability(c *gin.Context) {
 	response.OK(c, windows)
 }
 
-// SaveAvailability → PUT /availability/:ext (admin-only)
+// SaveAvailability → PUT /availability/:ext : a user saves their own windows;
+// admin may save anyone's (enforced by the selfOrAdmin route guard).
 func (h *ScheduleHandler) SaveAvailability(c *gin.Context) {
-	if !h.requireAdmin(c) {
-		return
-	}
 	ext := c.Param("ext")
 	var input service.AvailabilityInput
 	if err := c.ShouldBindJSON(&input); err != nil {

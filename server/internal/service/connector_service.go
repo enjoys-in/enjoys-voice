@@ -48,21 +48,23 @@ type ConnectorInput struct {
 // ConnectorView is the API view of a connector: secrets stripped from Config,
 // with HasSecret reporting whether one is stored.
 type ConnectorView struct {
-	ID        uint            `json:"id"`
-	Name      string          `json:"name"`
-	Type      string          `json:"type"`
-	Enabled   bool            `json:"enabled"`
-	Config    json.RawMessage `json:"config"`
-	HasSecret bool            `json:"has_secret"`
-	CreatedAt time.Time       `json:"createdAt"`
-	UpdatedAt time.Time       `json:"updatedAt"`
+	ID             uint            `json:"id"`
+	Name           string          `json:"name"`
+	Type           string          `json:"type"`
+	OwnerExtension string          `json:"ownerExtension,omitempty"`
+	Enabled        bool            `json:"enabled"`
+	Config         json.RawMessage `json:"config"`
+	HasSecret      bool            `json:"has_secret"`
+	CreatedAt      time.Time       `json:"createdAt"`
+	UpdatedAt      time.Time       `json:"updatedAt"`
 }
 
 // ConnectorService owns CRUD over outbound integration connectors.
 type ConnectorService interface {
 	List(ctx context.Context) ([]ConnectorView, error)
+	ListByOwner(ctx context.Context, owner string) ([]ConnectorView, error)
 	Get(ctx context.Context, id uint) (*ConnectorView, error)
-	Create(ctx context.Context, input *ConnectorInput) (*ConnectorView, error)
+	Create(ctx context.Context, owner string, input *ConnectorInput) (*ConnectorView, error)
 	Update(ctx context.Context, id uint, input *ConnectorInput) (*ConnectorView, error)
 	Delete(ctx context.Context, id uint) error
 }
@@ -87,6 +89,18 @@ func (s *connectorService) List(ctx context.Context) ([]ConnectorView, error) {
 	return out, nil
 }
 
+func (s *connectorService) ListByOwner(ctx context.Context, owner string) ([]ConnectorView, error) {
+	conns, err := s.repo.ListByOwner(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ConnectorView, 0, len(conns))
+	for i := range conns {
+		out = append(out, toConnectorView(&conns[i]))
+	}
+	return out, nil
+}
+
 func (s *connectorService) Get(ctx context.Context, id uint) (*ConnectorView, error) {
 	conn, err := s.repo.Get(ctx, id)
 	if err != nil {
@@ -99,8 +113,8 @@ func (s *connectorService) Get(ctx context.Context, id uint) (*ConnectorView, er
 	return &v, nil
 }
 
-func (s *connectorService) Create(ctx context.Context, input *ConnectorInput) (*ConnectorView, error) {
-	conn := &models.Connector{Enabled: true, Config: models.JSONB("{}")}
+func (s *connectorService) Create(ctx context.Context, owner string, input *ConnectorInput) (*ConnectorView, error) {
+	conn := &models.Connector{Enabled: true, Config: models.JSONB("{}"), OwnerExtension: owner}
 	if input.Name != nil {
 		conn.Name = strings.TrimSpace(*input.Name)
 	}
@@ -173,14 +187,15 @@ func (s *connectorService) Delete(ctx context.Context, id uint) error {
 func toConnectorView(c *models.Connector) ConnectorView {
 	cfg, hasSecret := redactConnectorConfig(c.Type, c.Config)
 	return ConnectorView{
-		ID:        c.ID,
-		Name:      c.Name,
-		Type:      c.Type,
-		Enabled:   c.Enabled,
-		Config:    cfg,
-		HasSecret: hasSecret,
-		CreatedAt: c.CreatedAt,
-		UpdatedAt: c.UpdatedAt,
+		ID:             c.ID,
+		Name:           c.Name,
+		Type:           c.Type,
+		OwnerExtension: c.OwnerExtension,
+		Enabled:        c.Enabled,
+		Config:         cfg,
+		HasSecret:      hasSecret,
+		CreatedAt:      c.CreatedAt,
+		UpdatedAt:      c.UpdatedAt,
 	}
 }
 

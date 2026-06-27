@@ -21,7 +21,11 @@ services:
     volumes:
       - ./drachtio-server/config/drachtio.conf.xml:/etc/drachtio.conf.xml
   drachtio-freeswitch:
-    image: safarov/freeswitch:latest
+    # Custom image = stock FreeSWITCH + Piper neural TTS (built from
+    # ./freeswitch-custom). To fall back to the stock image, comment the line
+    # below and uncomment the safarov one.
+    image: mullayam06/freeswitch-piper:latest
+    # image: safarov/freeswitch:latest   # stock (no Piper) — future fallback
     container_name: drachtio-freeswitch
     ports:
       - "8021:8021" # ESL (Event Socket)

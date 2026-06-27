@@ -47,6 +47,14 @@ type RateRepository interface {
 	// UpsertRates inserts or updates the given rates for a plan keyed on prefix,
 	// all in one transaction. Returns counts of created vs updated rows.
 	UpsertRates(ctx context.Context, planID uint, rates []models.Rate) (created int, updated int, err error)
+
+	// Per-user rate overrides (admin-managed). Keyed uniquely on (extension,
+	// prefix); the Node rating engine consults these before the assigned plan.
+	ListOverrides(ctx context.Context, ext string) ([]models.UserRateOverride, error)
+	GetOverride(ctx context.Context, id uint) (*models.UserRateOverride, error)
+	CreateOverride(ctx context.Context, o *models.UserRateOverride) error
+	UpdateOverride(ctx context.Context, o *models.UserRateOverride) error
+	DeleteOverride(ctx context.Context, id uint) error
 }
 
 // BalanceRepository owns the prepaid wallet and its ledger. Every balance
@@ -95,6 +103,7 @@ type CallRepository interface {
 	GetByExtension(ctx context.Context, ext string) ([]models.CallRecord, error)
 	DeleteByExtension(ctx context.Context, ext string) (int64, error)
 	Stats(ctx context.Context, days int) (*models.CallStats, error)
+	StatsByExtension(ctx context.Context, ext string, days int) (*models.CallStats, error)
 }
 
 type BlockRepository interface {
@@ -134,6 +143,7 @@ type VoicemailRepository interface {
 
 type IvrFlowRepository interface {
 	GetAll(ctx context.Context) ([]models.IvrFlow, error)
+	GetAllByOwner(ctx context.Context, owner string) ([]models.IvrFlow, error)
 	GetByID(ctx context.Context, id string) (*models.IvrFlow, error)
 	GetByExtension(ctx context.Context, ext string) (*models.IvrFlow, error)
 	Upsert(ctx context.Context, flow *models.IvrFlow) error

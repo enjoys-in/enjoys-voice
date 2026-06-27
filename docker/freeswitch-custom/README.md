@@ -75,8 +75,18 @@ services:
 ```
 
 The bind-mounts are optional but recommended: they supply your dialplan/SIP
-profiles, sound files and recording output. Without them the image boots with
-its baked-in defaults (Piper TTS still works out of the box).
+profiles, sound files and recording output. Without them the image still boots
+with **Piper as the default TTS engine** (voice `en_US-amy-medium`) — it's baked
+in, so a freshly pulled image speaks with Piper out of the box, no config needed.
+
+**How the default works (and how to override it):** the base image copies its
+vanilla configs into `/etc/freeswitch` on first start, so we bake the Piper
+wiring into that vanilla source — `mod_tts_commandline` is enabled, pointed at
+the Piper binary, and `vars.xml` sets `tts_engine=tts_commandline` +
+`tts_voice=en_US-amy-medium`. To override, just bind-mount your own configs: if
+you mount a full `/etc/freeswitch` (containing `freeswitch.xml`) the image skips
+the vanilla copy entirely and uses yours; mounting a single file on top of
+`/etc/freeswitch/autoload_configs/tts_commandline.conf.xml` shadows just that file.
 
 > **Don't have the repo?** Grab the `freeswitch_configs` from GitHub:
 > <https://github.com/enjoys-in/enjoys-voice/tree/main/docker/freeswitch_configs>

@@ -58,13 +58,17 @@ func (j *JSONB) UnmarshalJSON(data []byte) error {
 // IvrFlow is one visual IVR "agent" built in the flow builder UI. The node/edge
 // graph is stored verbatim as a jsonb column; `extension` is the entry DID.
 type IvrFlow struct {
-	ID        string    `gorm:"primaryKey;size:64" json:"id"`
-	Name      string    `gorm:"size:200;not null" json:"name"`
-	Extension string    `gorm:"uniqueIndex;size:20;not null" json:"extension"`
-	Enabled   bool      `gorm:"default:true" json:"enabled"`
-	Graph     JSONB     `gorm:"type:jsonb" json:"-"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID        string `gorm:"primaryKey;size:64" json:"id"`
+	Name      string `gorm:"size:200;not null" json:"name"`
+	Extension string `gorm:"uniqueIndex;size:20;not null" json:"extension"`
+	// OwnerExtension is the user who created/owns this flow. Empty on legacy/seed
+	// rows (visible only to admins). The SIP runtime routes by Extension and
+	// ignores this column, so it stays backward-compatible.
+	OwnerExtension string    `gorm:"index;size:20" json:"ownerExtension,omitempty"`
+	Enabled        bool      `gorm:"default:true" json:"enabled"`
+	Graph          JSONB     `gorm:"type:jsonb" json:"-"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 func (IvrFlow) TableName() string { return "ivr_flows" }

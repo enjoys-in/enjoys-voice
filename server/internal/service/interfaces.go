@@ -99,6 +99,12 @@ type RateService interface {
 	// ImportRates parses CSV text (columns: prefix, description, sell, buy, setup,
 	// increment, min) and upserts the rows into the plan keyed on prefix.
 	ImportRates(ctx context.Context, planID uint, csvData string) (*RateImportResult, error)
+
+	// Per-user rate overrides (admin-managed writes; users read their own).
+	ListOverrides(ctx context.Context, ext string) ([]models.RateOverrideResponse, error)
+	CreateOverride(ctx context.Context, ext string, input *RateInput) (*models.RateOverrideResponse, error)
+	UpdateOverride(ctx context.Context, id uint, input *RateInput) (*models.RateOverrideResponse, error)
+	DeleteOverride(ctx context.Context, id uint) error
 }
 
 // BalanceService owns the prepaid wallet: reading a balance, listing the ledger
@@ -203,6 +209,7 @@ type CallService interface {
 	Create(ctx context.Context, call *models.CallRecord) error
 	DeleteByExtension(ctx context.Context, ext string) (int64, error)
 	Stats(ctx context.Context, days int) (*models.CallStats, error)
+	StatsByExtension(ctx context.Context, ext string, days int) (*models.CallStats, error)
 }
 
 type BlockService interface {
@@ -224,6 +231,7 @@ type SoundService interface {
 
 type IvrService interface {
 	List(ctx context.Context) ([]models.IvrFlow, error)
+	ListByOwner(ctx context.Context, owner string) ([]models.IvrFlow, error)
 	Get(ctx context.Context, id string) (*models.IvrFlow, error)
 	Save(ctx context.Context, flow *models.IvrFlow) error
 	Delete(ctx context.Context, id string) error
