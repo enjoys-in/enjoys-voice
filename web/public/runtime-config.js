@@ -6,5 +6,5 @@ window.__RUNTIME_CONFIG__ = {
   "SIGNAL_URL": "ws://localhost:3002/signal",
   "BRIDGE_URL": "",
   "BRIDGE_TOKEN": "",
-  "ICE_SERVERS": [{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:192.168.1.48:3478?transport=udp","username":"callnet","credential":"devsecret123"}]
+  "ICE_SERVERS": [{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:192.168.1.40:3478?transport=udp","username":"callnet","credential":"devsecret123"}]
 };
