@@ -288,7 +288,20 @@ export class SipServer {
         // outbound SIP-to-SIP call; otherwise fall back to the normal in-domain
         // (user-part) dial-plan resolution. resolveExternalSip returns null when
         // no peer matches, so default deployments (no SIP_PEERS) are unaffected.
-        const route = this.dialPlan.resolveExternalSip(req.uri) ?? this.dialPlan.resolve(calledNumber);
+        let route = this.dialPlan.resolveExternalSip(req.uri) ?? this.dialPlan.resolve(calledNumber);
+        // An extension that has an ENABLED IVR flow (created in the flow builder,
+        // e.g. an auto-attendant on 6002) but is NOT a provisioned SIP user must
+        // enter the IVR. Without this it resolves as an unknown internal
+        // extension and the anti-spoof screen below rejects it as
+        // "not routable/spoofed". The IVR_PATTERN only covers 5000 + toll-free,
+        // so dynamically-authored flow extensions need this dynamic check.
+        if (
+          route.type === RouteType.Internal &&
+          !this.db.getUser(route.target) &&
+          this.db.isIvrFlowExtension(route.target)
+        ) {
+          route = { ...route, type: RouteType.IVR };
+        }
         if (!fromTrunk && !widgetClaims && !this.isInviteLegitimate(route, callingNumber)) {
           this.abuse.recordOffense(ip, `unroutable:${route.type}`);
           console.warn(`🚫 Rejected INVITE ${callingNumber} → ${calledNumber} (${route.type}, src ${ip}) — not routable/spoofed`);

@@ -42,3 +42,22 @@ export async function loadIvrFlowByExtension(extension: string): Promise<IvrFlow
   );
   return rows[0] ? rowToFlow(rows[0] as IvrFlowRow) : undefined;
 }
+
+/**
+ * Every entry extension that has an ENABLED IVR flow. The SIP runtime keeps
+ * these in a sync Set so the dial-plan can route a dialed number into the IVR
+ * even though it isn't a provisioned SIP user. Returns [] when the table does
+ * not exist yet (fresh DB before the Go API migrates it).
+ */
+export async function loadEnabledIvrFlowExtensions(): Promise<string[]> {
+  try {
+    const { rows } = await getPool().query<{ extension: string }>(
+      `SELECT extension FROM ivr_flows WHERE enabled = TRUE`,
+    );
+    return rows.map((r) => r.extension).filter(Boolean);
+  } catch (err: any) {
+    // 42P01 = undefined_table (Go API hasn't created ivr_flows yet).
+    if (err?.code === '42P01') return [];
+    throw err;
+  }
+}

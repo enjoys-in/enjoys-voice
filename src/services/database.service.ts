@@ -19,6 +19,7 @@ import {
   removeVoicemail,
   countUnreadVoicemails,
   loadIvrFlowByExtension,
+  loadEnabledIvrFlowExtensions,
   loadConnectorById,
   loadRoutingRuleByNumber,
   loadEnabledWebhooks,
@@ -58,6 +59,13 @@ export class DatabaseService extends EventEmitter {
    * `ivr_flows` NOTIFY and cleared wholesale on listener reconnect.
    */
   private ivrFlows = new Map<string, IvrFlowGraph | null>();
+  /**
+   * The set of entry extensions that have an ENABLED IVR flow. Read
+   * synchronously on the INVITE path so the dial-plan can route a dialed number
+   * into the IVR even though it is not a provisioned SIP user. Refreshed by
+   * hydrateFromPostgres (at startup and on every sync re-hydrate).
+   */
+  private ivrFlowExtensions = new Set<string>();
   /**
    * Per-id connector cache (email / webhook integrations the IVR builder
    * triggers). A present value is the loaded row; `null` is a negative cache.
@@ -121,6 +129,7 @@ export class DatabaseService extends EventEmitter {
       });
     }
     await this.hydrateAllDetail();
+    await this.hydrateIvrFlowExtensions();
     return rows.length;
   }
 
@@ -601,9 +610,51 @@ export class DatabaseService extends EventEmitter {
     this.ivrFlows.delete(extension);
   }
 
+  /**
+   * Apply a single `ivr_flows` change (the `ivr_flows_changed` NOTIFY payload is
+   * the affected extension). Drops that flow's cached graph AND re-evaluates
+   * whether the extension still has an ENABLED flow — an incremental "fetch the
+   * one row and merge", never a full reload. So builder edits (create / enable /
+   * disable / delete) apply live with no restart and no rescanning every flow.
+   */
+  async syncIvrFlowExtension(extension: string): Promise<void> {
+    this.ivrFlows.delete(extension);
+    try {
+      const flow = await loadIvrFlowByExtension(extension);
+      if (flow) this.ivrFlowExtensions.add(extension);
+      else this.ivrFlowExtensions.delete(extension);
+    } catch (err: any) {
+      console.warn(`⚠️ IVR: flow-extension sync failed for ${extension}: ${err?.message}`);
+    }
+  }
+
   /** Drop all cached flows (on listener reconnect, to catch missed changes). */
   clearIvrFlowCache(): void {
     this.ivrFlows.clear();
+  }
+
+  /**
+   * True when the dialed number is the entry extension of an enabled IVR flow.
+   * Used by the INVITE path to route a flow extension (e.g. an auto-attendant on
+   * 6002) into the IVR instead of rejecting it as an unknown internal extension.
+   */
+  isIvrFlowExtension(extension: string): boolean {
+    return this.ivrFlowExtensions.has(extension);
+  }
+
+  /**
+   * Reload the set of enabled IVR-flow entry extensions from Postgres. Replaces
+   * the set wholesale; best-effort (a DB error leaves the previous set intact so
+   * a transient blip can't silently break IVR routing). Called at startup and on
+   * a sync-listener reconnect (to catch any changes missed while disconnected).
+   */
+  async hydrateIvrFlowExtensions(): Promise<void> {
+    try {
+      const exts = await loadEnabledIvrFlowExtensions();
+      this.ivrFlowExtensions = new Set(exts);
+    } catch (err: any) {
+      console.warn(`⚠️ IVR: flow-extension hydrate failed: ${err?.message}`);
+    }
   }
 
   // ─── Routing rules ───────────────────────────────────

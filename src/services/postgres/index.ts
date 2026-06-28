@@ -20,7 +20,7 @@ export { RateSyncListener } from './rates-notify';
 export type { RateSyncOptions } from './rates-notify';
 export { IvrFlowSyncListener } from './ivr-notify';
 export type { IvrFlowSyncOptions } from './ivr-notify';
-export { loadIvrFlowByExtension } from './ivr.repo';
+export { loadIvrFlowByExtension, loadEnabledIvrFlowExtensions } from './ivr.repo';
 export { ConnectorSyncListener } from './connector-notify';
 export type { ConnectorSyncOptions } from './connector-notify';
 export { loadConnectorById } from './connector.repo';
