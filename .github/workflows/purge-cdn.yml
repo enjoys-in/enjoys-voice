@@ -1,0 +1,57 @@
+# Purge the jsDelivr CDN cache for the published @enjoys/voice-widget package.
+#
+# WHY: the package is delivered from npm via jsDelivr
+# (https://cdn.jsdelivr.net/npm/@enjoys/voice-widget/dist/widget.js). jsDelivr
+# caches the version-less and `@latest` URLs for up to 7 days, so right after a
+# new `npm publish` those URLs keep serving the OLD bundle until the cache
+# expires. Purging forces jsDelivr to re-resolve `@latest` and re-fetch the file
+# immediately. (Pinned version URLs like `@0.2.0` are immutable on jsDelivr and
+# never need purging — only the moving `@latest`/version-less paths do.)
+#
+# NOTE: unpkg has no public purge API; it refreshes `@latest` on its own shortly
+# after publish, so only jsDelivr is purged here.
+name: Purge CDN cache
+
+on:
+  push:
+    branches: [main]
+    # Only run when the widget package actually changes (e.g. a version bump
+    # pushed after publishing) — not on every unrelated push to main.
+    paths:
+      - 'packages/voice-widget/**'
+  # Allow purging on demand from the Actions tab right after `npm publish`.
+  workflow_dispatch:
+
+# A newer push supersedes an in-flight purge; cancel the older run.
+concurrency:
+  group: purge-cdn
+  cancel-in-progress: true
+
+jobs:
+  purge-jsdelivr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Purge jsDelivr cache for @enjoys/voice-widget
+        run: |
+          set -uo pipefail
+          PKG="@enjoys/voice-widget"
+          # Moving URLs that go stale after a publish (version-less + @latest).
+          PATHS=(
+            "/npm/${PKG}"
+            "/npm/${PKG}@latest"
+            "/npm/${PKG}@latest/dist/widget.js"
+            "/npm/${PKG}@latest/dist/index.js"
+            "/npm/${PKG}@latest/dist/index.cjs"
+            "/npm/${PKG}/dist/widget.js"
+          )
+          fail=0
+          for p in "${PATHS[@]}"; do
+            echo "::group::Purging ${p}"
+            # -sS = quiet but show errors; no --fail so a transient HTTP error on
+            # one path is logged (purge is best-effort) without aborting the rest.
+            curl -sS -w '\n-> HTTP %{http_code}\n' "https://purge.jsdelivr.net${p}" || fail=1
+            echo "::endgroup::"
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "::warning::One or more jsDelivr purge requests failed (network error). jsDelivr will still refresh @latest automatically within ~7 days."
+          fi
