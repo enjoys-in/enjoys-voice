@@ -623,6 +623,11 @@ export class DatabaseService extends EventEmitter {
       const flow = await loadIvrFlowByExtension(extension);
       if (flow) this.ivrFlowExtensions.add(extension);
       else this.ivrFlowExtensions.delete(extension);
+      console.log(
+        `🔄 IVR: flow ${extension} changed → graph cache dropped, ` +
+          `${flow ? 'enabled (latest nodes/text reload on next call)' : 'disabled/removed'} ` +
+          `(${this.ivrFlowExtensions.size} enabled flow extension(s))`,
+      );
     } catch (err: any) {
       console.warn(`⚠️ IVR: flow-extension sync failed for ${extension}: ${err?.message}`);
     }
