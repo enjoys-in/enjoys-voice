@@ -56,15 +56,13 @@ journalctl -u callnet-edge-agent -f
 the FreeSWITCH overlays, renders `/etc/turnserver.conf`, and enables all three
 services.
 
-### FreeSWITCH install (the one manual step)
+### FreeSWITCH (no longer a manual step)
 
-Debian no longer ships FreeSWITCH in main, so install it once before running the
-script, via either:
-
-- **SignalWire repo** (free personal access token) — `apt install freeswitch-meta-all`, or
-- **build from source** (needed for arm64/Raspberry Pi if no prebuilt package).
-
-Then re-run `install.sh`; it detects FreeSWITCH and drops the overlays in.
+Build the FreeSWITCH `.deb` (amd64 + arm64) once with
+[`packaging/freeswitch/build-deb.sh`](packaging/freeswitch) (or the
+`edge-freeswitch-deb` CI workflow), drop it into `edge/packages/`, and
+`install.sh` installs it automatically on first run — no SignalWire token, arm64
+included. See [packaging/freeswitch/README.md](packaging/freeswitch/README.md).
 
 ## Behaviour: online vs WAN-down
 
@@ -111,7 +109,9 @@ Provision a box: `POST /api/g/edge-devices` with
 
 1. **CDR → rating/dashboard**: edge CDRs land in the `edge_cdrs` table; wiring them
    into the Node rating engine + admin call history is a follow-up.
-2. **arm64 FreeSWITCH package** for the Pi SKU (or build-from-source recipe).
+2. **Run the FreeSWITCH `.deb` build** (the `edge-freeswitch-deb` CI workflow or
+   `packaging/freeswitch/build-deb.sh`) to produce the amd64 + arm64 packages,
+   then drop them in `edge/packages/`. Recipe is built; artifacts are on-demand.
 3. **mTLS** device enrolment (the bearer token is the bootstrap path today).
 4. **DID → extension** map templating in `00_callnet_inbound.xml` (multiple DIDs).
 5. **Voicemail dedupe** is filename-based; switch to a server-side idempotency key.

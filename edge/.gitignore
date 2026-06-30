@@ -3,5 +3,8 @@ dist/
 # Stray local build artifacts (a bare `go build` in agent/)
 *.exe
 agent/callnet-edge-agent
+# FreeSWITCH .deb build output + bundled packages
+packaging/freeswitch/out/
+packages/
 # Real per-device secrets
 agent.env

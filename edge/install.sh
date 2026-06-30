@@ -22,11 +22,20 @@ BIN="$HERE/dist/callnet-edge-agent-linux-$ARCH"
 apt-get update -y
 apt-get install -y coturn
 
-# ── FreeSWITCH presence check (install separately; see README) ────────────
+# ── FreeSWITCH: install the bundled .deb for this arch if present ──────────
+# Drop edge/packages/callnet-freeswitch_<ver>_<arch>.deb in (built by
+# edge/packaging/freeswitch). This removes the manual FreeSWITCH install step.
 if ! command -v freeswitch >/dev/null 2>&1; then
-  echo "!! FreeSWITCH binary not found."
-  echo "!! Install it (SignalWire repo with a free token, or build from source),"
-  echo "!! then re-run this script. See edge/README.md -> 'FreeSWITCH install'."
+  DEB="$(ls "$HERE/packages/callnet-freeswitch_"*"_${ARCH}.deb" 2>/dev/null | head -n1 || true)"
+  if [ -n "$DEB" ]; then
+    echo "Installing bundled FreeSWITCH: $DEB"
+    apt-get install -y "$DEB"
+  fi
+fi
+if ! command -v freeswitch >/dev/null 2>&1; then
+  echo "!! FreeSWITCH not found and no bundled .deb in $HERE/packages/."
+  echo "!! Build one: edge/packaging/freeswitch/build-deb.sh (see its README),"
+  echo "!! or install via the SignalWire repo, then re-run this script."
 fi
 
 # ── environment file ──────────────────────────────────────────────────────
