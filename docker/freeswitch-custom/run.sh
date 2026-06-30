@@ -11,6 +11,7 @@
 # Override defaults via env, e.g.:
 #   PIPER_ARCH=aarch64 ./run.sh           # ARM hosts (Apple Silicon / ARM VPS)
 #   PIPER_VOICE=en_US-ryan-high PIPER_VOICE_PATH=en/en_US/ryan/high ./run.sh
+#   PIPER_EXTRA_VOICES="hi_IN-rohan-medium hi_IN-priyamvada-medium" ./run.sh
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -18,6 +19,8 @@ IMAGE_TAG="${IMAGE_TAG:-enjoys-freeswitch:latest}"
 PIPER_ARCH="${PIPER_ARCH:-x86_64}"                 # x86_64 | aarch64 | armv7l
 PIPER_VOICE="${PIPER_VOICE:-en_US-amy-medium}"
 PIPER_VOICE_PATH="${PIPER_VOICE_PATH:-en/en_US/amy/medium}"
+# Extra voices baked alongside the default (Hindi rohan + priyamvada by default).
+PIPER_EXTRA_VOICES="${PIPER_EXTRA_VOICES:-hi_IN-rohan-medium hi_IN-priyamvada-medium}"
 COMPOSE_FILE="${COMPOSE_FILE:-../docker-compose.dev.yml}"
 SERVICE="${SERVICE:-drachtio-freeswitch}"
 
@@ -28,6 +31,7 @@ docker build \
   --build-arg PIPER_ARCH="${PIPER_ARCH}" \
   --build-arg PIPER_VOICE="${PIPER_VOICE}" \
   --build-arg PIPER_VOICE_PATH="${PIPER_VOICE_PATH}" \
+  --build-arg PIPER_EXTRA_VOICES="${PIPER_EXTRA_VOICES}" \
   -t "${IMAGE_TAG}" \
   -f Dockerfile .
 

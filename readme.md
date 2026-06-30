@@ -303,6 +303,14 @@ config live in [docker/docker-compose.prod.yml](docker/docker-compose.prod.yml) 
 [prod/](prod/) (Caddy, coTURN). The interactive [`run.sh`](run.sh) helper can target
 either environment.
 
+> **Optional — `mod_audio_stream`.** A standalone, build-from-source FreeSWITCH image
+> that bakes in [`mod_audio_stream`](https://github.com/amigniter/mod_audio_stream)
+> (forks live call audio to a WebSocket for STT/AI gateways) **plus Piper neural TTS**
+> (the same feature as the published `mullayam06/freeswitch-piper` image) lives in
+> [docker/freeswitch-audiostream/](docker/freeswitch-audiostream/). It's separate
+> because the module is compiled and the default media image is a minified rootfs
+> with no toolchain.
+
 ## Learning the system
 
 New to VoIP / SIP / WebRTC? See [LEARNING.md](LEARNING.md) — a ground-up guide (SIP, SDP,

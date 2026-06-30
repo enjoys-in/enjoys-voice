@@ -22,6 +22,10 @@ ARG PIPER_VERSION=2023.11.14-2
 ARG PIPER_ARCH=x86_64
 ARG PIPER_VOICE=en_US-amy-medium
 ARG PIPER_VOICE_PATH=en/en_US/amy/medium
+# Extra voices baked alongside the default (space-separated <lang>-<voice>-<quality>
+# keys; the HuggingFace path is derived from the key, same rule as add-voice.sh).
+# Defaults bake the Hindi rohan + priyamvada neural voices.
+ARG PIPER_EXTRA_VOICES="hi_IN-rohan-medium hi_IN-priyamvada-medium"
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
@@ -33,7 +37,15 @@ RUN apt-get update \
  && curl -fL -o "/opt/piper/voices/${PIPER_VOICE}.onnx.json" \
       "https://huggingface.co/rhasspy/piper-voices/resolve/main/${PIPER_VOICE_PATH}/${PIPER_VOICE}.onnx.json" \
  && test -s "/opt/piper/voices/${PIPER_VOICE}.onnx" \
- && test -x /opt/piper/piper
+ && test -x /opt/piper/piper \
+ && for key in ${PIPER_EXTRA_VOICES}; do \
+      lang="${key%%-*}"; rest="${key#*-}"; voice="${rest%-*}"; quality="${rest##*-}"; family="${lang%%_*}"; \
+      base="https://huggingface.co/rhasspy/piper-voices/resolve/main/${family}/${lang}/${voice}/${quality}/${key}"; \
+      curl -fL -o "/opt/piper/voices/${key}.onnx"      "${base}.onnx"; \
+      curl -fL -o "/opt/piper/voices/${key}.onnx.json" "${base}.onnx.json"; \
+      test -s "/opt/piper/voices/${key}.onnx"; \
+      echo "baked Piper voice: ${key}"; \
+    done
 
 # ── Stage 2: final image = stock FreeSWITCH + Piper ──
 FROM safarov/freeswitch:latest
