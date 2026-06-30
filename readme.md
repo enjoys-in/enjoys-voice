@@ -29,8 +29,9 @@ call recording, and SIP trunking for PSTN. Third-party sites can embed an API-ke
 ## Architecture
 
 A **hybrid backend**: a Bun/TypeScript SIP engine owns the live telephony, a Go REST
-API owns authentication and durable data, and a Next.js PWA talks to both. Postgres is
-the shared database; Valkey/Redis is the shared cache.
+API owns authentication and durable data, and two clients talk to both — a Next.js PWA
+(`web/`) and a native Flutter softphone (`mobile/`, iOS + Android). Postgres is the
+shared database; Valkey/Redis is the shared cache.
 
 ```
                          ┌─────────────────────────────┐
@@ -78,6 +79,8 @@ the shared database; Valkey/Redis is the shared cache.
 - **Node engine** (`src/`) — Bun, TypeScript, Express, `ws`, drachtio-srf / drachtio-fsmrf, `pg`, `redis`
 - **Go API** (`server/`) — Go, gin, gorm, go-redis, golang-jwt, bcrypt
 - **Web** (`web/`) — Next.js 15, React 19, SIP.js, Zustand, Tailwind, shadcn/ui
+- **Mobile** (`mobile/`) — Flutter (Dart), `sip_ua` (SIP-over-WS) + `flutter_webrtc`, CallKit / ConnectionService, Firebase push
+- **Widget** (`packages/voice-widget/`) — `@enjoys/voice-widget`, TypeScript, SIP.js, tsup (embeddable click-to-call bundle)
 - **Infra** — Postgres, Valkey/Redis, Drachtio, FreeSWITCH (via Docker)
 
 > Both back-ends speak the **same JSON envelope** — `{ success, message, data }`.
@@ -242,6 +245,33 @@ secret (`sk_…`) must never appear in browser code. See
 [packages/voice-widget/README.md](packages/voice-widget/README.md) for the npm /
 programmatic API.
 
+## Mobile app (Flutter softphone)
+
+A native **iOS + Android** softphone lives in [mobile/](mobile/). It logs in against
+the same Go API as the web dialer, registers as a SIP-over-WebSocket endpoint, makes
+and receives WebRTC calls, and **rings on the lock screen / in the background** via
+CallKit (iOS) + ConnectionService (Android), woken by push.
+
+Everything is discovered at login — the app only needs the Go API base URL; the
+login response carries the SIP config (`sipWsUrl`, `domain`) used to register.
+
+```bash
+cd mobile
+flutter create --org com.enjoys --project-name enjoys_voice .   # generate android/ + ios/
+flutter pub get
+# merge native_setup/* into the generated projects, add Firebase config, then run:
+flutter run \
+  --dart-define=GO_API_BASE=http://<LAN_IP>:3003 \
+  --dart-define=NODE_API_BASE=http://<LAN_IP>:3001 \
+  --dart-define=SIP_WS_URL_OVERRIDE=ws://<LAN_IP>:5065 \
+  --dart-define=SIP_DOMAIN_OVERRIDE=<LAN_IP>
+```
+
+Background incoming calls are opt-in on the backend (Node engine `PUSH_ENABLED=true`
++ `FCM_SERVER_KEY`); with push disabled the app still works fully in the foreground.
+See [mobile/README.md](mobile/README.md) for the full setup, native config, and
+background-call flow.
+
 ## SIP Trunk (PSTN)
 
 Outbound/inbound PSTN calls go through a SIP trunk (e.g. Twilio Elastic SIP Trunking).
@@ -284,13 +314,17 @@ RTP, STUN/TURN/ICE, PSTN trunks, B2BUA) mapped onto this codebase, with intervie
 .            Node SIP engine (Bun/TS)  — src/, package.json
 api/         Go REST API               — main.go, internal/, migrations/
 web/         Next.js web PWA           — app/, components/
+mobile/      Flutter softphone         — lib/, native_setup/, pubspec.yaml
+packages/    Shared packages           — voice-widget (@enjoys/voice-widget)
 docker/      Local infra + SIP stack   — docker-compose.yml
 prod/        Production deploy          — Caddy, coTURN, compose
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for call-flow diagrams and [SETUP.md](SETUP.md)
 for production deployment. To stand up the AI voice agent, see
-[AI_AGENT_SETUP.md](AI_AGENT_SETUP.md).
+[AI_AGENT_SETUP.md](AI_AGENT_SETUP.md). The mobile softphone has its own
+[mobile/README.md](mobile/README.md), and the embeddable click-to-call widget is
+documented in [packages/voice-widget/README.md](packages/voice-widget/README.md).
 
 ## Features
 
@@ -303,6 +337,7 @@ for production deployment. To stand up the AI voice agent, see
 - IVR flow builder (visual, persisted in Postgres)
 - AI voice agent (per-user, configurable STT/LLM/TTS) — see [AI_AGENT_SETUP.md](AI_AGENT_SETUP.md)
 - Call recording
+- Native iOS + Android mobile softphone with background/lock-screen ringing (CallKit + push)
 - JWT authentication with refresh + boot-time session validation
 - SIP trunk for PSTN; internal-only mode with no external dependency
 
