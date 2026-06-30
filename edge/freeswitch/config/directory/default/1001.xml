@@ -1,0 +1,19 @@
+<!--
+  Sample SIP user so the box is testable before the first config sync.
+  The sync-agent writes/overwrites <ext>.xml files here from central, then
+  runs `reloadxml`. Register a softphone as 1001 / $${default_password}.
+-->
+<include>
+  <user id="1001">
+    <params>
+      <param name="password" value="$${default_password}"/>
+      <param name="vm-password" value="1001"/>
+    </params>
+    <variables>
+      <variable name="user_context" value="default"/>
+      <variable name="effective_caller_id_name" value="Extension 1001"/>
+      <variable name="effective_caller_id_number" value="1001"/>
+      <variable name="outbound_caller_id_number" value="1001"/>
+    </variables>
+  </user>
+</include>

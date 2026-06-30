@@ -58,6 +58,8 @@ func main() {
 		&models.RoutingRule{},
 		&models.Webhook{},
 		&models.AiAgent{},
+		&models.EdgeDevice{},
+		&models.EdgeCDR{},
 	); err != nil {
 		log.Fatalf("Failed to migrate: %v", err)
 	}
@@ -95,6 +97,7 @@ func main() {
 	routingRuleRepo := repository.NewRoutingRuleRepository(db)
 	webhookRepo := repository.NewWebhookRepository(db)
 	aiAgentRepo := repository.NewAiAgentRepository(db)
+	edgeRepo := repository.NewEdgeRepository(db)
 
 	// ─── Services ────────────────────────────────────────
 	authSvc := service.NewAuthService(userRepo, settingsRepo, valkey)
@@ -118,6 +121,7 @@ func main() {
 	routingRuleSvc := service.NewRoutingRuleService(routingRuleRepo)
 	webhookSvc := service.NewWebhookService(webhookRepo)
 	aiAgentSvc := service.NewAiAgentService(aiAgentRepo)
+	edgeSvc := service.NewEdgeService(edgeRepo)
 	// Twilio client powers provider-native (BYON) caller-ID verification and OTP
 	// SMS delivery. With no credentials configured it stays disabled and the
 	// dependent endpoints return 503.
@@ -159,6 +163,7 @@ func main() {
 		RoutingRule:    handler.NewRoutingRuleHandler(routingRuleSvc),
 		Webhook:        handler.NewWebhookHandler(webhookSvc),
 		AiAgent:        handler.NewAiAgentHandler(aiAgentSvc),
+		Edge:           handler.NewEdgeHandler(edgeSvc, cfg.VoicemailDir),
 	}
 
 	// ─── Ensure upload dir ───────────────────────────────

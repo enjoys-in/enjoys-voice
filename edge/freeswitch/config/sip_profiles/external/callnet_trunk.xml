@@ -1,0 +1,24 @@
+<!--
+  CallNet Edge — local PSTN/GSM trunk gateway.
+
+  This is the survivable outbound path: emergency + outbound calls bridge to
+  sofia/gateway/callnet_trunk/<number>. It can point at:
+    * a SIP trunk provider (Telnyx/VoIP.ms/Twilio/etc.), or
+    * a LOCAL GSM/analog gateway on the LAN (GoIP / Grandstream HT / FXO ATA)
+      so calls survive even a full WAN outage.
+
+  The sync-agent OVERWRITES this file from the central trunk config and runs
+  `sofia profile external rescan` to apply. The values below are placeholders.
+-->
+<include>
+  <gateway name="callnet_trunk">
+    <param name="username" value="REPLACE_TRUNK_USER"/>
+    <param name="password" value="REPLACE_TRUNK_PASS"/>
+    <param name="realm" value="REPLACE_TRUNK_REALM"/>
+    <param name="proxy" value="REPLACE_TRUNK_PROXY"/>
+    <param name="register" value="true"/>
+    <param name="caller-id-in-from" value="true"/>
+    <param name="expire-seconds" value="600"/>
+    <param name="retry-seconds" value="30"/>
+  </gateway>
+</include>

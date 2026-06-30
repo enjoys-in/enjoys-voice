@@ -31,6 +31,7 @@ type Handlers struct {
 	RoutingRule    *handler.RoutingRuleHandler
 	Webhook        *handler.WebhookHandler
 	AiAgent        *handler.AiAgentHandler
+	Edge           *handler.EdgeHandler
 }
 
 func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool) {
@@ -235,6 +236,15 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool
 			protected.PUT("/api-keys/:id", h.APIKey.Update)
 			protected.DELETE("/api-keys/:id", h.APIKey.Delete)
 
+			// Edge appliance provisioning (admin). Mint a device + its one-time
+			// token, assign extensions + a local trunk; the box authenticates
+			// with that token to the /api/g/edge/* sync surface below.
+			protected.GET("/edge-devices", admin, h.Edge.ListDevices)
+			protected.POST("/edge-devices", admin, h.Edge.CreateDevice)
+			protected.GET("/edge-devices/:id", admin, h.Edge.GetDevice)
+			protected.PUT("/edge-devices/:id", admin, h.Edge.UpdateDevice)
+			protected.DELETE("/edge-devices/:id", admin, h.Edge.DeleteDevice)
+
 			// Calls — role-adaptive: an admin gets the full firehose + global
 			// stats, a regular user gets only their own history/metrics (derived
 			// from the JWT inside the handler). Reading/clearing a specific
@@ -275,6 +285,20 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool
 			protected.POST("/sounds/upload", h.Sound.Upload)
 			protected.GET("/sounds/:ext", selfOrAdmin, h.Sound.GetByExtension)
 			protected.DELETE("/sounds/:id", h.Sound.Delete)
+		}
+
+		// Edge appliances — per-device-token authenticated sync surface (NOT
+		// JWT). On-prem branch PBX boxes pull their extensions + trunk and push
+		// CDR / voicemail. The device id comes from the X-Device-Id header (+
+		// token), so these are static siblings of /edge/health (no path param).
+		edge := api.Group("/edge")
+		edge.Use(h.Edge.DeviceAuth())
+		{
+			edge.GET("/health", h.Edge.Health)
+			edge.GET("/extensions", h.Edge.Extensions)
+			edge.GET("/trunk", h.Edge.Trunk)
+			edge.POST("/cdr", h.Edge.IngestCDR)
+			edge.POST("/voicemail", h.Edge.UploadVoicemail)
 		}
 	}
 

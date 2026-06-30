@@ -1,0 +1,7 @@
+# Build output (static binaries) — produced by build.sh
+dist/
+# Stray local build artifacts (a bare `go build` in agent/)
+*.exe
+agent/callnet-edge-agent
+# Real per-device secrets
+agent.env

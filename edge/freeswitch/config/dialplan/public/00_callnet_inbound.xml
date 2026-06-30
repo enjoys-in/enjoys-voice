@@ -1,0 +1,17 @@
+<!--
+  CallNet Edge — inbound from the trunk (public context).
+  Calls arriving on sofia/gateway/callnet_trunk land here. Map the dialed DID
+  to a local destination. Default = ring the receptionist extension (1001).
+
+  The sync-agent can template this from the central DID -> extension map; for
+  multiple DIDs add more <extension> blocks matching specific destinations.
+-->
+<include>
+  <extension name="callnet_inbound_default">
+    <condition field="destination_number" expression="^(.+)$">
+      <action application="set" data="domain_name=${domain}"/>
+      <!-- transfer into the default context so internal routing/VM applies. -->
+      <action application="transfer" data="1001 XML default"/>
+    </condition>
+  </extension>
+</include>
