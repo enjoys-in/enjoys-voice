@@ -33,6 +33,13 @@ import {
   encodePlivoMark,
   encodePlivoMedia,
 } from "./plivo.protocol";
+import {
+  decodeFreeswitchStart,
+  decodeFreeswitchMedia,
+  encodeFreeswitchClear,
+  encodeFreeswitchMark,
+  encodeFreeswitchMedia,
+} from "./freeswitch.protocol";
 
 /**
  * A media-provider wire codec. Twilio and Plivo both speak start/media/stop JSON
@@ -63,8 +70,18 @@ const PLIVO_PROTOCOL: StreamProtocol = {
   encodeMark: encodePlivoMark,
 };
 
+const FREESWITCH_PROTOCOL: StreamProtocol = {
+  decodeStart: (msg, urlParams) => decodeFreeswitchStart(msg, urlParams),
+  decodeMedia: decodeFreeswitchMedia,
+  encodeMedia: encodeFreeswitchMedia,
+  encodeClear: encodeFreeswitchClear,
+  encodeMark: encodeFreeswitchMark,
+};
+
 function selectProtocol(provider: string): StreamProtocol {
-  return provider === "plivo" ? PLIVO_PROTOCOL : TWILIO_PROTOCOL;
+  if (provider === "plivo") return PLIVO_PROTOCOL;
+  if (provider === "freeswitch") return FREESWITCH_PROTOCOL;
+  return TWILIO_PROTOCOL;
 }
 
 export class MediaStreamServer {
@@ -130,12 +147,18 @@ export class MediaStreamServer {
       }
     };
 
-    ws.on("message", (raw: Buffer) => {
+    ws.on("message", (raw: Buffer, isBinary: boolean) => {
       let msg: any;
-      try {
-        msg = JSON.parse(raw.toString());
-      } catch {
-        return; // ignore non-JSON frames
+      
+      if (isBinary) {
+        if (provider !== "freeswitch") return; // Unexpected binary frame from other providers
+        msg = { event: "media", payload: raw };
+      } else {
+        try {
+          msg = JSON.parse(raw.toString());
+        } catch {
+          return; // ignore non-JSON string frames
+        }
       }
 
       switch (msg.event) {

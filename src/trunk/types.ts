@@ -8,7 +8,7 @@
 // NOTE: these are created but NOT yet wired into the SIP/IVR flow.
 
 /** Supported PSTN trunk providers. `custom` = the legacy generic SIP trunk. */
-export type TrunkProviderName = "twilio" | "telnyx" | "plivo" | "vonage" | "custom";
+export type TrunkProviderName = "twilio" | "telnyx" | "plivo" | "vonage" | "custom" | "freeswitch";
 
 /** Normalized SIP termination details for outbound routing via drachtio/FreeSWITCH. */
 export interface SipTrunkConfig {
