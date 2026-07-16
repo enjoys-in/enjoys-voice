@@ -694,3 +694,10 @@
       `BusinessHoursService` applies a matching date over the weekly windows
       (upcoming dates only, backward-compatible); admin UI editor in `HoursTab`
       (date + closed-all-day toggle or special hours + note)
+
+## External Meeting Bridging (Zoom CRC)
+> **Goal:** Bridge calls directly into Zoom Cloud Room Connector using native SIP interop.
+- [ ] **Passcode Collection:** Update `src/sip/ivr/flow-runner.ts` (around line 350) to prompt and collect the Zoom Passcode after collecting the Meeting ID.
+- [ ] **Target Assembly:** Construct the target URI as `${meetingId}.${passcode}@zoomcrc.com`.
+- [ ] **Secure Bridge Logic:** Implement `joinZoomMeeting` in `src/sip/ivr.system.ts` to bridge the B-leg using TLS (SIPS) and SRTP (`sip_secure_media=true`).
+- [ ] **Codec Configuration:** Ensure FreeSWITCH external SIP profiles are configured with valid SSL certificates and support G.711 / G.722 / Opus to negotiate successfully with Zoom.
