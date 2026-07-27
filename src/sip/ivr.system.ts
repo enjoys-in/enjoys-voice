@@ -1005,8 +1005,22 @@ export class IVRSystem {
   private async flowTransfer(
     endpoint: Mrf.Endpoint,
     state: IVRCallState,
-    opts: { department?: string; extension?: string; ringSeconds?: number },
+    opts: { department?: string; extension?: string; ringSeconds?: number; isExternalSip?: boolean },
   ): Promise<boolean> {
+    
+    // Bypass the queue if this is a direct external SIP bridge
+    if (opts.isExternalSip && opts.extension) {
+      console.log(`🔀 IVR flow transfer → Direct SIP Bridge to ${opts.extension} [${state.callId}]`);
+      try {
+        const targetUri = opts.extension.includes('sip:') ? opts.extension : `sip:${opts.extension}`;
+        await endpoint.execute('bridge', `sofia/external/${targetUri}`);
+        return true;
+      } catch (err: any) {
+        console.error(`❌ SIP Bridge failed: ${err.message}`);
+        return false;
+      }
+    }
+
     const dept = opts.department ? this.departments.find((d) => d.id === opts.department) : undefined;
     if (opts.department) {
       state.department = dept?.id || opts.department;
