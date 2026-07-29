@@ -48,7 +48,7 @@ const eslServer = new Server({ host: '0.0.0.0', port: ESL_PORT, myevents: true }
     console.log(`[ESL] Outbound ESL Call Control listening on port ${ESL_PORT}`);
 });
 
-eslServer.on('connection', (conn, id) => {
+eslServer.on('connection::ready', (conn, id) => {
     const uuid = conn.getInfo().getHeader('Channel-Call-UUID');
     console.log(`[ESL] New call received! UUID: ${uuid}`);
     
