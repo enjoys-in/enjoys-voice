@@ -1,4 +1,4 @@
-// PSTN trunk providers (Twilio, Telnyx, Plivo, Vonage).
+// PSTN trunk providers (Twilio, Telnyx, Plivo, Vonage, SignalWire).
 //
 // Each provider exposes a `*TrunkService` (SIP termination config + REST client)
 // implementing the shared `ITrunkProvider` contract. They are self-contained and
@@ -10,6 +10,7 @@ import { TwilioTrunkService } from "./twilio";
 import { TelnyxTrunkService } from "./telnyx";
 import { PlivoTrunkService } from "./plivo";
 import { VonageTrunkService } from "./vonage";
+import { SignalwireTrunkService } from "./signalwire";
 
 export * from "./types";
 export { trunkConfig } from "./config";
@@ -19,6 +20,7 @@ export * from "./twilio";
 export * from "./telnyx";
 export * from "./plivo";
 export * from "./vonage";
+export * from "./signalwire";
 
 /**
  * Instantiate a trunk provider by name, configured from environment variables.
@@ -36,6 +38,8 @@ export function createTrunkProvider(
       return PlivoTrunkService.fromEnv();
     case "vonage":
       return VonageTrunkService.fromEnv();
+    case "signalwire":
+      return SignalwireTrunkService.fromEnv();
     default:
       return undefined;
   }

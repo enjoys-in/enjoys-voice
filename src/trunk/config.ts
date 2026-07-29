@@ -9,6 +9,7 @@ import type { TwilioTrunkConfig } from "./twilio/twilio.service";
 import type { TelnyxTrunkConfig } from "./telnyx/telnyx.service";
 import type { PlivoTrunkConfig } from "./plivo/plivo.service";
 import type { VonageTrunkConfig } from "./vonage/vonage.service";
+import type { SignalwireTrunkConfig } from "./signalwire/signalwire.service";
 
 /** Coerce an env string to a SIP transport (undefined falls back to provider default). */
 const asTransport = (v?: string): "udp" | "tcp" | "tls" | undefined =>
@@ -25,6 +26,7 @@ export interface TrunkConfig {
   telnyx: TelnyxTrunkConfig;
   plivo: PlivoTrunkConfig;
   vonage: VonageTrunkConfig;
+  signalwire: SignalwireTrunkConfig;
 }
 
 export const trunkConfig: TrunkConfig = {
@@ -70,5 +72,15 @@ export const trunkConfig: TrunkConfig = {
     port: asPort(process.env.VONAGE_SIP_PORT),
     callerId: process.env.VONAGE_CALLER_ID,
     enabled: isEnabled(process.env.VONAGE_ENABLED),
+  },
+  signalwire: {
+    projectId: process.env.SIGNALWIRE_PROJECT_ID ?? "",
+    apiToken: process.env.SIGNALWIRE_API_TOKEN ?? "",
+    spaceUrl: process.env.SIGNALWIRE_SPACE_URL ?? "",
+    sipDomain: process.env.SIGNALWIRE_SIP_DOMAIN ?? "",
+    transport: asTransport(process.env.SIGNALWIRE_SIP_TRANSPORT),
+    port: asPort(process.env.SIGNALWIRE_SIP_PORT),
+    callerId: process.env.SIGNALWIRE_CALLER_ID,
+    enabled: isEnabled(process.env.SIGNALWIRE_ENABLED),
   },
 };
