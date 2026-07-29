@@ -1,6 +1,7 @@
 const { Server } = require('modesl');
 const WebSocket = require('ws');
 const express = require('express');
+const path = require('path');
  
 
 // ---------------------------------------------------------
@@ -37,6 +38,26 @@ wss.on('connection', (ws) => {
         bitDepth: 16
     });
     console.log(`[WS] Saving audio stream to ${filepath}`);
+
+    // Stream the test.wav file back to FreeSWITCH!
+    console.log(`[WS] Streaming test.wav back to caller...`);
+    const testWavPath = path.join(__dirname, 'test.wav');
+    if (fs.existsSync(testWavPath)) {
+        // We skip the 44-byte WAV header so FreeSWITCH gets pure raw PCM
+        const readStream = fs.createReadStream(testWavPath, { start: 44 });
+        
+        // We need to chunk the stream and send it at the correct rate (8000Hz = 16000 bytes/sec)
+        // A simple way is to just pipe it into the WebSocket, but standard pipes send data instantly.
+        // For a quick test, FreeSWITCH mod_audio_stream buffers incoming WS data, so we can just blast it.
+        readStream.on('data', (chunk) => {
+            ws.send(chunk);
+        });
+        readStream.on('end', () => {
+            console.log(`[WS] Finished streaming test.wav to FreeSWITCH.`);
+        });
+    } else {
+        console.log(`[WS] Could not find test.wav!`);
+    }
     
     ws.on('message', (message) => {
         // The message is raw PCM binary data from FreeSWITCH
@@ -80,7 +101,7 @@ eslServer.on('connection::ready', (conn, id) => {
         const wsUrl = `ws://node-app:${WS_PORT}/stream`;
         
         // Command syntax: uuid_audio_stream <uuid> start <ws_url> [mono|stereo] [8000|16000|32000|48000] [mix|read|write]
-        conn.api(`uuid_audio_stream ${uuid} start ${wsUrl} mono 8000 read`, (res) => {
+        conn.api(`uuid_audio_stream ${uuid} start ${wsUrl} mono 8000 mix`, (res) => {
             console.log(`[ESL] uuid_audio_stream response: ${res.getBody()}`);
             
             // 3. Play an automated AI TTS greeting!
