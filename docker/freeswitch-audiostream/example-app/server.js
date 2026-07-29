@@ -17,26 +17,42 @@ app.listen(HTTP_PORT, () => {
 // 1. WebSocket Server (Receives Audio from FreeSWITCH)
 // ---------------------------------------------------------
 const WS_PORT = 8080;
-const wss = new WebSocket.Server({ port: WS_PORT }, () => {
+const fs = require('fs');
+const wav = require('wav');
+const path = require('path');
+
+const wss = new WebSocket.Server({ host: '0.0.0.0', port: WS_PORT }, () => {
     console.log(`[WS] WebSocket Audio Receiver listening on ws://0.0.0.0:${WS_PORT}`);
 });
 
-wss.on('connection', (ws, req) => {
-    console.log(`[WS] New FreeSWITCH audio stream connected from ${req.socket.remoteAddress}`);
+wss.on('connection', (ws) => {
+    console.log('[WS] New audio stream connected from FreeSWITCH!');
     let pktCount = 0;
     
+    // Create a new wav writer for this stream
+    const filename = `recording_${Date.now()}.wav`;
+    const filepath = path.join(__dirname, 'public', filename);
+    const writer = new wav.FileWriter(filepath, {
+        channels: 1,
+        sampleRate: 8000,
+        bitDepth: 16
+    });
+    console.log(`[WS] Saving audio stream to ${filepath}`);
+    
     ws.on('message', (message) => {
-        // 'message' is a Buffer containing raw audio data from FreeSWITCH
+        // The message is raw PCM binary data from FreeSWITCH
         pktCount++;
+        writer.write(message);
         
         // Print progress every 100 packets to avoid spamming the console
         if (pktCount % 100 === 0) {
-            console.log(`[WS] Received 100 audio packets (total: ${pktCount}). Last packet size: ${message.length} bytes.`);
+            console.log(`[WS] Received 100 audio packets (total: ${pktCount}). Saved to wav.`);
         }
     });
 
     ws.on('close', () => {
-        console.log('[WS] Audio stream closed.');
+        console.log(`[WS] Audio stream closed. File saved to: ${filename}`);
+        writer.end();
     });
 });
 
