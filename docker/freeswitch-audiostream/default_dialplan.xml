@@ -18,7 +18,7 @@
         <action application="set" data="rtp_secure_media=true"/>
         <action application="set" data="media_webrtc=true"/>
         <action application="answer"/>
-        <action application="socket" data="host.docker.internal:8085 async full"/>
+        <action application="socket" data="node-app:8085 async full"/>
       </condition>
     </extension>
 
@@ -293,6 +293,7 @@
 	<action application="hash" data="insert/${domain_name}-last_dial_ext/global/${uuid}"/>
 	<!--<action application="export" data="nolocal:rtp_secure_media=${user_data(${dialed_extension}@${domain_name} var rtp_secure_media)}"/>-->
 	<action application="hash" data="insert/${domain_name}-last_dial/${called_party_callgroup}/${uuid}"/>
+	<action application="export" data="api_on_answer=uuid_audio_stream ${uuid} start ws://host.docker.internal:8080/stream mono 8000 mix"/>
 	<action application="bridge" data="user/${dialed_extension}@${domain_name}"/>
 	<action application="answer"/>
 	<action application="sleep" data="1000"/>

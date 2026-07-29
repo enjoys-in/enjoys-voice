@@ -1,0 +1,44 @@
+version: '3.8'
+name: freeswitch-audiostream
+
+services:
+  freeswitch:
+    image: enjoys-freeswitch-audiostream-stage:latest
+    container_name: my-freeswitch-audiostream
+    command: ["/usr/local/freeswitch/bin/freeswitch", "-nf", "-nonat"]
+    ports:
+      - "5060:5060/tcp"
+      - "5060:5060/udp"
+      - "5066:5066/tcp"   # WebRTC SIP WSS
+      - "5080:5080/tcp"
+      - "5080:5080/udp"
+      - "7443:7443/tcp"
+      - "8021:8021/tcp"   # ESL
+      - "16384-16404:16384-16404/udp" # RTP Media
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # The correct path for this specific image's configuration is /usr/local/freeswitch/etc/freeswitch
+      - ../freeswitch_configs:/usr/local/freeswitch/etc/freeswitch
+      - ../freeswitch_sounds:/usr/share/freeswitch/sounds
+      - ../freeswitch_configs:/etc/freeswitch
+      
+      # Mount the extra configurations specific to this standalone app (these will override the files in your real config for this test container only)
+      - ./default_dialplan.xml:/usr/local/freeswitch/etc/freeswitch/dialplan/default/9999_test_ai.xml
+      - ./config/tts_commandline.conf.xml:/usr/local/freeswitch/etc/freeswitch/autoload_configs/tts_commandline.conf.xml
+    restart: unless-stopped
+
+  node-app:
+    image: node:18
+    container_name: my-freeswitch-node-app
+    working_dir: /app
+    volumes:
+      - ./example-app:/app
+    command: npm start
+    ports:
+      - "3000:3000"
+      - "8080:8080"
+      - "8085:8085"
+    depends_on:
+      - freeswitch
+    restart: unless-stopped

@@ -45,7 +45,7 @@
         </div>
         <div class="form-group">
             <label>Password</label>
-            <input type="password" id="sip_password" value="12345" placeholder="12345">
+            <input type="password" id="sip_password" value="3cQ4DVCoSJI_" placeholder="3cQ4DVCoSJI_">
         </div>
         <button class="btn-register" id="btn_register" onclick="connect()">Connect & Register</button>
     </div>
@@ -74,10 +74,13 @@
         const socket = new JsSIP.WebSocketInterface(wsUri);
         const configuration = {
             sockets: [ socket ],
-            uri: 'sip:1000@127.0.0.1',
-            password: '3cQ4DVCoSJI_', // From user's custom vars.xml
-            register: false, // Don't require registration to make calls
-            session_timers: false // Disable session timers which can cause 422 errors
+            uri: sipUri,
+            password: password,
+            register: true, // Need to register to receive calls
+            session_timers: false, // Disable session timers which can cause 422 errors
+            rtcConfiguration: {
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+            }
         };
 
         ua = new JsSIP.UA(configuration);

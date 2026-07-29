@@ -61,17 +61,16 @@ eslServer.on('connection', (conn, id) => {
         console.log(`[ESL] Call answered. Starting audio_stream...`);
         
         // 2. Start streaming the caller's audio to our WebSocket server
-        // "host.docker.internal" allows the Docker container to reach this Node app running on your host
-        const wsUrl = `ws://host.docker.internal:${WS_PORT}/stream`;
+        // "node-app" is the docker compose service name so they can reach each other seamlessly!
+        const wsUrl = `ws://node-app:${WS_PORT}/stream`;
         
         // Command syntax: uuid_audio_stream <uuid> start <ws_url> [mono|stereo] [8000|16000|32000|48000] [mix|read|write]
         conn.api(`uuid_audio_stream ${uuid} start ${wsUrl} mono 8000 read`, (res) => {
             console.log(`[ESL] uuid_audio_stream response: ${res.getBody()}`);
             
-            // 3. Play a continuous tone so you can HEAR that the call is connected!
-            // (Previously this was silence, which is why you heard nothing)
-            console.log(`[ESL] Playing test tone to the caller...`);
-            conn.execute('playback', 'tone_stream://%(2000,4000,440,480);loops=-1');
+            // 3. Play an automated AI TTS greeting!
+            console.log(`[ESL] Playing AI greeting to the caller...`);
+            conn.execute('speak', 'tts_commandline|en_US-amy-medium|Hello, welcome to the AI automated IVR. Please start speaking and your audio will be streamed.');
         });
     });
 });
