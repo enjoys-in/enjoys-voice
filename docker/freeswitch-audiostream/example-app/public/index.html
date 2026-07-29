@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC SIP Softphone</title>
+    <!-- Load our local Browserify bundle of JsSIP -->
+    <script src="/JsSIP.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }
+        h2 { text-align: center; margin-top: 0; color: #333; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #555; font-size: 14px; }
+        input[type="text"], input[type="password"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 16px; }
+        button { width: 100%; padding: 12px; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.3s; margin-top: 10px; color: white; }
+        .btn-register { background-color: #007bff; }
+        .btn-register:hover { background-color: #0056b3; }
+        .btn-call { background-color: #28a745; }
+        .btn-call:hover { background-color: #218838; }
+        .btn-hangup { background-color: #dc3545; display: none; }
+        .btn-hangup:hover { background-color: #c82333; }
+        .status { text-align: center; margin-top: 15px; font-weight: bold; padding: 10px; border-radius: 6px; background-color: #e9ecef; color: #495057; }
+        .status.registered { background-color: #d4edda; color: #155724; }
+        .status.error { background-color: #f8d7da; color: #721c24; }
+        .call-section { display: none; margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>WebRTC SIP Client</h2>
+    
+    <!-- Audio element to play incoming audio -->
+    <audio id="remoteAudio" autoplay></audio>
+
+    <div id="register-section">
+        <div class="form-group">
+            <label>WebSocket URI</label>
+            <input type="text" id="ws_uri" value="ws://localhost:5066" placeholder="ws://localhost:5066">
+        </div>
+        <div class="form-group">
+            <label>SIP URI (Extension)</label>
+            <input type="text" id="sip_uri" value="sip:1000@localhost" placeholder="sip:1000@localhost">
+        </div>
+        <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="sip_password" value="12345" placeholder="12345">
+        </div>
+        <button class="btn-register" id="btn_register" onclick="connect()">Connect & Register</button>
+    </div>
+
+    <div id="status" class="status">Disconnected</div>
+
+    <div id="call-section" class="call-section">
+        <div class="form-group">
+            <label>Dial Target (e.g. 9999 for AI, or 1001 for user)</label>
+            <input type="text" id="target_uri" value="9999" placeholder="9999 or sip:1001@localhost">
+        </div>
+        <button class="btn-call" id="btn_call" onclick="makeCall()">Make Call</button>
+        <button class="btn-hangup" id="btn_hangup" onclick="hangup()">Hang Up</button>
+    </div>
+</div>
+
+<script>
+    let ua = null;
+    let currentSession = null;
+
+    function connect() {
+        const wsUri = document.getElementById('ws_uri').value;
+        const sipUri = document.getElementById('sip_uri').value;
+        const password = document.getElementById('sip_password').value;
+
+        const socket = new JsSIP.WebSocketInterface(wsUri);
+        const configuration = {
+            sockets: [ socket ],
+            uri: 'sip:1000@127.0.0.1',
+            password: '3cQ4DVCoSJI_', // From user's custom vars.xml
+            register: false, // Don't require registration to make calls
+            session_timers: false // Disable session timers which can cause 422 errors
+        };
+
+        ua = new JsSIP.UA(configuration);
+
+        ua.on('connected', function(e){
+            updateStatus('Connected to WebSocket', 'status');
+            document.getElementById('call-section').style.display = 'block';
+            document.getElementById('btn_register').style.display = 'none';
+        });
+
+        ua.on('disconnected', function(e){
+            updateStatus('Disconnected', 'error');
+            document.getElementById('call-section').style.display = 'none';
+            document.getElementById('btn_register').style.display = 'block';
+        });
+
+        ua.on('registered', function(e){
+            updateStatus('Registered Successfully', 'registered');
+            document.getElementById('call-section').style.display = 'block';
+            document.getElementById('btn_register').style.display = 'none';
+        });
+
+        ua.on('registrationFailed', function(e){
+            updateStatus('Registration Failed', 'error');
+        });
+
+        // Handle incoming calls
+        ua.on('newRTCSession', function(e) {
+            const session = e.session;
+            if (session.direction === 'incoming') {
+                if (confirm(`Incoming call from ${session.remote_identity.uri.toString()}. Answer?`)) {
+                    session.answer({
+                        mediaConstraints: { audio: true, video: false }
+                    });
+                } else {
+                    session.terminate();
+                }
+            }
+            
+            currentSession = session;
+            setupSessionListeners(session);
+        });
+
+        ua.start();
+        updateStatus('Connecting...', 'status');
+    }
+
+    function makeCall() {
+        let target = document.getElementById('target_uri').value;
+        if (!target.includes('@')) {
+            // Auto-append domain if they just typed the extension
+            const domain = document.getElementById('sip_uri').value.split('@')[1];
+            target = `sip:${target}@${domain}`;
+        }
+
+        const options = {
+            mediaConstraints: { audio: true, video: false }
+        };
+
+        currentSession = ua.call(target, options);
+        setupSessionListeners(currentSession);
+    }
+
+    function hangup() {
+        if (currentSession) {
+            currentSession.terminate();
+        }
+    }
+
+    function setupSessionListeners(session) {
+        document.getElementById('btn_call').style.display = 'none';
+        document.getElementById('btn_hangup').style.display = 'block';
+
+        session.on('progress', function(e) { updateStatus('Call in progress...', 'status'); });
+        session.on('failed', function(e) { 
+            updateStatus('Call failed', 'error'); 
+            resetCallUI(); 
+        });
+        session.on('ended', function(e) { 
+            updateStatus('Call ended', 'status'); 
+            resetCallUI(); 
+        });
+        session.on('confirmed', function(e) { 
+            updateStatus('Call answered', 'registered'); 
+            
+            // Attach remote audio stream to the audio element
+            const remoteAudio = document.getElementById('remoteAudio');
+            
+            // For JsSIP 3.x, use session.connection
+            session.connection.addEventListener('track', function(e) {
+                remoteAudio.srcObject = e.streams[0];
+                remoteAudio.play().catch(err => console.error("Audio playback error:", err));
+            });
+        });
+    }
+
+    function resetCallUI() {
+        document.getElementById('btn_call').style.display = 'block';
+        document.getElementById('btn_hangup').style.display = 'none';
+        setTimeout(() => updateStatus('Registered Successfully', 'registered'), 3000);
+    }
+
+    function updateStatus(text, className) {
+        const el = document.getElementById('status');
+        el.innerText = text;
+        el.className = 'status ' + className;
+    }
+</script>
+
+</body>
+</html>

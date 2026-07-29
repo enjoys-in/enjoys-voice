@@ -1,0 +1,11 @@
+<include>
+  <extension name="ai_test" continue="false">
+    <condition field="destination_number" expression="^9999$">
+      <action application="set" data="rtp_secure_media=true"/>
+      <action application="set" data="media_webrtc=true"/>
+      <action application="set" data="apply_candidate_acl=any_v4.auto"/>
+      <action application="answer"/>
+      <action application="socket" data="host.docker.internal:8085 async full"/>
+    </condition>
+  </extension>
+</include>

@@ -358,3 +358,5 @@ documented in [packages/voice-widget/README.md](packages/voice-widget/README.md)
 - https://yate.ro/
 - https://github.com/sems-server/sems
 - https://github.com/open5gs
+- https://developer.signalwire.com/freeswitch/programming/esl-outbound
+- https://freeswitch.org/confluence/display/FREESWITCH/mod_sofia#mod_sofia-Troubleshooting

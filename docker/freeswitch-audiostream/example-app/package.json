@@ -1,0 +1,23 @@
+{
+  "name": "example-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1",
+    "jssip": "^3.13.8",
+    "modesl": "^1.2.1",
+    "sip.js": "^0.21.2",
+    "ws": "^8.21.1"
+  },
+  "devDependencies": {
+    "browserify": "^17.0.1"
+  }
+}

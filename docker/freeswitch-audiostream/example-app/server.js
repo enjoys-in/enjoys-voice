@@ -1,0 +1,77 @@
+const { Server } = require('modesl');
+const WebSocket = require('ws');
+const express = require('express');
+const path = require('path');
+
+// ---------------------------------------------------------
+// 0. Web Server (Serves the WebRTC SIP UI)
+// ---------------------------------------------------------
+const HTTP_PORT = 3000;
+const app = express();
+app.use(express.static(path.join(__dirname, 'public')));
+app.listen(HTTP_PORT, () => {
+    console.log(`[HTTP] Web UI listening on http://localhost:${HTTP_PORT}`);
+});
+
+// ---------------------------------------------------------
+// 1. WebSocket Server (Receives Audio from FreeSWITCH)
+// ---------------------------------------------------------
+const WS_PORT = 8080;
+const wss = new WebSocket.Server({ port: WS_PORT }, () => {
+    console.log(`[WS] WebSocket Audio Receiver listening on ws://0.0.0.0:${WS_PORT}`);
+});
+
+wss.on('connection', (ws, req) => {
+    console.log(`[WS] New FreeSWITCH audio stream connected from ${req.socket.remoteAddress}`);
+    let pktCount = 0;
+    
+    ws.on('message', (message) => {
+        // 'message' is a Buffer containing raw audio data from FreeSWITCH
+        pktCount++;
+        
+        // Print progress every 100 packets to avoid spamming the console
+        if (pktCount % 100 === 0) {
+            console.log(`[WS] Received 100 audio packets (total: ${pktCount}). Last packet size: ${message.length} bytes.`);
+        }
+    });
+
+    ws.on('close', () => {
+        console.log('[WS] Audio stream closed.');
+    });
+});
+
+// ---------------------------------------------------------
+// 2. Outbound ESL Server (Controls the Call)
+// ---------------------------------------------------------
+const ESL_PORT = 8085;
+const eslServer = new Server({ host: '0.0.0.0', port: ESL_PORT, myevents: true }, () => {
+    console.log(`[ESL] Outbound ESL Call Control listening on port ${ESL_PORT}`);
+});
+
+eslServer.on('connection', (conn, id) => {
+    const uuid = conn.getInfo().getHeader('Channel-Call-UUID');
+    console.log(`[ESL] New call received! UUID: ${uuid}`);
+    
+    conn.on('esl::end', () => {
+        console.log(`[ESL] Call ended (UUID: ${uuid})`);
+    });
+
+    // 1. Answer the incoming call
+    conn.execute('answer', '', () => {
+        console.log(`[ESL] Call answered. Starting audio_stream...`);
+        
+        // 2. Start streaming the caller's audio to our WebSocket server
+        // "host.docker.internal" allows the Docker container to reach this Node app running on your host
+        const wsUrl = `ws://host.docker.internal:${WS_PORT}/stream`;
+        
+        // Command syntax: uuid_audio_stream <uuid> start <ws_url> [mono|stereo] [8000|16000|32000|48000] [mix|read|write]
+        conn.api(`uuid_audio_stream ${uuid} start ${wsUrl} mono 8000 read`, (res) => {
+            console.log(`[ESL] uuid_audio_stream response: ${res.getBody()}`);
+            
+            // 3. Play a continuous tone so you can HEAR that the call is connected!
+            // (Previously this was silence, which is why you heard nothing)
+            console.log(`[ESL] Playing test tone to the caller...`);
+            conn.execute('playback', 'tone_stream://%(2000,4000,440,480);loops=-1');
+        });
+    });
+});

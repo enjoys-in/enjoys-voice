@@ -128,9 +128,9 @@
     <param name="apply-inbound-acl" value="domains"/>
     <!--
         This defines your local network, by default we detect your local network
-        and create this localnet.auto ACL for this.
+        and create this rfc1918.auto ACL for this.
     -->
-    <param name="local-network-acl" value="localnet.auto"/>
+    <param name="local-network-acl" value="rfc1918.auto"/>
     <!--<param name="apply-register-acl" value="domains"/>-->
     <!--<param name="dtmf-type" value="info"/>-->
 
@@ -293,8 +293,8 @@
          auto                  - Use guessed ip.
          auto-nat              - Use ip learned from NAT-PMP or UPNP
     -->
-    <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
-    <param name="ext-sip-ip" value="$${external_sip_ip}"/>
+    <param name="ext-rtp-ip" value="127.0.0.1"/>
+    <param name="ext-sip-ip" value="127.0.0.1"/>
 
     <!-- VAD choose one (out is a good choice); -->
     <!-- <param name="vad" value="in"/> -->
@@ -316,6 +316,7 @@
 
     <!-- for sip over websocket support -->
     <param name="ws-binding"  value=":5066"/>
+    <param name="apply-candidate-acl" value="any_v4.auto"/>
 
     <!-- for sip over secure websocket support -->
     <!-- You need wss.pem in $${certs_dir} for wss or one will be created for you -->

@@ -44,32 +44,25 @@ ENV DEBIAN_FRONTEND=noninteractive
 # are libssl-dev / zlib1g-dev / libevent-dev / libspeexdsp-dev (all present here).
 RUN apt-get update && apt-get install -y --no-install-recommends \
       autoconf automake bison build-essential ca-certificates cmake flex git \
-      libtool libtool-bin pkg-config wget lsb-release yasm \
+      libtool libtool-bin pkg-config wget \
       libssl-dev zlib1g-dev libdb-dev unixodbc-dev libncurses5-dev libexpat1-dev \
       libgdbm-dev libtiff-dev uuid-dev libpcre3-dev libedit-dev libsqlite3-dev \
       libcurl4-openssl-dev libopus-dev libsndfile1-dev libspeex-dev libspeexdsp-dev \
-      libldns-dev libpng-dev libjpeg-dev libevent-dev liblua5.2-dev \
+      libldns-dev libpng-dev libjpeg-dev libevent-dev \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src
 
-RUN git config --global --add safe.directory '*'
-
 # ── 1. libks (SignalWire kernel/support lib — FreeSWITCH build prerequisite) ──
-RUN git clone https://github.com/signalwire/libks.git \
- && cd libks \
- && sed -i 's/if(GIT_FOUND AND GZIP_CMD AND DATE_CMD)/if(FALSE)/g' CMakeLists.txt \
- && cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release \
- && cmake --build build --target install -j"$(nproc)" \
+RUN git clone --depth 1 https://github.com/signalwire/libks.git \
+ && cmake -S libks -B libks/build -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release \
+ && cmake --build libks/build --target install -j"$(nproc)" \
  && ldconfig
 
 # ── 2. signalwire-c (needs libks; required by mod_signalwire) ──
-RUN git clone https://github.com/signalwire/signalwire-c.git \
- && cd signalwire-c \
- && sed -i 's/if(GIT_FOUND AND GZIP_CMD AND DATE_CMD)/if(FALSE)/g' CMakeLists.txt || true \
- && cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release \
- && touch build/copyright \
- && cmake --build build --target install -j"$(nproc)" \
+RUN git clone --depth 1 https://github.com/signalwire/signalwire-c.git \
+ && cmake -S signalwire-c -B signalwire-c/build -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release \
+ && cmake --build signalwire-c/build --target install -j"$(nproc)" \
  && ldconfig
 
 # ── 3. sofia-sip (the SIP stack — mandatory FreeSWITCH core dependency) ──
@@ -88,8 +81,8 @@ RUN git clone --depth 1 https://github.com/freeswitch/spandsp.git \
 # mod_tts_commandline (off by default from source) so Piper can drive TTS.
 RUN git clone --depth 1 -b "${FS_VERSION}" https://github.com/signalwire/freeswitch.git \
  && cd freeswitch \
+ && sed -i -E 's@^(applications/mod_av)@#\1@; s@^(applications/mod_cv)@#\1@; s@^(formats/mod_shout)@#\1@; s@^(formats/mod_av)@#\1@; s@^(asr_tts/mod_flite)@#\1@; s@^#?(asr_tts/mod_tts_commandline)@\1@' modules.conf \
  && ./bootstrap.sh -j \
- && sed -i -E 's@^(applications/mod_av)@#\1@; s@^(applications/mod_cv)@#\1@; s@^(formats/mod_shout)@#\1@; s@^(formats/mod_av)@#\1@; s@^(asr_tts/mod_flite)@#\1@; s@^(databases/mod_pgsql)@#\1@; s@^(applications/mod_spandsp)@#\1@; s@^#?(asr_tts/mod_tts_commandline)@\1@' modules.conf \
  && ./configure --prefix=/usr/local/freeswitch --disable-dependency-tracking \
  && make -j"$(nproc)" \
  && make install \

@@ -91,7 +91,7 @@
     <load module="mod_dialplan_asterisk"/>
 
     <!-- Codec Interfaces -->
-    <load module="mod_spandsp"/>
+    <!-- <load module="mod_spandsp"/> -->
     <load module="mod_g723_1"/>
     <load module="mod_g729"/>
     <load module="mod_amr"/>
