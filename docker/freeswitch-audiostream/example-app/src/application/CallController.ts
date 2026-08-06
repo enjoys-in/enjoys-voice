@@ -30,8 +30,9 @@ export class CallController {
   private onAnswered(uuid: string, conn: EslConnection): void {
     this.logger.info(`Answered ${uuid}. Starting caller-audio stream...`);
 
-    // Fork the CALLER's audio (mono = caller-only, so no echo of our own TTS)
-    // out to our WebSocket receiver on the Docker network.
+    // Fork call audio out to our WebSocket receiver on the Docker network. The
+    // mix mode is configurable: stereo = caller (left) + callee/AI (right),
+    // mixed = both in one channel, mono = caller only.
     const { ws, audio } = this.config;
     const wsUrl = `ws://${ws.hostForFreeswitch}:${ws.port}/${uuid}`;
     const cmd = `uuid_audio_stream ${uuid} start ${wsUrl} ${audio.channels} ${audio.sampleRate} {"callId":"${uuid}"}`;

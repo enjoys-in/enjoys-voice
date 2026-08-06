@@ -49,7 +49,7 @@ services:
       - WS_PORT=8080
       - ESL_PORT=8085
       - WS_HOST_FOR_FS=node-app
-      - AUDIO_CHANNELS=mono
+      - AUDIO_CHANNELS=stereo
       - AUDIO_SAMPLE_RATE=8000
       - AUDIO_SWAP_ENDIANNESS=false
       - RECORDING_ENABLED=true
