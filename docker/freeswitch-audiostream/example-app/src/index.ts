@@ -5,6 +5,8 @@ import { ConsoleLogger } from '@/core/Logger';
 import { CallRegistry } from '@/domain/CallRegistry';
 import { L16Codec } from '@/audio/L16Codec';
 import { WavRecorderFactory } from '@/audio/WavRecorderFactory';
+import { AudioPipeline } from '@/audio/AudioPipeline';
+import { CallerSttConsumer } from '@/audio/consumers/CallerSttConsumer';
 import { EslTtsService } from '@/tts/EslTtsService';
 import { CallController } from '@/application/CallController';
 import { AudioStreamServer } from '@/transport/AudioStreamServer';
@@ -25,11 +27,15 @@ async function bootstrap(): Promise<void> {
   const tts = new EslTtsService(registry, config, logger.child('TTS'));
   const callController = new CallController(registry, tts, config, logger.child('CALL'));
 
+  // Audio pipeline — plug in consumers (STT, VAD, analytics). Each consumer
+  // de-interleaves the channel it needs; CallerSttConsumer uses caller-only.
+  const audioPipeline = new AudioPipeline(logger.child('AUDIO'));
+  audioPipeline.use(new CallerSttConsumer(logger.child('STT')));
+
   // Transport servers.
   const servers: IServer[] = [
     new HttpServer(config, tts, registry, logger.child('HTTP')),
-    // Pass a 4th arg here to feed decoded caller audio into your STT/VAD.
-    new AudioStreamServer(config, recorderFactory, codec, logger.child('WS')),
+    new AudioStreamServer(config, recorderFactory, codec, logger.child('WS'), audioPipeline),
     new EslCallServer(config, callController, logger.child('ESL')),
   ];
 

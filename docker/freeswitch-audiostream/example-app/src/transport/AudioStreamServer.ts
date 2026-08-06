@@ -5,14 +5,14 @@ import type {
   IRecorderFactory,
   IAudioCodec,
   ILogger,
-  AudioSink,
 } from '@/core/interfaces';
 import type { AppConfig } from '@/core/types';
+import type { AudioPipeline } from '@/audio/AudioPipeline';
 
 // Receives the caller's forked audio from mod_audio_stream. The connection URL
 // carries the call UUID (ws://<host>:<port>/<uuid>) so each stream maps to its
-// call. Decoded little-endian PCM is recorded and (optionally) handed to an STT
-// sink — wire your STT/VAD there and reply via ITtsService.
+// call. Decoded little-endian PCM is recorded and fanned out to the audio
+// pipeline (STT/VAD/analytics consumers); reply into the call via ITtsService.
 export class AudioStreamServer implements IServer {
   private wss?: WebSocketServer;
 
@@ -21,7 +21,7 @@ export class AudioStreamServer implements IServer {
     private readonly recorders: IRecorderFactory,
     private readonly codec: IAudioCodec,
     private readonly logger: ILogger,
-    private readonly onAudio?: AudioSink
+    private readonly pipeline?: AudioPipeline
   ) {}
 
   start(): void {
@@ -39,6 +39,7 @@ export class AudioStreamServer implements IServer {
   private handleConnection(ws: WebSocket, req: IncomingMessage): void {
     const uuid = (req.url ?? '/').replace(/^\//, '') || 'unknown';
     const recorder = this.recorders.create(uuid);
+    const channels = this.config.audio.channels === 'stereo' ? 2 : 1;
     let pktCount = 0;
     if (recorder.filename) this.logger.info(`Recording caller audio to ${recorder.filename}`);
 
@@ -53,7 +54,7 @@ export class AudioStreamServer implements IServer {
 
       const pcm = this.codec.decode(frame);
       recorder.write(pcm);
-      this.onAudio?.(uuid, pcm);
+      this.pipeline?.push({ uuid, pcm, channels, sampleRate: this.config.audio.sampleRate });
 
       if (++pktCount % 100 === 0) {
         this.logger.info(`${uuid}: ${pktCount} audio packets received`);
@@ -62,6 +63,7 @@ export class AudioStreamServer implements IServer {
 
     ws.on('close', () => {
       recorder.close();
+      this.pipeline?.close(uuid);
       this.logger.info(
         `Stream closed (${uuid}).${recorder.filename ? ` Saved ${recorder.filename}` : ''}`
       );

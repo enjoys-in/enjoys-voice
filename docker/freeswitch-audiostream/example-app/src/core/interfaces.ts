@@ -49,5 +49,23 @@ export interface IServer {
   stop(): void | Promise<void>;
 }
 
-/** Optional STT/VAD sink for decoded caller audio. */
-export type AudioSink = (uuid: string, pcm: Buffer) => void;
+/** A decoded, little-endian PCM chunk handed to audio consumers. */
+export interface AudioChunk {
+  uuid: string;
+  /** Interleaved 16-bit LE PCM (channels = `channels`). */
+  pcm: Buffer;
+  channels: number;
+  sampleRate: number;
+}
+
+/**
+ * A pluggable audio consumer (STT, VAD, analytics, ...). Register any number of
+ * these on the AudioPipeline — "plug and play". Consumers are isolated: one
+ * throwing does not affect the others.
+ */
+export interface IAudioConsumer {
+  readonly name: string;
+  onAudio(chunk: AudioChunk): void;
+  /** Called once when a call's stream ends. */
+  onClose?(uuid: string): void;
+}
