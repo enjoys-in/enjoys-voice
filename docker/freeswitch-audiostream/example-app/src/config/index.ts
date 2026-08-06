@@ -39,6 +39,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     recording: {
       enabled: bool(env.RECORDING_ENABLED, true),
       dir: str(env.RECORDING_DIR, 'public'),
+      downmix: bool(env.RECORDING_DOWNMIX, true),
     },
     tts: {
       voice: str(env.TTS_VOICE, 'en_US-amy-medium'),

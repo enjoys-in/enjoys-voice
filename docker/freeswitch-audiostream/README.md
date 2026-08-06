@@ -56,6 +56,33 @@ What the build does (multi-step, see [Dockerfile](Dockerfile)):
 6. Adds `<load module="mod_audio_stream"/>` and `<load module="mod_tts_commandline"/>`
    to `modules.conf.xml`.
 
+## Publish
+
+The image is published as **`mullayam06/freeswitch-audiostream-piper`**. Build and
+push it (versioned tag + `:latest`) with [publish.sh](publish.sh):
+
+```bash
+cd docker/freeswitch-audiostream
+./publish.sh                 # build + push mullayam06/freeswitch-audiostream-piper
+./publish.sh --no-latest     # push only the versioned tag (skip :latest)
+./publish.sh --no-build      # skip the build, just tag + push an existing image
+```
+
+Override defaults via env:
+
+```bash
+VERSION=1.10-audiostream-ryan ./publish.sh
+DOCKER_NAMESPACE=mycompany IMAGE_NAME=fs-audiostream ./publish.sh
+PIPER_ARCH=aarch64 ./publish.sh                                  # ARM hosts
+```
+
+It reuses `run.sh` for the build, then pushes. If `docker-pushrm` is installed it
+also syncs this `README.md` to the Docker Hub repo page. Pull it with:
+
+```bash
+docker pull mullayam06/freeswitch-audiostream-piper:latest
+```
+
 ## Verify
 
 ```bash

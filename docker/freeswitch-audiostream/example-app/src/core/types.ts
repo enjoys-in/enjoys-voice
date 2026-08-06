@@ -40,6 +40,9 @@ export interface AppConfig {
   recording: {
     enabled: boolean;
     dir: string;
+    /** When the stream is stereo, average L+R into one centered mono track so the
+     *  AI isn't isolated to one channel. STT can still use the raw stereo frames. */
+    downmix: boolean;
   };
   tts: {
     voice: string;
