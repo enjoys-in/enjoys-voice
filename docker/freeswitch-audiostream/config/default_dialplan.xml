@@ -1,8 +1,9 @@
 <include>
   <extension name="ai_test" continue="false">
     <condition field="destination_number" expression="^9999$">
-      <action application="set" data="rtp_secure_media=true"/>
-      <action application="set" data="media_webrtc=true"/>
+      <!-- Do NOT force rtp_secure_media here: a WebRTC browser offers DTLS-SRTP
+           (UDP/TLS/RTP/SAVPF), which FreeSWITCH auto-detects. Forcing SDES-SRTP
+           made answer() fail with INCOMPATIBLE_DESTINATION. -->
       <action application="answer"/>
       <action application="socket" data="node-app:8085 async full"/>
     </condition>

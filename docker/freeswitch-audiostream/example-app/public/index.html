@@ -66,6 +66,36 @@
     let ua = null;
     let currentSession = null;
 
+    // RTCPeerConnection config. In JsSIP this MUST be passed as `pcConfig` in the
+    // call/answer options — NOT as `rtcConfiguration` on the UA (that is ignored,
+    // which is why ICE servers never applied and only host candidates appeared).
+    // Relay ALL media through coturn: FreeSWITCH in Docker can't advertise a
+    // browser-reachable ICE candidate, so the browser uses its TURN relay (which
+    // FS reaches on the Docker bridge). 'relay' = don't even try host/srflx.
+    //
+    // TURN host is derived from the page's own hostname so it always matches the
+    // machine serving the softphone (localhost, or a LAN IP like 192.168.1.55).
+    // A hard-coded IP goes stale the moment the host joins a different network —
+    // then relay-only ICE finds no candidates and the call silently fails with no
+    // media, no ESL socket, and no recording.
+    //
+    // BOTH udp AND tcp relay transports are offered on purpose. On Docker Desktop
+    // (Windows/macOS) published UDP ports are forwarded unreliably — the browser's
+    // UDP TURN Allocate often never reaches coturn, so no relay candidate is
+    // gathered and the call fails with 488 (no a=candidate in the SDP). Published
+    // TCP ports ARE forwarded reliably, so the tcp relay is the dependable path
+    // here; speedUpIce() sends the INVITE as soon as EITHER transport yields a
+    // candidate, so we get UDP speed when it works and TCP reliability when it
+    // doesn't.
+    const TURN_HOST = window.location.hostname || 'localhost';
+    const PC_CONFIG = {
+        iceServers: [
+            { urls: `turn:${TURN_HOST}:3478?transport=udp`, username: 'turnuser', credential: 'turnpass' },
+            { urls: `turn:${TURN_HOST}:3478?transport=tcp`, username: 'turnuser', credential: 'turnpass' }
+        ],
+        iceTransportPolicy: 'relay'
+    };
+
     function connect() {
         const wsUri = document.getElementById('ws_uri').value;
         const sipUri = document.getElementById('sip_uri').value;
@@ -77,10 +107,7 @@
             uri: sipUri,
             password: password,
             register: true, // Need to register to receive calls
-            session_timers: false, // Disable session timers which can cause 422 errors
-            rtcConfiguration: {
-                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-            }
+            session_timers: false // Disable session timers which can cause 422 errors
         };
 
         ua = new JsSIP.UA(configuration);
@@ -113,7 +140,8 @@
             if (session.direction === 'incoming') {
                 if (confirm(`Incoming call from ${session.remote_identity.uri.toString()}. Answer?`)) {
                     session.answer({
-                        mediaConstraints: { audio: true, video: false }
+                        mediaConstraints: { audio: true, video: false },
+                        pcConfig: PC_CONFIG
                     });
                 } else {
                     session.terminate();
@@ -137,7 +165,8 @@
         }
 
         const options = {
-            mediaConstraints: { audio: true, video: false }
+            mediaConstraints: { audio: true, video: false },
+            pcConfig: PC_CONFIG
         };
 
         currentSession = ua.call(target, options);
@@ -150,30 +179,96 @@
         }
     }
 
+    // Start playback at most once per stream. Calling play() repeatedly while a
+    // previous play() promise is still pending throws a (harmless) AbortError —
+    // this guard keeps the console clean and playback deterministic.
+    function safePlay(el) {
+        if (el.__playPending || !el.paused) return;
+        el.__playPending = true;
+        el.play().catch(err => {
+            if (err && err.name !== 'AbortError') console.error('Audio playback error:', err);
+        }).finally(() => { el.__playPending = false; });
+    }
+
+    // JsSIP (non-trickle) will not send the INVITE until the browser reports ICE
+    // gathering 'complete'. In this Docker/TURN-relay setup, relay gathering is
+    // slow and sometimes never completes, so the INVITE is never emitted (only
+    // REGISTER appears on the wire) and the call dies silently. This forces the
+    // issue: as soon as the first ICE candidate exists (in relay-only mode that
+    // is the coturn relay candidate, already written into the local SDP) we allow
+    // a short grace for extras, then synthesize the end-of-candidates signal so
+    // JsSIP proceeds.
+    //
+    // IMPORTANT: never proceed before a candidate exists — an offer with no
+    // a=candidate line makes FreeSWITCH answer 488 (INCOMPATIBLE_DESTINATION).
+    // The long fallback only trips if TURN is truly dead, so the UI can surface a
+    // real failure instead of hanging forever.
+    function speedUpIce(pc) {
+        if (pc.__iceSpeeded) return;
+        pc.__iceSpeeded = true;
+        let sent = false;
+        const proceed = () => {
+            if (sent) return;
+            sent = true;
+            try { pc.dispatchEvent(new RTCPeerConnectionIceEvent('icecandidate', { candidate: null })); }
+            catch (e) { /* old browsers: fall back to native gathering completion */ }
+        };
+        pc.addEventListener('icecandidate', function (e) {
+            if (e.candidate && !sent) setTimeout(proceed, 400);
+        });
+        pc.addEventListener('icegatheringstatechange', function () {
+            if (pc.iceGatheringState === 'complete') { sent = true; }
+        });
+        setTimeout(proceed, 10000);
+    }
+
+    function attachRemoteAudio(pc) {
+        const remoteAudio = document.getElementById('remoteAudio');
+        pc.addEventListener('track', function(ev) {
+            console.log('[RTC] remote track received', ev.track.kind);
+            const newStream = (ev.streams && ev.streams[0]) ? ev.streams[0] : null;
+            if (newStream) {
+                if (remoteAudio.srcObject !== newStream) remoteAudio.srcObject = newStream;
+            } else {
+                // Some stacks fire track without streams[] — build one.
+                let s = remoteAudio.srcObject;
+                if (!s) { s = new MediaStream(); remoteAudio.srcObject = s; }
+                if (!s.getTracks().includes(ev.track)) s.addTrack(ev.track);
+            }
+            safePlay(remoteAudio);
+        });
+    }
+
     function setupSessionListeners(session) {
         document.getElementById('btn_call').style.display = 'none';
         document.getElementById('btn_hangup').style.display = 'block';
 
+        // Attach the remote-audio handler the MOMENT the peer connection exists —
+        // the 'track' event usually fires BEFORE 'confirmed', so attaching it in
+        // 'confirmed' (as before) missed the stream and produced silence.
+        session.on('peerconnection', function(e) {
+            speedUpIce(e.peerconnection);
+            attachRemoteAudio(e.peerconnection);
+        });
+        // Fallback: if the PC already exists by the time we get here.
+        if (session.connection) {
+            speedUpIce(session.connection);
+            attachRemoteAudio(session.connection);
+        }
+
         session.on('progress', function(e) { updateStatus('Call in progress...', 'status'); });
-        session.on('failed', function(e) { 
-            updateStatus('Call failed', 'error'); 
-            resetCallUI(); 
+        session.on('failed', function(e) {
+            updateStatus('Call failed', 'error');
+            resetCallUI();
         });
-        session.on('ended', function(e) { 
-            updateStatus('Call ended', 'status'); 
-            resetCallUI(); 
+        session.on('ended', function(e) {
+            updateStatus('Call ended', 'status');
+            resetCallUI();
         });
-        session.on('confirmed', function(e) { 
-            updateStatus('Call answered', 'registered'); 
-            
-            // Attach remote audio stream to the audio element
-            const remoteAudio = document.getElementById('remoteAudio');
-            
-            // For JsSIP 3.x, use session.connection
-            session.connection.addEventListener('track', function(e) {
-                remoteAudio.srcObject = e.streams[0];
-                remoteAudio.play().catch(err => console.error("Audio playback error:", err));
-            });
+        session.on('confirmed', function(e) {
+            updateStatus('Call answered', 'registered');
+            // Last-resort: ensure playback is (re)started once confirmed.
+            safePlay(document.getElementById('remoteAudio'));
         });
     }
 

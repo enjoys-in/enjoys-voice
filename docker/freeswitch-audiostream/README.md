@@ -136,7 +136,8 @@ fs_cli> uuid_speak <uuid> tts_commandline|en_US-amy-medium|Welcome to CallNet
 - This is a **demonstration / gateway** image: it ships a stock vanilla config
   (ESL on `8021`, default `ClueCon` password). Harden the password and config
   before any non-local use, and bind/firewall ESL appropriately.
-- The image is large (it carries the from-source FreeSWITCH and its build deps).
-  It can be slimmed later with a multi-stage runtime copy if size matters.
+- The image uses a **multi-stage build** (see [Dockerfile](Dockerfile)): FreeSWITCH,
+  `mod_audio_stream` and Piper are compiled in a throwaway builder stage, and only
+  the runtime libs/binaries are copied into the slim final image.
 - The pinned dependency branches (libks / signalwire-c / sofia-sip / spandsp) track
   upstream `master`; pin them to tags if you need fully reproducible builds.

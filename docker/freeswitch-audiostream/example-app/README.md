@@ -1,54 +1,84 @@
-# mod_audio_stream AI Example App
+# ENJOYS AudioStream App
 
-This is a simple Node.js application that demonstrates how to use FreeSWITCH's `mod_audio_stream` in combination with **Outbound Event Socket (ESL)** to build a bidirectional AI streaming architecture.
+TypeScript service that bridges **FreeSWITCH `mod_audio_stream`** (caller audio out)
+and **Outbound Event Socket (ESL)** (control + Piper TTS back into the call) to build
+a bidirectional AI voice gateway. Class-based with SOLID boundaries, compiled with
+**SWC**, wired through a single composition root.
 
-## How it works
+## Architecture
 
-1. **Web UI (Port 3000)**: Serves a WebRTC SIP Softphone to your browser so you can test calling.
-2. **ESL Server (Port 8085)**: Listens for incoming Outbound ESL connections from FreeSWITCH. When a call connects, it answers the call and executes the `uuid_audio_stream` command.
-3. **WebSocket Server (Port 8080)**: Listens for raw audio packets streamed directly from FreeSWITCH.
+```
+src/
+  index.ts                 Composition root — wires concrete impls (DI)
+  config/index.ts          Env-driven typed AppConfig (12-factor)
+  core/
+    interfaces.ts          Abstractions (ILogger, ICallRegistry, IAudioCodec,
+                           IRecorder/IRecorderFactory, ITtsService, IServer)
+    types.ts               Domain + ESL types (AppConfig, EslConnection)
+    Logger.ts              ConsoleLogger (scoped)
+  domain/CallRegistry.ts   UUID -> live ESL connection
+  audio/
+    L16Codec.ts            Normalizes mod_audio_stream frames to LE PCM
+    WavRecorderFactory.ts  Per-call WAV recorder (Factory)
+  tts/EslTtsService.ts     speak() back into a call over ESL
+  application/CallController.ts   Call lifecycle: answer -> stream -> greet
+  transport/
+    HttpServer.ts          Express: softphone UI + /say + /calls + /health
+    AudioStreamServer.ts   WS receiver for forked caller audio
+    EslCallServer.ts       Outbound ESL server
+```
 
-## Running the Example
+Ports: **3000** (Web UI + API), **8080** (audio WS), **8085** (ESL).
 
-### 1. Start this Node.js App
-Make sure you have Node.js installed on your host machine, then install the dependencies and run the server:
+## Develop
+
 ```bash
 npm install
-node server.js
+npm run typecheck   # tsc --noEmit
+npm run build       # SWC -> dist/ (path aliases @/* resolved)
+npm start           # node dist/index.js
+npm run dev         # nodemon: rebuild + run on change
 ```
-*You should see the Web UI, ESL Server, and WebSocket server start listening.*
 
-### 2. Open the SIP UI in your Browser
-Open a web browser (or two!) and navigate to:
-**http://localhost:3000**
+Path alias `@/*` maps to `src/*` (see `tsconfig.json` + `.swcrc`).
 
-You will see a simple WebRTC SIP client.
-- **WebSocket URI**: `ws://localhost:5066`
-- **SIP URI**: `sip:1000@localhost` (You can use `1001` in the second browser tab)
-- **Password**: `1234` (FreeSWITCH default)
+## Configuration
 
-Click **Connect & Register**. If FreeSWITCH is running, it will show "Registered Successfully".
+All via environment variables (see [.env.example](.env.example)); every value has a
+safe default:
 
-### 3. Configure FreeSWITCH Dialplan
-In your FreeSWITCH container (or mounted config), add a test dialplan extension that points to this app. 
-For example, in `/usr/local/freeswitch/etc/freeswitch/dialplan/default.xml`, add this inside the `<context name="default">`:
+| Var | Default | Notes |
+|-----|---------|-------|
+| `HTTP_PORT` / `WS_PORT` / `ESL_PORT` | 3000 / 8080 / 8085 | |
+| `WS_HOST_FOR_FS` | `node-app` | host FreeSWITCH dials for the audio WS |
+| `AUDIO_CHANNELS` / `AUDIO_SAMPLE_RATE` | `mono` / `8000` | must match `uuid_audio_stream` |
+| `AUDIO_SWAP_ENDIANNESS` | `false` | set `true` only if recordings sound like static |
+| `RECORDING_ENABLED` / `RECORDING_DIR` | `true` / `public` | served at `/recording_*.wav` |
+| `TTS_VOICE` / `TTS_GREETING` | `en_US-amy-medium` / … | Piper voice + greeting |
 
-```xml
-<extension name="ai_test">
-  <condition field="destination_number" expression="^9999$">
-    <action application="answer"/>
-    <!-- host.docker.internal points to your host machine where this Node app is running -->
-    <action application="socket" data="host.docker.internal:8085 async full"/>
-  </condition>
-</extension>
+## Docker
+
+Built and run by the top-level [docker-compose.yml](../docker-compose.yml): the
+`node-app` service builds this folder's [Dockerfile](Dockerfile) (SWC compiles the TS
+inside the Linux image). `public/` is mounted so UI edits and recordings live on the
+host.
+
+```bash
+cd ..                            # docker/freeswitch-audiostream
+docker compose up -d --build node-app
 ```
-*(After modifying the dialplan, run `fs_cli -x reloadxml`)*
 
-### 4. Test the Stream
-In the Web UI, type `9999` in the Dial Target box and click **Make Call**.
+## How a call flows
 
-**What will happen:**
-1. FreeSWITCH will hit the dialplan and connect to your Node.js app on port `8085`.
-2. The Node.js app will tell FreeSWITCH to start `uuid_audio_stream`.
-3. FreeSWITCH will open a WebSocket connection to `ws://host.docker.internal:8080/stream` and begin sending the caller's audio bytes.
-4. Your Node.js console will log that it is receiving audio packets!
+1. Browser registers to FreeSWITCH over WebRTC (`ws://localhost:5066`) and dials `9999`.
+2. The dialplan `socket` app connects the call's Outbound ESL to `node-app:8085`.
+3. `CallController` answers, starts `uuid_audio_stream` (caller audio →
+   `ws://node-app:8080/<uuid>`), then greets via Piper TTS.
+4. `AudioStreamServer` records the caller audio (wire your STT/VAD into the `AudioSink`);
+   reply into the live call with `POST /say {uuid,text}` or `ITtsService.speak()`.
+
+## API
+
+- `POST /say` — `{ "uuid": "...", "text": "...", "voice": "en_US-amy-medium" }`
+- `GET /calls` — active call UUIDs
+- `GET /health` — liveness

@@ -3,9 +3,15 @@ name: freeswitch-audiostream
 
 services:
   freeswitch:
-    image: enjoys-freeswitch-audiostream-stage:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: enjoys-freeswitch-audiostream:latest
     container_name: my-freeswitch-audiostream
-    command: ["/usr/local/freeswitch/bin/freeswitch", "-nf", "-nonat"]
+    # Removed -nonat so FreeSWITCH will substitute external_rtp_ip (192.168.1.38)
+    # into its ICE/SDP candidate instead of only advertising the unreachable
+    # container IP. -nf = no console fork.
+    command: ["/usr/local/freeswitch/bin/freeswitch", "-nf"]
     ports:
       - "5060:5060/tcp"
       - "5060:5060/udp"
@@ -18,23 +24,39 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      # The correct path for this specific image's configuration is /usr/local/freeswitch/etc/freeswitch
-      - ../freeswitch_configs:/usr/local/freeswitch/etc/freeswitch
-      - ../freeswitch_sounds:/usr/share/freeswitch/sounds
-      - ../freeswitch_configs:/etc/freeswitch
-      
-      # Mount the extra configurations specific to this standalone app (these will override the files in your real config for this test container only)
-      - ./default_dialplan.xml:/usr/local/freeswitch/etc/freeswitch/dialplan/default/9999_test_ai.xml
+      # The image now carries its own FreeSWITCH config and sounds, so avoid
+      # mounting the external freeswitch_configs tree that can override the build.
+      - ./config/default_dialplan.xml:/usr/local/freeswitch/etc/freeswitch/dialplan/default/9999_test_ai.xml
       - ./config/tts_commandline.conf.xml:/usr/local/freeswitch/etc/freeswitch/autoload_configs/tts_commandline.conf.xml
+      # Local WebRTC media fixes: advertise host LAN IP for RTP + pin the RTP port
+      # range to the published docker range so browser<->FreeSWITCH audio flows.
+      - ./config/vars.xml:/usr/local/freeswitch/etc/freeswitch/vars.xml
+      - ./config/switch.conf.xml:/usr/local/freeswitch/etc/freeswitch/autoload_configs/switch.conf.xml
+      # Accept LAN ICE candidates so WebRTC media negotiates (candidate-acl fix).
+      - ./config/internal.xml:/usr/local/freeswitch/etc/freeswitch/sip_profiles/internal.xml
     restart: unless-stopped
 
   node-app:
-    image: node:18
+    # TypeScript app compiled with SWC inside the image (Linux binaries). See
+    # example-app/Dockerfile. public/ is mounted so UI edits and recordings live
+    # on the host (recordings are reachable at http://localhost:3000/recording_*.wav).
+    build:
+      context: ./example-app
+    image: enjoys-audiostream-app:latest
     container_name: my-freeswitch-node-app
-    working_dir: /app
+    environment:
+      - HTTP_PORT=3000
+      - WS_PORT=8080
+      - ESL_PORT=8085
+      - WS_HOST_FOR_FS=node-app
+      - AUDIO_CHANNELS=mono
+      - AUDIO_SAMPLE_RATE=8000
+      - AUDIO_SWAP_ENDIANNESS=false
+      - RECORDING_ENABLED=true
+      - RECORDING_DIR=public
+      - TTS_VOICE=en_US-amy-medium
     volumes:
-      - ./example-app:/app
-    command: npm start
+      - ./example-app/public:/app/public
     ports:
       - "3000:3000"
       - "8080:8080"
@@ -42,3 +64,40 @@ services:
     depends_on:
       - freeswitch
     restart: unless-stopped
+
+  # TURN server that bridges the browser (behind Docker Desktop's NAT) and
+  # FreeSWITCH (on the Docker bridge). The browser relays ALL media through
+  # coturn; coturn advertises its relay on its Docker IP (172.28.0.10), which
+  # FreeSWITCH can reach directly on the bridge — and coturn can reach FS's
+  # Docker-IP candidate directly too. Only 3478 needs publishing to the host.
+  coturn:
+    image: coturn/coturn:latest
+    container_name: my-freeswitch-coturn
+    command: >
+      -n
+      --log-file=stdout
+      --listening-ip=0.0.0.0
+      --listening-port=3478
+      --relay-ip=172.28.0.10
+      --external-ip=172.28.0.10
+      --min-port=49152
+      --max-port=49452
+      --realm=localhost
+      --lt-cred-mech
+      --user=turnuser:turnpass
+      --no-tls
+      --no-dtls
+      --verbose
+    networks:
+      default:
+        ipv4_address: 172.28.0.10
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+    restart: unless-stopped
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
