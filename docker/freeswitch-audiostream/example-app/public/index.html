@@ -47,7 +47,17 @@
             <label>Password</label>
             <input type="password" id="sip_password" value="3cQ4DVCoSJI_" placeholder="3cQ4DVCoSJI_">
         </div>
-        <button class="btn-register" id="btn_register" onclick="connect()">Connect & Register</button>
+        <div class="form-group">
+            <label>Microphone</label>
+            <select id="mic_select" onchange="startMicMeter()" style="width:100%;padding:6px"></select>
+            <!-- Live input level: if this stays flat while you speak, the browser
+                 isn't capturing your real mic (a pure tone = a fake/virtual device). -->
+            <div style="margin-top:6px;height:10px;background:#eee;border-radius:5px;overflow:hidden">
+                <div id="mic_level" style="height:100%;width:0%;background:#4caf50;transition:width .05s"></div>
+            </div>
+            <small id="mic_hint" style="color:#888">Speak to see the bar move.</small>
+        </div>
+        <button class="btn-register" id="btn_register" onclick="connect()">Connect &amp; Register</button>
     </div>
 
     <div id="status" class="status">Disconnected</div>
@@ -95,6 +105,70 @@
         ],
         iceTransportPolicy: 'relay'
     };
+
+    // ── Microphone selection + live input meter ──────────────────────────────
+    // The recording is exactly what the browser sends. If it's a pure tone, the
+    // browser is capturing a fake/virtual device (Chrome's fake mic emits 440 Hz)
+    // instead of a real one. This picker + meter lets you choose the right input
+    // and confirm your voice registers before dialing.
+    let micStream = null;
+    let micRAF = null;
+
+    async function refreshMics() {
+        const select = document.getElementById('mic_select');
+        const prev = select.value;
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const mics = devices.filter(d => d.kind === 'audioinput');
+        select.innerHTML = '';
+        mics.forEach((d, i) => {
+            const opt = document.createElement('option');
+            opt.value = d.deviceId;
+            opt.textContent = d.label || `Microphone ${i + 1}`;
+            select.appendChild(opt);
+        });
+        if (prev) select.value = prev;
+    }
+
+    async function startMicMeter() {
+        const select = document.getElementById('mic_select');
+        const hint = document.getElementById('mic_hint');
+        const bar = document.getElementById('mic_level');
+        if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+        if (micRAF) cancelAnimationFrame(micRAF);
+        try {
+            const deviceId = select.value;
+            micStream = await navigator.mediaDevices.getUserMedia({
+                audio: deviceId ? { deviceId: { exact: deviceId } } : true
+            });
+            await refreshMics(); // labels are only exposed once permission is granted
+            const track = micStream.getAudioTracks()[0];
+            hint.textContent = `Using: ${track.label || 'default microphone'}`;
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            await ctx.resume();
+            const src = ctx.createMediaStreamSource(micStream);
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 1024;
+            src.connect(analyser);
+            const data = new Uint8Array(analyser.fftSize);
+            const tick = () => {
+                analyser.getByteTimeDomainData(data);
+                let peak = 0;
+                for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i] - 128));
+                bar.style.width = Math.min(100, (peak / 128) * 100 * 1.5).toFixed(0) + '%';
+                micRAF = requestAnimationFrame(tick);
+            };
+            tick();
+        } catch (e) {
+            hint.textContent = 'Microphone unavailable: ' + e.name;
+        }
+    }
+
+    // Ask for mic permission up front so device labels + meter work immediately.
+    if (document.readyState === 'complete') {
+        startMicMeter();
+    } else {
+        window.addEventListener('load', () => startMicMeter());
+    }
 
     function connect() {
         const wsUri = document.getElementById('ws_uri').value;
@@ -164,8 +238,11 @@
             target = `sip:${target}@${domain}`;
         }
 
+        // Use the mic the user picked (falls back to the default device).
+        const micId = document.getElementById('mic_select').value;
+        const audio = micId ? { deviceId: { exact: micId } } : true;
         const options = {
-            mediaConstraints: { audio: true, video: false },
+            mediaConstraints: { audio, video: false },
             pcConfig: PC_CONFIG
         };
 
