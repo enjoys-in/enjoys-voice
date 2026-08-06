@@ -40,9 +40,7 @@ export class CallController {
     conn.api(cmd, (res) => {
       this.logger.info(`audio_stream: ${res.getBody().trim()}`);
       // Greeting is the full-duplex "back" leg, delivered over ESL.
-      conn.execute('playback', 'tone_stream://%(350,0,440)', () => {
-        this.tts.speak(uuid, this.config.tts.greeting);
-      });
+      this.tts.speak(uuid, this.config.tts.greeting);
     });
   }
 }
