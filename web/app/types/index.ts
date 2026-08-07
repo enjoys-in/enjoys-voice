@@ -147,6 +147,12 @@ export interface UserSettings {
   recordingEnabled: boolean;
   voicemailEnabled: boolean;
   dnd: boolean;
+  /** Missed-call / voicemail notification preferences. */
+  notifyMissedPush: boolean;
+  notifyMissedEmail: boolean;
+  notifyVoicemailPush: boolean;
+  notifyVoicemailEmail: boolean;
+  notificationEmail: string;
   forwarding: ForwardingRules;
   blockedNumbers: string[];
 }

@@ -28,6 +28,8 @@ export { ApiKeyService } from './apikey.service';
 export type { ResolvedApiKey, ApiKeyValidation, ApiKeyDenyReason } from './apikey.service';
 export { PushService } from './push.service';
 export type { IncomingCallPush } from './push.service';
+export { NotificationService } from './notification.service';
+export { NotificationMailer } from './notification-mailer';
 export { createRegistrationStore, MemoryRegistrationStore, RedisRegistrationStore } from './registration';
 export type { RegistrationStore } from './registration';
 export { UserSyncListener } from './postgres';

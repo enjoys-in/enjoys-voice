@@ -16,6 +16,8 @@ import {
   deliverWebhook,
   ContactSyncListener,
   AiAgentSyncListener,
+  NotificationService,
+  NotificationMailer,
   RatingService,
   WriteQueue,
   ensureCallSchema,
@@ -72,6 +74,8 @@ class Application {
   private webhookDispatcher: WebhookDispatcher;
   private contactSync: ContactSyncListener;
   private aiAgentSync: AiAgentSyncListener;
+  private notifications: NotificationService;
+  private notificationMailer: NotificationMailer;
   private rating: RatingService;
   private writeQueue: WriteQueue;
   private conference: ConferenceService;
@@ -247,6 +251,15 @@ class Application {
       onChanged: (owner) => this.db.hydrateContactsByOwner(owner),
       onReconnect: () => this.db.hydrateAllContacts(),
     });
+    // Missed-call / voicemail notifications: fan DatabaseService events out to
+    // each user's opted-in channels (mobile push + email), honouring per-user
+    // prefs. Best-effort and off the call path (a slow/failed send never affects
+    // call handling). Push reuses the SIP server's device-token registry; email
+    // is inert unless NOTIFICATION_SMTP_HOST is set.
+    this.notificationMailer = new NotificationMailer();
+    this.notifications = new NotificationService(this.db, this.sip.pushService, this.notificationMailer);
+    this.db.on(DbEvent.CallMissed, (call) => this.notifications.onMissedCall(call));
+    this.db.on(DbEvent.VoicemailSaved, (vm) => this.notifications.onVoicemail(vm));
     // Write-behind queue: call-record upserts are emitted as events, enqueued to
     // Valkey, and applied to the shared Postgres by a worker. This keeps the SIP
     // path off the DB write latency. (Voicemails write to Postgres directly.)

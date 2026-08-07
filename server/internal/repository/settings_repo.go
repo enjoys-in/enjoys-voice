@@ -33,7 +33,9 @@ func (r *settingsRepo) Upsert(ctx context.Context, settings *models.UserSettings
 			"pstn_enabled", "pstn_mobile", "pstn_country_code",
 			"recording_enabled", "voicemail_enabled", "dnd", "rate_plan_id",
 			"outbound_caller_id", "caller_id_verified", "caller_id_verified_at",
-			"caller_id_validation_sid", "updated_at",
+			"caller_id_validation_sid",
+			"notify_missed_push", "notify_missed_email", "notify_vm_push",
+			"notify_vm_email", "notification_email", "updated_at",
 		}),
 	}).Create(settings).Error
 }

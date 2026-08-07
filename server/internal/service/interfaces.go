@@ -281,6 +281,12 @@ type SettingsInput struct {
 	RecordingEnabled *bool   `json:"recording_enabled"`
 	VoicemailEnabled *bool   `json:"voicemail_enabled"`
 	DND              *bool   `json:"dnd"`
+	// Missed-call / voicemail notification preferences.
+	NotifyMissedPush     *bool   `json:"notify_missed_push"`
+	NotifyMissedEmail    *bool   `json:"notify_missed_email"`
+	NotifyVoicemailPush  *bool   `json:"notify_vm_push"`
+	NotifyVoicemailEmail *bool   `json:"notify_vm_email"`
+	NotificationEmail    *string `json:"notification_email"`
 	// RatePlanID assigns a billing plan. Raw so we can tell "field omitted"
 	// (leave as-is) from an explicit null / 0 (clear → use the workspace default
 	// plan) from a positive id (assign that plan). A single *uint can't make that

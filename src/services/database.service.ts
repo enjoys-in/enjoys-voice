@@ -32,6 +32,7 @@ import {
   type WebhookRecord,
   type AiAgentRecord,
   type ForwardingRow,
+  type PstnRow,
 } from './postgres';
 import type { IvrFlowGraph } from '@/sip/ivr/flow.types';
 
@@ -231,6 +232,7 @@ export class DatabaseService extends EventEmitter {
       user.outboundCallerId = undefined;
       user.balance = undefined;
       user.balanceCurrency = undefined;
+      this.applyNotify(user, null);
     }
 
     for (const b of blocked) {
@@ -242,6 +244,7 @@ export class DatabaseService extends EventEmitter {
     }
     for (const p of pstn) {
       this.applyPstn(this.users.get(p.extension), p.pstn_enabled, p.pstn_mobile, p.dnd, p.rate_plan_id, p.outbound_caller_id);
+      this.applyNotify(this.users.get(p.extension), p);
     }
     // Prepaid wallets are only hydrated when billing is on, so a workspace with
     // prepaid off never pays for the extra query.
@@ -274,6 +277,7 @@ export class DatabaseService extends EventEmitter {
     user.forwardOnUnavailable = undefined;
     for (const f of forwarding) this.applyForwardingRow(user, f);
     this.applyPstn(user, pstn?.pstn_enabled ?? false, pstn?.pstn_mobile ?? null, pstn?.dnd ?? false, pstn?.rate_plan_id ?? null, pstn?.outbound_caller_id ?? null);
+    this.applyNotify(user, pstn);
     if (config.billing.prepaidEnabled) {
       const bal = await loadBalanceByExtension(extension);
       this.applyBalance(user, bal?.balance ?? null, bal?.currency ?? null);
@@ -292,6 +296,17 @@ export class DatabaseService extends EventEmitter {
       case 'noAnswer': user.forwardOnNoAnswer = target; break;
       case 'unavailable': user.forwardOnUnavailable = target; break;
     }
+  }
+
+  /** Map user_settings notification-preference columns onto the SipUser. A null
+   * row (no settings) applies the DB defaults (push on, missed-email off). */
+  private applyNotify(user: SipUser | undefined, row: PstnRow | null | undefined): void {
+    if (!user) return;
+    user.notifyMissedPush = row?.notify_missed_push ?? true;
+    user.notifyMissedEmail = row?.notify_missed_email ?? false;
+    user.notifyVoicemailPush = row?.notify_vm_push ?? true;
+    user.notifyVoicemailEmail = row?.notify_vm_email ?? true;
+    user.notificationEmail = row?.notification_email || undefined;
   }
 
   /** Map user_settings PSTN + DND + billing fields onto the SipUser. */
@@ -494,6 +509,7 @@ export class DatabaseService extends EventEmitter {
   updateCall(callId: string, updates: Partial<CallLog>): void {
     const call = this.callLogs.find(c => c.id === callId);
     if (call) {
+      const prevStatus = call.status;
       // Price billable calls exactly once, as they reach the terminal `ended`
       // state (the only status that carries final talk time). The rater merges
       // cost/currency/ratePrefix/billedSecs into the updates before they're
@@ -525,6 +541,11 @@ export class DatabaseService extends EventEmitter {
       }
       Object.assign(call, next);
       this.emit(DbEvent.CallUpserted, call);
+      // Notify the callee once, on the transition INTO a missed state (covers
+      // busy/no-answer/offline/DND paths uniformly). Voicemail has its own event.
+      if (next.status === 'missed' && prevStatus !== 'missed') {
+        this.emit(DbEvent.CallMissed, call);
+      }
     }
   }
 
@@ -614,6 +635,7 @@ export class DatabaseService extends EventEmitter {
 
   async addVoicemail(vm: Voicemail): Promise<void> {
     await insertVoicemail(vm);
+    this.emit(DbEvent.VoicemailSaved, vm);
   }
 
   /** A mailbox's voicemails (newest first) plus its unread count, in one query. */

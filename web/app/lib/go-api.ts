@@ -237,6 +237,12 @@ export interface GoSettings {
   outbound_caller_id: string;
   caller_id_verified: boolean;
   caller_id_verified_at: string | null;
+  /** Missed-call / voicemail notification preferences. */
+  notify_missed_push: boolean;
+  notify_missed_email: boolean;
+  notify_vm_push: boolean;
+  notify_vm_email: boolean;
+  notification_email: string;
 }
 
 /** Partial settings update — only the provided keys are changed server-side.
