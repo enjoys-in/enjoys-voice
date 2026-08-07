@@ -8,6 +8,7 @@ import { SipServer } from '@/sip';
 import type { ITrunkProvider, MediaStreamTrack } from '@/trunk';
 import { config, signWidgetToken, WIDGET_TOKEN_TTL_SECONDS, buildIceServers } from '@/core';
 import { requireAuth, requireSelfExtension } from '../middleware/auth';
+import type { AuthedRequest } from '../middleware/auth';
 import { ok, created, fail } from '../response';
 
 export function createRoutes(
@@ -62,6 +63,28 @@ export function createRoutes(
     const user = db.getUser(req.params.ext);
     if (!user) { fail(res, 404, 'Not found'); return; }
     ok(res, { extension: user.extension, name: user.name, registered: user.registered });
+  });
+
+  // ─── Mobile push registration ───────────────────────
+  // The Flutter softphone registers its device push token here so the engine
+  // can wake it for an inbound call when backgrounded. The extension is taken
+  // from the verified JWT (never the body) so a token can only ever be bound to
+  // the caller's own extension. Inert unless PUSH_ENABLED — registering still
+  // succeeds (tokens are just stored), but no push is sent.
+  router.post('/push/register', requireAuth, (req: AuthedRequest, res: Response) => {
+    const extension = req.auth?.extension;
+    const { token, platform } = req.body ?? {};
+    if (!extension) { fail(res, 401, 'Unauthorized'); return; }
+    if (typeof token !== 'string' || !token) { fail(res, 400, 'token is required'); return; }
+    sip.pushService.register(extension, token, typeof platform === 'string' ? platform : 'unknown');
+    created(res, { registered: true });
+  });
+
+  router.post('/push/unregister', requireAuth, (req: AuthedRequest, res: Response) => {
+    const { token } = req.body ?? {};
+    if (typeof token !== 'string' || !token) { fail(res, 400, 'token is required'); return; }
+    sip.pushService.unregister(token);
+    ok(res, { unregistered: true });
   });
 
   // ─── IVR ────────────────────────────────────────────

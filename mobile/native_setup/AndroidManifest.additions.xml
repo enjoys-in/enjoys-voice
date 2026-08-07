@@ -1,0 +1,40 @@
+<!--
+  Android manifest additions for Enjoys Voice.
+
+  After running `flutter create .` inside `mobile/`, merge the entries below
+  into `android/app/src/main/AndroidManifest.xml`.
+
+  * Permissions go directly under the <manifest> root, BEFORE <application>.
+  * The <application> already exists — only add the marked attributes/children.
+-->
+
+<!-- ── Permissions (place under <manifest>) ─────────────────────────────── -->
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+<uses-permission android:name="android.permission.WAKE_LOCK" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+<uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+<uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+<uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+<!--
+  ── On the existing <application> element add: ────────────────────────────
+      android:showWhenLocked, full-screen incoming UI works best when the
+      launch activity can show over the keyguard. Add these to <activity
+      android:name=".MainActivity" ...>:
+
+        android:showWhenLocked="true"
+        android:turnScreenOn="true"
+        android:launchMode="singleTop"
+
+  ── flutter_callkit_incoming wiring (children of <application>): ──────────
+      The plugin registers its own services/receivers automatically via its
+      manifest merge — you normally DON'T need to declare them by hand. If you
+      use a custom notification icon set:
+        android:name="io.flutter.plugins.firebase.messaging..." (auto)
+-->

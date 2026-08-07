@@ -1,0 +1,46 @@
+<!--
+  CallNet Edge — survivability dialplan (default context).
+  Included FIRST (00_ prefix) so it runs ahead of the stock vanilla extensions.
+  Everything here works with the WAN DOWN: nothing routes via the central VPS.
+
+  Patterns (tune per deployment; the agent can template these):
+    emergency : 911 112 999 000 108 100 101 102   -> local trunk, always
+    internal  : 1xxx  (4-digit extensions)         -> local user, ring + VM
+    outbound  : +?7..15 digit E.164-ish numbers     -> local trunk
+-->
+<include>
+
+  <!-- 1) EMERGENCY — always out the local trunk, highest priority. -->
+  <extension name="callnet_emergency">
+    <condition field="destination_number" expression="^(911|112|999|000|108|100|101|102)$">
+      <action application="set" data="hangup_after_bridge=true"/>
+      <action application="bridge" data="sofia/gateway/callnet_trunk/${destination_number}"/>
+      <action application="hangup"/>
+    </condition>
+  </extension>
+
+  <!-- 2) INTERNAL extension-to-extension — pure local, survives WAN loss.
+          On no-answer / unavailable, fall through to the user's voicemail. -->
+  <extension name="callnet_internal">
+    <condition field="destination_number" expression="^(1\d{3})$">
+      <action application="set" data="hangup_after_bridge=true"/>
+      <action application="set" data="continue_on_fail=true"/>
+      <action application="set" data="call_timeout=25"/>
+      <action application="bridge" data="user/${destination_number}@${domain_name}"/>
+      <action application="answer"/>
+      <action application="sleep" data="500"/>
+      <action application="voicemail" data="default ${domain_name} ${destination_number}"/>
+      <action application="hangup"/>
+    </condition>
+  </extension>
+
+  <!-- 3) OUTBOUND PSTN — via the local trunk (survivable). -->
+  <extension name="callnet_outbound">
+    <condition field="destination_number" expression="^(\+?\d{7,15})$">
+      <action application="set" data="hangup_after_bridge=true"/>
+      <action application="bridge" data="sofia/gateway/callnet_trunk/${destination_number}"/>
+      <action application="hangup"/>
+    </condition>
+  </extension>
+
+</include>

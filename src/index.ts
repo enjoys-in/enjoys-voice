@@ -9,6 +9,7 @@ import {
   SettingsSyncListener,
   RateSyncListener,
   ConnectorSyncListener,
+  IvrFlowSyncListener,
   RoutingRuleSyncListener,
   WebhookSyncListener,
   WebhookDispatcher,
@@ -64,6 +65,7 @@ class Application {
   private settingsSync: SettingsSyncListener;
   private rateSync: RateSyncListener;
   private connectorSync: ConnectorSyncListener;
+  private ivrFlowSync: IvrFlowSyncListener;
   private routingSync: RoutingRuleSyncListener;
   private webhookSync: WebhookSyncListener;
   private webhookDispatcher: WebhookDispatcher;
@@ -197,6 +199,19 @@ class Application {
       onConnectorChanged: (id) => this.db.invalidateConnector(id),
       onReconnect: () => this.db.clearConnectorCache(),
     });
+    // Live-reconcile IVR-flow ROUTING the moment a flow is created/edited/
+    // enabled/disabled/deleted in the builder (written by the Go API). The SIP
+    // path keeps only the small Set of enabled flow ENTRY EXTENSIONS in memory
+    // (just strings, not graphs — graphs load lazily on first call); a change
+    // fetches that one row and merges it, so a new flow becomes dialable WITHOUT
+    // a restart. onReconnect re-hydrates to catch changes missed while down.
+    this.ivrFlowSync = new IvrFlowSyncListener({
+      onFlowChanged: (ext) => this.db.syncIvrFlowExtension(ext),
+      onReconnect: async () => {
+        this.db.clearIvrFlowCache();
+        await this.db.hydrateIvrFlowExtensions();
+      },
+    });
     // Live-reconcile per-user inbound routing rules the moment a user creates/
     // edits/deletes one in the dashboard (written by the Go API), so the SIP
     // path always decides from memory and never reads the DB per call. A single
@@ -291,6 +306,11 @@ class Application {
     // And for email/webhook connectors used by the IVR `email` block.
     this.connectorSync.start().catch((err: any) =>
       console.warn(`   Sync:   ⚠️  connector-sync listener failed to start (${err?.message})`),
+    );
+    // And for IVR flows: a flow created/enabled in the builder becomes dialable
+    // immediately (no restart). Best-effort: no-ops until the table exists.
+    this.ivrFlowSync.start().catch((err: any) =>
+      console.warn(`   Sync:   ⚠️  ivr-flow-sync listener failed to start (${err?.message})`),
     );
     // And for per-user inbound routing rules (route inbound calls to an IVR,
     // extension, PSTN number, or voicemail).

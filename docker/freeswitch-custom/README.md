@@ -79,6 +79,13 @@ profiles, sound files and recording output. Without them the image still boots
 with **Piper as the default TTS engine** (voice `en_US-amy-medium`) — it's baked
 in, so a freshly pulled image speaks with Piper out of the box, no config needed.
 
+The image also bakes in two **Hindi** voices — `hi_IN-rohan-medium` and
+`hi_IN-priyamvada-medium` — selectable per call (e.g.
+`tts_commandline|hi_IN-rohan-medium|नमस्ते`) or as the default via `TTS_VOICE`.
+Bake more/other voices at build time with the `PIPER_EXTRA_VOICES` build-arg
+(space-separated `<lang>-<voice>-<quality>` keys), or live-install into a running
+container with [`add-voice.sh`](#4-add-extra-voices-any-language-with-add-voicesh).
+
 **How the default works (and how to override it):** the base image copies its
 vanilla configs into `/etc/freeswitch` on first start, so we bake the Piper
 wiring into that vanilla source — `mod_tts_commandline` is enabled, pointed at

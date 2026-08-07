@@ -1,0 +1,19 @@
+[Unit]
+Description=CallNet Edge Sync Agent
+After=network-online.target freeswitch.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/callnet-edge/agent.env
+ExecStart=/usr/local/bin/callnet-edge-agent
+Restart=always
+RestartSec=5
+# The agent writes FreeSWITCH directory/trunk XML under /etc/freeswitch, so it
+# needs write access there. Root is simplest; alternatively run as the
+# freeswitch user with group-write on those dirs.
+User=root
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

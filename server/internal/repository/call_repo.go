@@ -183,6 +183,9 @@ func (r *callRepo) statsFiltered(ctx context.Context, days int, ext string) (*mo
 		Scan(&buckets).Error; err != nil {
 		return nil, err
 	}
+	if buckets == nil {
+		buckets = make([]models.CallStatsBucket, 0)
+	}
 	stats.Series = buckets
 
 	return stats, nil

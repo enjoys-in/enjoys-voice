@@ -1,0 +1,33 @@
+<!--
+  iOS Info.plist additions for Enjoys Voice.
+
+  After `flutter create .`, merge these keys into
+  `ios/Runner/Info.plist` (inside the top-level <dict>).
+-->
+
+<!-- Microphone access for calls -->
+<key>NSMicrophoneUsageDescription</key>
+<string>Enjoys Voice needs the microphone to make and receive calls.</string>
+
+<!-- Background execution: VoIP keeps the SIP/WebRTC media alive; audio lets the
+     call continue when backgrounded; remote-notification enables push wake. -->
+<key>UIBackgroundModes</key>
+<array>
+    <string>audio</string>
+    <string>voip</string>
+    <string>remote-notification</string>
+</array>
+
+<!--
+  Firebase on iOS: place GoogleService-Info.plist in ios/Runner/ and add it to
+  the Runner target in Xcode (drag into the project, "Copy items if needed").
+
+  Background incoming calls on iOS REQUIRE Apple PushKit (VoIP pushes) + CallKit,
+  not plain FCM data messages (iOS suppresses background data wakeups). See
+  ios-AppDelegate.swift in this folder for the native bridge that reports a VoIP
+  push to CallKit via flutter_callkit_incoming.
+
+  Enable these Xcode capabilities on the Runner target:
+    * Push Notifications
+    * Background Modes → Voice over IP, Audio, Remote notifications
+-->

@@ -153,6 +153,20 @@ export interface AppConfig {
     // the longest expected call so a relay allocation isn't dropped mid-call.
     turnTtlSec: number;
   };
+  push: {
+    // Mobile push wake-up for the Flutter softphone. When false, no device
+    // tokens are stored and no push is ever sent (the default — fully inert).
+    enabled: boolean;
+    // FCM legacy server key (Cloud Messaging → Server key). Used to wake Android
+    // devices with a high-priority data message that raises the native CallKit
+    // incoming-call UI. Empty disables FCM sends.
+    fcmServerKey: string;
+    // When true, push on EVERY inbound call to an extension. When false (default)
+    // push only when the callee is NOT currently SIP-registered (i.e. its app is
+    // backgrounded/asleep and needs waking), avoiding a duplicate ring for an
+    // already-online device.
+    always: boolean;
+  };
   database: {
     // Postgres connection string for the SHARED database the Go API owns. Node
     // hydrates its in-memory store from here so both processes see one source
@@ -482,6 +496,11 @@ export const config: AppConfig = {
     // Set to coturn's `static-auth-secret` to switch on ephemeral TURN creds.
     turnSecret: process.env.TURN_STATIC_AUTH_SECRET || '',
     turnTtlSec: parseInt(process.env.TURN_CRED_TTL || '3600'),
+  },
+  push: {
+    enabled: process.env.PUSH_ENABLED === 'true',
+    fcmServerKey: process.env.FCM_SERVER_KEY || '',
+    always: process.env.PUSH_ALWAYS === 'true',
   },
   database: {
     url:

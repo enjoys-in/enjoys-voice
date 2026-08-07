@@ -1,0 +1,49 @@
+name: edge-freeswitch-deb
+
+# Builds the CallNet edge FreeSWITCH .deb (trimmed module set) for amd64 + arm64
+# from source, and uploads each as an artifact. Run on demand, or when the
+# packaging recipe changes. A from-source build is slow (arm64 via qemu), so it
+# is NOT part of the normal push CI.
+on:
+  workflow_dispatch:
+    inputs:
+      fs_version:
+        description: FreeSWITCH source tag
+        required: false
+        default: v1.10.12
+  push:
+    paths:
+      - edge/packaging/freeswitch/**
+      - .github/workflows/edge-freeswitch-deb.yml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build .deb (${{ matrix.arch }})
+        run: |
+          docker buildx build \
+            --platform linux/${{ matrix.arch }} \
+            --build-arg FS_VERSION="${{ github.event.inputs.fs_version || 'v1.10.12' }}" \
+            --target export \
+            --output type=local,dest=out \
+            edge/packaging/freeswitch
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: callnet-freeswitch-${{ matrix.arch }}
+          path: out/**/*.deb
+          if-no-files-found: error
