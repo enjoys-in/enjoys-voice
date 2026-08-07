@@ -22,6 +22,7 @@ export type IvrNodeKind =
   | 'transfer'
   | 'voicemail'
   | 'email'
+  | 'meeting_join'
   | 'hangup';
 
 /** What the caller hears: synthesized speech or a pre-uploaded audio file. */
@@ -131,6 +132,25 @@ export interface EmailNodeData {
   body?: string;
 }
 
+export interface MeetingJoinNodeData {
+  kind: 'meeting_join';
+  label?: string;
+  joinType?: 'internal' | 'external';
+  
+  // Used if joinType === 'internal'
+  prompt?: Prompt;
+  apiUrl?: string;
+  method?: 'GET' | 'POST';
+
+  // Used if joinType === 'external'
+  providerPrompt?: Prompt; // e.g. "Press 1 for Zoom, 2 for Google"
+  idPrompt?: Prompt;       // e.g. "Enter your meeting ID"
+  providers?: {
+    digit: string;         // e.g. "1"
+    domain: string;        // e.g. "zoomcrc.com"
+  }[];
+}
+
 export type IvrNodeData =
   | StartNodeData
   | MenuNodeData
@@ -139,6 +159,7 @@ export type IvrNodeData =
   | TransferNodeData
   | VoicemailNodeData
   | EmailNodeData
+  | MeetingJoinNodeData
   | HangupNodeData;
 
 /** A graph node as persisted (React Flow shape — only the fields we need). */

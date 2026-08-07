@@ -27,6 +27,7 @@ import type {
   StartNodeData,
   TransferNodeData,
   VoicemailNodeData,
+  MeetingJoinNodeData,
 } from './flow.types';
 
 /** Per-call context handed to the interpreter (read-only channel facts). */
@@ -54,7 +55,7 @@ export interface FlowRunnerHandlers {
    * `false` when routing gated the transfer (e.g. outside business hours) and an
    * announcement was played instead — the call is then terminal.
    */
-  transfer(opts: { department?: string; extension?: string; ringSeconds?: number }): Promise<boolean>;
+  transfer(opts: { department?: string; extension?: string; ringSeconds?: number; isExternalSip?: boolean }): Promise<boolean>;
   /** EXPERIMENTAL — send an email via a configured connector (best-effort). */
   sendEmail(opts: { connectorId: string; to: string; subject: string; body: string }): Promise<void>;
   /**
@@ -285,6 +286,94 @@ export async function runFlow(
           ringSeconds: data.ringSeconds,
         });
         return transferred ? 'transferred' : 'announced';
+      }
+
+      case 'meeting_join': {
+        const data = node.data as MeetingJoinNodeData;
+        const joinType = data.joinType || 'internal';
+        
+        let targetExt = '';
+
+        if (joinType === 'internal') {
+          // 1. Play prompt and collect digits
+          const prompt = renderPrompt(data.prompt) ?? 'say:Please enter the meeting ID.';
+          const digitStr = await h.collect(prompt, { tries: 3, waitMs: 10000, label: 'meeting_join_internal' });
+          
+          if (h.isHungUp()) return 'hangup';
+          if (!digitStr) {
+            const fallback = edgeFrom(flow.edges, node.id, undefined);
+            current = fallback ? byId.get(fallback.target) : undefined;
+            break;
+          }
+
+          lastDigit = digitStr.slice(-1);
+          digits += digitStr;
+
+          // 2. Hit the Webhook API
+          if (data.apiUrl) {
+            const url = substituteVars(data.apiUrl, { digits: digitStr, meetingId: digitStr, caller_id: ctx.callerNumber });
+            try {
+              const resp = await fetch(url, { method: data.method ?? 'GET' });
+              if (resp.ok) {
+                const json = await resp.json() as any;
+                if (json.success && json.result) {
+                  targetExt = json.result.toString();
+                }
+              }
+            } catch (err: any) {
+              console.warn(`⚠️ IVR flow meeting_join API error: ${err.message}`);
+            }
+          }
+        } else {
+          // External join type (Zoom, Google, etc)
+          // 1. Play provider prompt (e.g. Press 1 for Zoom, 2 for Google)
+          const pPrompt = renderPrompt(data.providerPrompt) ?? 'say:Please select a provider.';
+          let providerDigit = await h.collect(pPrompt, { tries: 3, waitMs: 5000, label: 'meeting_provider' });
+          if (providerDigit) providerDigit = providerDigit.charAt(0);
+          
+          if (h.isHungUp()) return 'hangup';
+          if (!providerDigit) {
+            const fallback = edgeFrom(flow.edges, node.id, undefined);
+            current = fallback ? byId.get(fallback.target) : undefined;
+            break;
+          }
+          
+          const provider = (data.providers || []).find((p: any) => p.digit === providerDigit);
+          if (!provider || !provider.domain) {
+            await h.play('say:Invalid selection.');
+            const fallback = edgeFrom(flow.edges, node.id, undefined);
+            current = fallback ? byId.get(fallback.target) : undefined;
+            break;
+          }
+
+          // 2. Play ID prompt and collect meeting ID
+          const idPrompt = renderPrompt(data.idPrompt) ?? 'say:Please enter the meeting ID.';
+          const digitStr = await h.collect(idPrompt, { tries: 3, waitMs: 10000, label: 'meeting_join_external' });
+          
+          if (h.isHungUp()) return 'hangup';
+          if (!digitStr) {
+            const fallback = edgeFrom(flow.edges, node.id, undefined);
+            current = fallback ? byId.get(fallback.target) : undefined;
+            break;
+          }
+          
+          lastDigit = digitStr.slice(-1);
+          digits += digitStr;
+          
+          // 3. Assemble target URI
+          targetExt = `${digitStr}@${provider.domain}`;
+        }
+
+        if (!targetExt) {
+          await h.play('say:We could not verify that meeting ID.');
+          const fallback = edgeFrom(flow.edges, node.id, undefined);
+          current = fallback ? byId.get(fallback.target) : undefined;
+          break;
+        }
+
+        // Bridge directly to the returned SIP Extension
+        await h.transfer({ extension: targetExt, isExternalSip: true });
+        return 'transferred';
       }
 
       case 'voicemail': {

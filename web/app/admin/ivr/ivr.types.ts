@@ -34,6 +34,7 @@ export const IVR_NODE_KINDS = [
   "voicemail",
   "email",
   "ai_agent",
+  "meeting_join",
   "hangup",
 ] as const;
 
@@ -213,6 +214,30 @@ export type EmailNodeData = {
   body: string;
 };
 
+/**
+ * Handles multi-step collection to bridge a caller to a meeting.
+ * If joinType === 'internal', it collects the ID and hits an API for the extension.
+ * If joinType === 'external', it plays a menu for provider selection, then bridges directly.
+ */
+export type MeetingJoinNodeData = {
+  kind: "meeting_join";
+  label: string;
+  joinType: "internal" | "external";
+  
+  // Used if joinType === 'internal'
+  prompt?: Prompt;
+  apiUrl?: string;
+  method?: "GET" | "POST";
+
+  // Used if joinType === 'external'
+  providerPrompt?: Prompt; // e.g. "Press 1 for Zoom, 2 for Google"
+  idPrompt?: Prompt;       // e.g. "Enter your meeting ID"
+  providers?: {
+    digit: string;         // e.g. "1"
+    domain: string;        // e.g. "zoomcrc.com"
+  }[];
+};
+
 export type IvrNodeData =
   | StartNodeData
   | MenuNodeData
@@ -222,6 +247,7 @@ export type IvrNodeData =
   | VoicemailNodeData
   | EmailNodeData
   | AiAgentNodeData
+  | MeetingJoinNodeData
   | HangupNodeData;
 
 // ─── React Flow node/edge aliases ───────────────────────
@@ -234,6 +260,7 @@ export type TransferNode = Node<TransferNodeData, "transfer">;
 export type VoicemailNode = Node<VoicemailNodeData, "voicemail">;
 export type EmailNode = Node<EmailNodeData, "email">;
 export type AiAgentNode = Node<AiAgentNodeData, "ai_agent">;
+export type MeetingJoinNode = Node<MeetingJoinNodeData, "meeting_join">;
 export type HangupNode = Node<HangupNodeData, "hangup">;
 
 export type IvrNode =
@@ -245,6 +272,7 @@ export type IvrNode =
   | VoicemailNode
   | EmailNode
   | AiAgentNode
+  | MeetingJoinNode
   | HangupNode;
 
 export type IvrEdge = Edge;
