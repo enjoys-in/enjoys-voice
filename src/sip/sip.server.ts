@@ -317,7 +317,7 @@ export class SipServer {
 
         this.db.logCall({
           id: callId, from: callingNumber, to: calledNumber,
-          fromName: this.db.getUser(callingNumber)?.name || callingNumber,
+          fromName: this.resolveCallerName(calledNumber, callingNumber, req.callingName),
           status: CallStatus.Ringing, direction: CallDirection.Inbound, startTime: new Date().toISOString(),
         });
         this.audit.log('call_start', callingNumber, { to: calledNumber, callId }, ip);
@@ -371,7 +371,7 @@ export class SipServer {
         if (this.push.enabled && !widgetClaims) {
           const callee = this.db.getUser(calledNumber);
           if (callee && (config.push.always || !this.db.isRegistered(calledNumber))) {
-            const fromName = this.db.getUser(callingNumber)?.name || callingNumber;
+            const fromName = this.resolveCallerName(calledNumber, callingNumber, req.callingName);
             void this.push.sendIncomingCall(calledNumber, {
               callId, from: callingNumber, fromName, to: calledNumber,
             });
@@ -446,7 +446,7 @@ export class SipServer {
       case 'voicemail': {
         // Send the caller straight to the rule owner's voicemail.
         if (config.voicemail.enabled && this.ivr) {
-          const fromName = ctx.req.callingName || this.db.getUser(ctx.callingNumber)?.name || ctx.callingNumber;
+          const fromName = this.resolveCallerName(rule.ownerExtension, ctx.callingNumber, ctx.req.callingName);
           const saved = await this.ivr.recordVoicemail(ctx.req, ctx.res, rule.ownerExtension, ctx.callingNumber, fromName);
           this.db.updateCall(ctx.callId, { status: saved ? CallStatus.Voicemail : CallStatus.Missed });
         } else {
@@ -504,6 +504,21 @@ export class SipServer {
       default:
         return false;
     }
+  }
+
+  /**
+   * Resolve the display name for an inbound caller as seen by `calleeExt`: a
+   * known internal user's name, else the callee's own saved contact name for
+   * that number (caller-ID enrichment from their personal contacts), else the
+   * SIP From display name, else the raw number.
+   */
+  private resolveCallerName(calleeExt: string, callingNumber: string, callingName?: string): string {
+    return (
+      this.db.getUser(callingNumber)?.name ||
+      this.db.lookupContactName(calleeExt, callingNumber) ||
+      callingName ||
+      callingNumber
+    );
   }
 
   private handleOther(): void {
@@ -693,7 +708,7 @@ export class SipServer {
     //    ring out), so we skip voicemail and play a spoken status tone instead.
     if (reason === UnreachableReason.Offline && config.voicemail.enabled && this.ivr) {
       console.log(`📭 ${calledExt} offline → voicemail`);
-      const fromName = req.callingName || this.db.getUser(callingNumber)?.name || callingNumber;
+      const fromName = this.resolveCallerName(calledExt, callingNumber, req.callingName);
       const saved = await this.ivr.recordVoicemail(req, res, calledExt, callingNumber, fromName);
       // A left message is its own outcome (`voicemail`), not `answered` — the
       // callee never picked up. If nothing was recorded it's `unreachable`.
@@ -743,7 +758,7 @@ export class SipServer {
     // Voicemail: let the caller leave a message even though the device is silent.
     if (config.voicemail.enabled && this.ivr) {
       console.log(`🔕 ${calledExt} on DND → voicemail`);
-      const fromName = req.callingName || this.db.getUser(callingNumber)?.name || callingNumber;
+      const fromName = this.resolveCallerName(calledExt, callingNumber, req.callingName);
       const saved = await this.ivr.recordVoicemail(req, res, calledExt, callingNumber, fromName);
       this.db.updateCall(callId, { status: saved ? CallStatus.Voicemail : CallStatus.Missed });
       this.notifyFn?.(callingNumber, CallNotifyEvent.Unavailable, { target: calledExt, reason: CallNotifyReason.Dnd, callId });

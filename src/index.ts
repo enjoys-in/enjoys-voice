@@ -14,6 +14,7 @@ import {
   WebhookSyncListener,
   WebhookDispatcher,
   deliverWebhook,
+  ContactSyncListener,
   AiAgentSyncListener,
   RatingService,
   WriteQueue,
@@ -69,6 +70,7 @@ class Application {
   private routingSync: RoutingRuleSyncListener;
   private webhookSync: WebhookSyncListener;
   private webhookDispatcher: WebhookDispatcher;
+  private contactSync: ContactSyncListener;
   private aiAgentSync: AiAgentSyncListener;
   private rating: RatingService;
   private writeQueue: WriteQueue;
@@ -237,6 +239,14 @@ class Application {
       onChanged: () => this.db.clearAiAgentCache(),
       onReconnect: () => this.db.clearAiAgentCache(),
     });
+    // Live-reconcile per-user contacts the moment one is added/edited/deleted in
+    // the dashboard (written by the Go API), so inbound caller-ID enrichment
+    // (saved contact name instead of the raw number) is always current. Refreshes
+    // just that owner's index; re-hydrates all on reconnect.
+    this.contactSync = new ContactSyncListener({
+      onChanged: (owner) => this.db.hydrateContactsByOwner(owner),
+      onReconnect: () => this.db.hydrateAllContacts(),
+    });
     // Write-behind queue: call-record upserts are emitted as events, enqueued to
     // Valkey, and applied to the shared Postgres by a worker. This keeps the SIP
     // path off the DB write latency. (Voicemails write to Postgres directly.)
@@ -327,6 +337,12 @@ class Application {
     // fall back to the env-default brain.
     this.aiAgentSync.start().catch((err: any) =>
       console.warn(`   Sync:   ⚠️  ai-agent-sync listener failed to start (${err?.message})`),
+    );
+    // And for per-user contacts (inbound caller-ID enrichment). Best-effort: if
+    // the contacts table doesn't exist yet, the listener no-ops and calls simply
+    // show the raw number.
+    this.contactSync.start().catch((err: any) =>
+      console.warn(`   Sync:   ⚠️  contact-sync listener failed to start (${err?.message})`),
     );
     // Start the write-behind queue worker (voicemail → Postgres). Best-effort:
     // if Valkey is unreachable, voicemails still record (in memory + on disk),

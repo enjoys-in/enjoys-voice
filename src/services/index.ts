@@ -43,6 +43,8 @@ export { WebhookSyncListener } from './postgres';
 export type { WebhookSyncOptions, WebhookRecord } from './postgres';
 export { AiAgentSyncListener } from './postgres';
 export type { AiAgentSyncOptions, AiAgentRecord } from './postgres';
+export { ContactSyncListener } from './postgres';
+export type { ContactSyncOptions } from './postgres';
 export { deliverWebhook, WebhookDispatcher } from './webhook';
 export type { WebhookDispatcherDeps } from './webhook';
 export { sendConnectorEmail } from './mailer';

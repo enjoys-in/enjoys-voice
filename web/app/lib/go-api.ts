@@ -541,6 +541,8 @@ export interface GoContact {
   name: string;
   extension: string;
   username?: string;
+  phone?: string;
+  notes?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -550,6 +552,8 @@ export interface GoContactInput {
   name?: string;
   extension?: string;
   username?: string;
+  phone?: string;
+  notes?: string;
 }
 
 // ─── Per-user inbound routing rules ─────────────────────

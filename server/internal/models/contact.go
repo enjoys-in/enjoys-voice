@@ -13,8 +13,12 @@ type Contact struct {
 	Name           string    `gorm:"size:120;not null" json:"name"`
 	Extension      string    `gorm:"size:40;not null" json:"extension"`
 	Username       string    `gorm:"size:120" json:"username,omitempty"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	// Phone is an external number (E.164/normalized digits). Indexed so the call
+	// engine can enrich inbound caller ID by matching it to a saved contact.
+	Phone     string    `gorm:"index;size:32" json:"phone,omitempty"`
+	Notes     string    `gorm:"type:text" json:"notes,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 func (Contact) TableName() string { return "contacts" }

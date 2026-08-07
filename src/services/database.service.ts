@@ -25,6 +25,8 @@ import {
   loadEnabledWebhooks,
   loadAiAgentById,
   loadEnabledAiAgents,
+  loadAllContactPhones,
+  loadContactPhonesByOwner,
   type ConnectorRecord,
   type RoutingRuleRecord,
   type WebhookRecord,
@@ -98,6 +100,13 @@ export class DatabaseService extends EventEmitter {
   private aiAgents = new Map<number, AiAgentRecord | null>();
   private aiAgentsByOwner: Map<string, AiAgentRecord[]> | null = null;
   /**
+   * Owner-extension → (normalized phone key → contact name). Powers inbound
+   * caller-ID enrichment: when an external number rings a user, their saved
+   * contact name is shown instead of the raw number. Loaded in bulk at startup
+   * and refreshed per-owner on a `contacts` NOTIFY.
+   */
+  private contactsByPhone = new Map<string, Map<string, string>>();
+  /**
    * Optional call rater. Injected (not imported) to avoid a module cycle with
    * the rating service. When set, a call transitioning to `ended` is priced here
    * — the single choke point every terminal `ended` flows through — so cost is
@@ -130,6 +139,7 @@ export class DatabaseService extends EventEmitter {
     }
     await this.hydrateAllDetail();
     await this.hydrateIvrFlowExtensions();
+    await this.hydrateAllContacts();
     return rows.length;
   }
 
@@ -145,6 +155,54 @@ export class DatabaseService extends EventEmitter {
     const calls = await loadRecentCalls(limit);
     this.callLogs = calls;
     return calls.length;
+  }
+
+  /**
+   * Bulk-load every user's contacts that carry a phone number and index them by
+   * owner for inbound caller-ID enrichment. Fully replaces the prior index.
+   */
+  async hydrateAllContacts(): Promise<void> {
+    const rows = await loadAllContactPhones();
+    const next = new Map<string, Map<string, string>>();
+    for (const r of rows) {
+      let byPhone = next.get(r.owner_extension);
+      if (!byPhone) { byPhone = new Map(); next.set(r.owner_extension, byPhone); }
+      for (const key of DatabaseService.phoneKeys(r.phone)) byPhone.set(key, r.name);
+    }
+    this.contactsByPhone = next;
+  }
+
+  /** Refresh one owner's contact→name index (triggered on a `contacts` NOTIFY). */
+  async hydrateContactsByOwner(owner: string): Promise<void> {
+    const rows = await loadContactPhonesByOwner(owner);
+    if (rows.length === 0) { this.contactsByPhone.delete(owner); return; }
+    const byPhone = new Map<string, string>();
+    for (const r of rows) {
+      for (const key of DatabaseService.phoneKeys(r.phone)) byPhone.set(key, r.name);
+    }
+    this.contactsByPhone.set(owner, byPhone);
+  }
+
+  /**
+   * The name `ownerExt` has saved for `phone` in their personal contacts, or
+   * undefined. Matches on full digits and on the last 10 digits so a stored
+   * +91… number still matches a local-format inbound number and vice-versa.
+   */
+  lookupContactName(ownerExt: string, phone: string): string | undefined {
+    const byPhone = this.contactsByPhone.get(ownerExt);
+    if (!byPhone || !phone) return undefined;
+    for (const key of DatabaseService.phoneKeys(phone)) {
+      const name = byPhone.get(key);
+      if (name) return name;
+    }
+    return undefined;
+  }
+
+  /** Candidate match keys for a phone: digits-only, plus its last 10 digits. */
+  private static phoneKeys(phone: string): string[] {
+    const digits = (phone || '').replace(/\D/g, '');
+    if (!digits) return [];
+    return digits.length > 10 ? [digits, digits.slice(-10)] : [digits];
   }
 
   /**

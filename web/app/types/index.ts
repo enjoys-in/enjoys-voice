@@ -22,6 +22,10 @@ export interface Contact {
   username: string;
   online: boolean;
   registered: boolean;
+  /** External phone number (personal contacts only). */
+  phone?: string;
+  /** Free-form notes (personal contacts only). */
+  notes?: string;
 }
 
 export interface CallRecord {

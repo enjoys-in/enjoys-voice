@@ -22,7 +22,7 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
   const { addBlockedNumber, settings } = useSettingsStore();
   const contacts = filteredMyContacts();
   const [blockTarget, setBlockTarget] = useState<{ ext: string; name: string } | null>(null);
-  const [editContact, setEditContact] = useState<{ id: number; name: string; extension: string } | null>(null);
+  const [editContact, setEditContact] = useState<{ id: number; name: string; extension: string; phone?: string; notes?: string } | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
   const [pulling, setPulling] = useState(false);
@@ -66,9 +66,11 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
     const form = e.currentTarget;
     const name = (form.elements.namedItem("name") as HTMLInputElement).value.trim();
     const ext = (form.elements.namedItem("extension") as HTMLInputElement).value.trim();
+    const phone = (form.elements.namedItem("phone") as HTMLInputElement).value.trim();
+    const notes = (form.elements.namedItem("notes") as HTMLInputElement).value.trim();
     if (!name || !ext) return;
     try {
-      await addContact({ name, extension: ext });
+      await addContact({ name, extension: ext, phone, notes });
       setShowAddDialog(false);
     } catch {
       /* keep the dialog open so the user can retry */
@@ -81,9 +83,11 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
     const form = e.currentTarget;
     const name = (form.elements.namedItem("name") as HTMLInputElement).value.trim();
     const ext = (form.elements.namedItem("extension") as HTMLInputElement).value.trim();
+    const phone = (form.elements.namedItem("phone") as HTMLInputElement).value.trim();
+    const notes = (form.elements.namedItem("notes") as HTMLInputElement).value.trim();
     if (!name || !ext) return;
     try {
-      await updateContact(editContact.id, { name, extension: ext });
+      await updateContact(editContact.id, { name, extension: ext, phone, notes });
       setEditContact(null);
     } catch {
       /* keep the dialog open so the user can retry */
@@ -174,7 +178,7 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
                   </div>
                 }
                 title={contact.name}
-                subtitle={`ext. ${contact.extension}${settings.blockedNumbers.includes(contact.extension) ? " · blocked" : ""}`}
+                subtitle={`ext. ${contact.extension}${contact.phone ? ` · ${contact.phone}` : ""}${settings.blockedNumbers.includes(contact.extension) ? " · blocked" : ""}`}
                 trailing={
                   <div className="flex items-center gap-1">
                     <Badge variant={online ? "default" : "secondary"} className="text-[10px] px-1.5 py-0">
@@ -184,7 +188,7 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
                       size="icon"
                       variant="ghost"
                       className="h-7 w-7"
-                      onClick={(e) => { e.stopPropagation(); setEditContact({ id: contact.id!, name: contact.name, extension: contact.extension }); }}
+                      onClick={(e) => { e.stopPropagation(); setEditContact({ id: contact.id!, name: contact.name, extension: contact.extension, phone: contact.phone, notes: contact.notes }); }}
                       title="Edit"
                     >
                       <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
@@ -231,6 +235,14 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
               <Label className="text-xs">Extension</Label>
               <Input name="extension" placeholder="e.g. 1001" required />
             </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Phone number</Label>
+              <Input name="phone" placeholder="e.g. +15551234567" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Notes</Label>
+              <Input name="notes" placeholder="Optional" />
+            </div>
             <div className="flex gap-2 justify-end">
               <Button type="button" variant="secondary" size="sm" onClick={() => setShowAddDialog(false)}>Cancel</Button>
               <Button type="submit" size="sm">Add</Button>
@@ -253,6 +265,14 @@ export function ContactsScreen({ onCall }: ContactsScreenProps) {
             <div className="space-y-1">
               <Label className="text-xs">Extension</Label>
               <Input name="extension" defaultValue={editContact?.extension || ""} required />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Phone number</Label>
+              <Input name="phone" defaultValue={editContact?.phone || ""} placeholder="e.g. +15551234567" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Notes</Label>
+              <Input name="notes" defaultValue={editContact?.notes || ""} placeholder="Optional" />
             </div>
             <div className="flex gap-2 justify-end">
               <Button type="button" variant="secondary" size="sm" onClick={() => setEditContact(null)}>Cancel</Button>
