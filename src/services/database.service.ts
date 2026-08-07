@@ -232,6 +232,7 @@ export class DatabaseService extends EventEmitter {
       user.outboundCallerId = undefined;
       user.balance = undefined;
       user.balanceCurrency = undefined;
+      user.recordingEnabled = false;
       this.applyNotify(user, null);
     }
 
@@ -243,7 +244,7 @@ export class DatabaseService extends EventEmitter {
       this.applyForwardingRow(this.users.get(f.extension), f);
     }
     for (const p of pstn) {
-      this.applyPstn(this.users.get(p.extension), p.pstn_enabled, p.pstn_mobile, p.dnd, p.rate_plan_id, p.outbound_caller_id);
+      this.applyPstn(this.users.get(p.extension), p.pstn_enabled, p.pstn_mobile, p.dnd, p.rate_plan_id, p.outbound_caller_id, p.recording_enabled);
       this.applyNotify(this.users.get(p.extension), p);
     }
     // Prepaid wallets are only hydrated when billing is on, so a workspace with
@@ -276,7 +277,7 @@ export class DatabaseService extends EventEmitter {
     user.forwardOnNoAnswer = undefined;
     user.forwardOnUnavailable = undefined;
     for (const f of forwarding) this.applyForwardingRow(user, f);
-    this.applyPstn(user, pstn?.pstn_enabled ?? false, pstn?.pstn_mobile ?? null, pstn?.dnd ?? false, pstn?.rate_plan_id ?? null, pstn?.outbound_caller_id ?? null);
+    this.applyPstn(user, pstn?.pstn_enabled ?? false, pstn?.pstn_mobile ?? null, pstn?.dnd ?? false, pstn?.rate_plan_id ?? null, pstn?.outbound_caller_id ?? null, pstn?.recording_enabled ?? false);
     this.applyNotify(user, pstn);
     if (config.billing.prepaidEnabled) {
       const bal = await loadBalanceByExtension(extension);
@@ -317,6 +318,7 @@ export class DatabaseService extends EventEmitter {
     dnd = false,
     ratePlanId: number | null = null,
     outboundCallerId: string | null = null,
+    recordingEnabled = false,
   ): void {
     if (!user) return;
     user.pstnForwardToBrowser = enabled;
@@ -324,6 +326,7 @@ export class DatabaseService extends EventEmitter {
     user.dnd = dnd;
     user.ratePlanId = ratePlanId ?? undefined;
     user.outboundCallerId = outboundCallerId ?? undefined;
+    user.recordingEnabled = recordingEnabled;
   }
 
   /** Map a user_balances row onto the SipUser wallet fields (0 stays 0). */

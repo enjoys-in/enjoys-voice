@@ -30,6 +30,8 @@ export { PushService } from './push.service';
 export type { IncomingCallPush } from './push.service';
 export { NotificationService } from './notification.service';
 export { NotificationMailer } from './notification-mailer';
+export { insertRecording } from './postgres';
+export type { NewRecording } from './postgres';
 export { createRegistrationStore, MemoryRegistrationStore, RedisRegistrationStore } from './registration';
 export type { RegistrationStore } from './registration';
 export { UserSyncListener } from './postgres';

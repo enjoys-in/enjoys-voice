@@ -113,6 +113,8 @@ export interface AppConfig {
   };
   callRecording: {
     enabled: boolean;
+    // Container path FreeSWITCH records the bridged session to.
+    fsDir: string;
     // Directory the backend writes client-uploaded call recordings to.
     hostDir: string;
   };
@@ -463,6 +465,8 @@ export const config: AppConfig = {
   },
   callRecording: {
     enabled: process.env.CALL_RECORDING_ENABLED !== 'false',
+    // Container path FreeSWITCH records the bridged session to.
+    fsDir: process.env.CALL_RECORDING_FS_DIR || `${FS_RECORDINGS_DIR}/calls`,
     hostDir: process.env.CALL_RECORDING_HOST_DIR || `${HOST_RECORDINGS_DIR}/calls`,
   },
   sounds: {

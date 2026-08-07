@@ -562,6 +562,17 @@ export interface GoContactInput {
   notes?: string;
 }
 
+/** A call recording (owner-scoped). Audio streams from /recordings/:id/audio;
+ * correlate to a call via `call_id`. */
+export interface GoRecording {
+  id: number;
+  extension: string;
+  call_id: string;
+  filename: string;
+  duration: number;
+  created_at: string;
+}
+
 // ─── Per-user inbound routing rules ─────────────────────
 
 /** How a routing rule matches inbound calls. */
@@ -1269,6 +1280,22 @@ export const goApi = {
       return goRequest<unknown>(`/contacts/${id}`, {
         method: "DELETE",
       }).then(() => undefined);
+    },
+  },
+
+  // Call recordings (owner-scoped): list, stream audio, delete. Audio is fetched
+  // as an authenticated blob so it plays inline (same pattern as voicemail).
+  recordings: {
+    list(): Promise<GoRecording[]> {
+      return goRequest<GoRecording[]>(`/recordings`);
+    },
+    async audioBlobUrl(id: number): Promise<string> {
+      const res = await fetch(`${getGoApiBase()}/api/g/recordings/${id}/audio`, { credentials: "include" });
+      if (!res.ok) throw new Error(`recording audio ${res.status}`);
+      return URL.createObjectURL(await res.blob());
+    },
+    remove(id: number): Promise<void> {
+      return goRequest<unknown>(`/recordings/${id}`, { method: "DELETE" }).then(() => undefined);
     },
   },
 

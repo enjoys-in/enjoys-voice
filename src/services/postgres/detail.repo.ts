@@ -55,6 +55,8 @@ export interface PstnRow {
   notify_vm_push: boolean;
   notify_vm_email: boolean;
   notification_email: string | null;
+  /** Whether this user's calls should be recorded (media-anchored capture). */
+  recording_enabled: boolean;
 }
 
 export async function loadAllBlocked(): Promise<BlockedRow[]> {
@@ -95,7 +97,8 @@ export async function loadAllPstn(): Promise<PstnRow[]> {
             COALESCE(notify_missed_email, false) AS notify_missed_email,
             COALESCE(notify_vm_push, true) AS notify_vm_push,
             COALESCE(notify_vm_email, true) AS notify_vm_email,
-            notification_email
+            notification_email,
+            COALESCE(recording_enabled, false) AS recording_enabled
      FROM user_settings`,
   );
   return rows;
@@ -109,7 +112,8 @@ export async function loadPstnByExtension(extension: string): Promise<PstnRow | 
             COALESCE(notify_missed_email, false) AS notify_missed_email,
             COALESCE(notify_vm_push, true) AS notify_vm_push,
             COALESCE(notify_vm_email, true) AS notify_vm_email,
-            notification_email
+            notification_email,
+            COALESCE(recording_enabled, false) AS recording_enabled
      FROM user_settings WHERE extension = $1 LIMIT 1`,
     [extension],
   );

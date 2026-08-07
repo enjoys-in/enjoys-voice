@@ -54,3 +54,5 @@ export {
 } from './voicemail.repo';
 export { ensureCallSchema, upsertCall, loadRecentCalls } from './call.repo';
 export { ensureAuditSchema, insertAuditLogs } from './audit.repo';
+export { insertRecording } from './recording.repo';
+export type { NewRecording } from './recording.repo';

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneOff, Voicemail, RefreshCw, Trash2, ChevronRight } from "lucide-react";
+import { Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneOff, Voicemail, RefreshCw, Trash2, ChevronRight, Disc } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { ListScreenSkeleton } from "./ScreenSkeletons";
 import { useCallHistory } from "../../hooks/useCallHistory";
 import { useAuthStore, useContactStore } from "../../stores";
 import { formatPhone } from "../../lib/phone";
+import { goApi, type GoRecording } from "../../lib/go-api";
 import { CallRecordStatus, type CallRecord } from "../../types";
 
 interface CallsScreenProps {
@@ -30,6 +31,35 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
   const startY = useRef(0);
+  // Call recordings, indexed by call id, plus the currently-playing one.
+  const [recordings, setRecordings] = useState<Map<string, GoRecording>>(new Map());
+  const [playing, setPlaying] = useState<{ id: number; url: string } | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    goApi.recordings
+      .list()
+      .then((recs) => { if (!cancelled) setRecordings(new Map(recs.map((r) => [r.call_id, r]))); })
+      .catch(() => { /* recordings are optional */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Revoke the blob URL when the playback target changes or on unmount.
+  useEffect(() => () => { if (playing) URL.revokeObjectURL(playing.url); }, [playing]);
+
+  const togglePlay = useCallback(async (rec: GoRecording) => {
+    if (playing?.id === rec.id) {
+      audioRef.current?.pause();
+      URL.revokeObjectURL(playing.url);
+      setPlaying(null);
+      return;
+    }
+    try {
+      const url = await goApi.recordings.audioBlobUrl(rec.id);
+      setPlaying((prev) => { if (prev) URL.revokeObjectURL(prev.url); return { id: rec.id, url }; });
+    } catch { /* ignore playback errors */ }
+  }, [playing]);
 
   useEffect(() => {
     void fetchContacts();
@@ -244,6 +274,17 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
                               onClick={() => toggleExpand(row.key)}
                             />
                           )}
+                          {recordings.has(latest.id) && (
+                            <button
+                              type="button"
+                              onClick={() => togglePlay(recordings.get(latest.id)!)}
+                              className="text-primary hover:opacity-80"
+                              aria-label="Play recording"
+                              title="Play recording"
+                            >
+                              <Disc className={`h-4 w-4 ${playing?.id === recordings.get(latest.id)!.id ? "animate-pulse" : ""}`} />
+                            </button>
+                          )}
                           <Button
                             size="icon"
                             variant="ghost"
@@ -255,11 +296,20 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
                         </div>
                       </div>
 
+                      {/* Inline recording player (single-call groups play here). */}
+                      {!isOpen && recordings.has(latest.id) && playing?.id === recordings.get(latest.id)!.id && (
+                        <audio ref={audioRef} src={playing.url} autoPlay controls
+                          className="w-full h-8 mb-1 ml-12" onEnded={() => setPlaying(null)} />
+                      )}
+
                       {/* Expanded per-call history for this number */}
                       {isOpen && count > 1 && (
                         <div className="ml-12 pl-2 border-l border-border/60 space-y-1 mb-1">
-                          {row.calls.map((c) => (
-                            <div key={c.id} className="flex items-center gap-2 py-1.5 text-xs">
+                          {row.calls.map((c) => {
+                            const rec = recordings.get(c.id);
+                            return (
+                            <div key={c.id}>
+                              <div className="flex items-center gap-2 py-1.5 text-xs">
                               {getCallIcon(c)}
                               <span className={`capitalize ${c.status === CallRecordStatus.Missed || c.status === CallRecordStatus.Unreachable ? "text-destructive" : "text-muted-foreground"}`}>
                                 {c.status}
@@ -273,8 +323,25 @@ export function CallsScreen({ onCall }: CallsScreenProps) {
                                 </span>
                               )}
                               <span className="ml-auto text-muted-foreground">{formatTime(c.startTime)}</span>
+                              {rec && (
+                                <button
+                                  type="button"
+                                  onClick={() => togglePlay(rec)}
+                                  className="text-primary hover:opacity-80"
+                                  aria-label="Play recording"
+                                  title="Play recording"
+                                >
+                                  <Disc className={`h-3.5 w-3.5 ${playing?.id === rec.id ? "animate-pulse" : ""}`} />
+                                </button>
+                              )}
+                              </div>
+                              {rec && playing?.id === rec.id && (
+                                <audio ref={audioRef} src={playing.url} autoPlay controls
+                                  className="w-full h-8 mb-1" onEnded={() => setPlaying(null)} />
+                              )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>

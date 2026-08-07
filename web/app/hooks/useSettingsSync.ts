@@ -43,6 +43,7 @@ export function useSettingsSync() {
         pstnForwardTarget: pstnFwdRes.target || "",
         ...(settingsRes ? {
           dnd: settingsRes.dnd,
+          recordingEnabled: settingsRes.recording_enabled,
           notifyMissedPush: settingsRes.notify_missed_push,
           notifyMissedEmail: settingsRes.notify_missed_email,
           notifyVoicemailPush: settingsRes.notify_vm_push,
@@ -126,6 +127,19 @@ export function useSettingsSync() {
     [user]
   );
 
+  // Save the call-recording opt-in.
+  const saveRecording = useCallback(
+    async (recording_enabled: boolean) => {
+      if (!user) return;
+      try {
+        await goApi.updateSettings(user.extension, { recording_enabled });
+      } catch {
+        // silent
+      }
+    },
+    [user]
+  );
+
   // Save missed-call / voicemail notification preferences (snake_case keys map
   // to models.SettingsResponse on the server).
   const saveNotifications = useCallback(
@@ -146,5 +160,5 @@ export function useSettingsSync() {
     [user]
   );
 
-  return { loadSettings, saveForwarding, blockNumber, unblockNumber, savePstnForward, saveDnd, saveNotifications };
+  return { loadSettings, saveForwarding, blockNumber, unblockNumber, savePstnForward, saveDnd, saveNotifications, saveRecording };
 }

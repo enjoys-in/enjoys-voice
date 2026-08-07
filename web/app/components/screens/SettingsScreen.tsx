@@ -46,7 +46,7 @@ const RINGTONES = [
 export function SettingsScreen() {
   const { user, logout } = useAuthStore();
   const { settings, setSettings, setForwarding, addBlockedNumber, removeBlockedNumber } = useSettingsStore();
-  const { saveForwarding, blockNumber, unblockNumber, savePstnForward, saveDnd, saveNotifications } = useSettingsSync();
+  const { saveForwarding, blockNumber, unblockNumber, savePstnForward, saveDnd, saveNotifications, saveRecording } = useSettingsSync();
   const { allowUserDnd } = useSystemPolicies();
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -637,12 +637,12 @@ export function SettingsScreen() {
                     <Switch
                       id="recording"
                       checked={settings.recordingEnabled}
-                      onCheckedChange={(v) => setSettings({ recordingEnabled: v })}
+                      onCheckedChange={(v) => { setSettings({ recordingEnabled: v }); saveRecording(v); }}
                     />
                   </div>
                   {settings.recordingEnabled && (
                     <p className="text-xs text-muted-foreground">
-                      Recordings will be available in the admin panel
+                      Your calls are recorded and appear in Recents for playback.
                     </p>
                   )}
                 </CardContent>

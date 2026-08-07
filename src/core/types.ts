@@ -239,6 +239,9 @@ export interface SipUser {
   notifyVoicemailPush?: boolean;
   notifyVoicemailEmail?: boolean;
   notificationEmail?: string;
+  /** Whether this user's calls should be recorded. Capture media-anchors the
+   * call through FreeSWITCH, so it only engages for opted-in users. */
+  recordingEnabled?: boolean;
 }
 
 export interface SipRegistration {
