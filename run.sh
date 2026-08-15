@@ -22,7 +22,7 @@ set -euo pipefail
 # ── Resolve paths relative to THIS script (run from anywhere) ────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEV_FILE="$SCRIPT_DIR/docker/docker-compose.dev.yml"
-PROD_FILE="$SCRIPT_DIR/docker/docker-compose.prod.yml"
+PROD_FILE="$SCRIPT_DIR/docker/docker-compose.yml"
 PROD_ENV="$SCRIPT_DIR/docker/.env"
 
 # ── Colors (disabled if not a TTY) ───────────────────────────────
