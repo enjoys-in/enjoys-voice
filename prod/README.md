@@ -1,6 +1,6 @@
 # CallNet — Production Deployment (`prod/`)
 
-Self-contained production stack for the VPS **`77.237.241.24`**.
+Self-contained production stack for the VPS **`185.193.19.118`**.
 Nothing here affects your local dev setup (`docker/docker-compose.yml`).
 
 ## What's in this folder
@@ -29,13 +29,13 @@ SIP trunk ──SIP──────> drachtio :5060            (PSTN)
 
 ## What you must replace (and where)
 
-1. **Domain** — point an A record `voice.enjoys.in → 77.237.241.24`, then set
+1. **Domain** — point an A record `voice.enjoys.in → 185.193.19.118`, then set
    `DOMAIN`, `PUBLIC_API_BASE`, `PUBLIC_WS_URL`, `PUBLIC_SIP_WS_URL` in `.env`.
 2. **Secrets** — `DRACHTIO_SECRET`, `FREESWITCH_SECRET`, `TURN_PASSWORD` in `.env`.
 3. **TURN** — same password in `.env`, `coturn/turnserver.conf`, and the
    `PUBLIC_ICE_SERVERS` credential. Set `realm`/`external-ip` in the conf.
 4. **Public IP in FreeSWITCH** — `freeswitch/drachtio_mrf.xml` `ext-rtp-ip` /
-   `ext-sip-ip` (already `77.237.241.24` — change only if the IP changes).
+   `ext-sip-ip` (already `185.193.19.118` — change only if the IP changes).
 5. **SIP trunk** — fill `TRUNK_*` in `.env` for outbound PSTN.
 
 > The backend now reads `PUBLIC_WS_URL` / `PUBLIC_SIP_WS_URL` / `PUBLIC_API_BASE`.

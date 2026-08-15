@@ -10,7 +10,7 @@
     => every IVR / voicemail / conference / queue call fails. Mounted over the
     shared file only in prod.
 
-    >>> REPLACE 77.237.241.24 below if your public IP changes. <<<
+    >>> REPLACE 185.193.19.118 below if your public IP changes. <<<
   -->
   <domains>
     <domain name="all" alias="true" parse="false"/>
@@ -25,7 +25,7 @@
     <param name="sip-ip" value="$${local_ip_v4}"/>
     <param name="sip-port" value="5090"/>
     <!-- Browser RTP must reach the box across the internet => advertise PUBLIC IP. -->
-    <param name="ext-rtp-ip" value="77.237.241.24"/>
+    <param name="ext-rtp-ip" value="185.193.19.118"/>
     <!-- SIP only ever talks to drachtio INSIDE the docker network, so advertise the
          internal container IP. Using the public IP here makes drachtio ACK to the
          box's own public IP (NAT hairpin) => connectCaller "Connection timeout". -->

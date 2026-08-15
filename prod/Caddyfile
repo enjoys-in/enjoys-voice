@@ -1,6 +1,6 @@
 # ════════════════════════════════════════════════════════════════
 #  Caddy reverse proxy — automatic HTTPS (Let's Encrypt)
-#  Serves voice.enjoys.in (A record → VPS 77.237.241.24).
+#  Serves voice.enjoys.in (A record → VPS 185.193.19.118).
 #  Caddy runs on the HOST; the compose stack publishes its ports to
 #  localhost, so upstreams are reached via 127.0.0.1:<published-port>.
 # ════════════════════════════════════════════════════════════════

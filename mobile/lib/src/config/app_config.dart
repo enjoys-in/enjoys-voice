@@ -57,12 +57,12 @@ class AppConfig {
   );
 
   /// Fallback ICE servers: Google STUN + the production coturn TURN relay
-  /// (voice.enjoys.in == 77.237.241.24) needed for reliable two-way audio
+  /// (voice.enjoys.in == 185.193.19.118) needed for reliable two-way audio
   /// through NAT. Override with `--dart-define=ICE_SERVERS=[...]` if needed.
   static const List<Map<String, dynamic>> defaultIceServers = [
     {'urls': 'stun:stun.l.google.com:19302'},
     {
-      'urls': 'turn:77.237.241.24:3478?transport=udp',
+      'urls': 'turn:185.193.19.118:3478?transport=udp',
       'username': 'callnet',
       'credential': 'devsecret123',
     },

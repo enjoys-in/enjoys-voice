@@ -3,7 +3,7 @@
 import dgram from 'node:dgram';
 import crypto from 'node:crypto';
 
-const HOST = process.argv[2] || '77.237.241.24';
+const HOST = process.argv[2] || '185.193.19.118';
 const PORT = Number(process.argv[3] || 3478);
 const USER = process.argv[4] || 'callnet';
 const PASS = process.argv[5] || 'devsecret123';

@@ -351,7 +351,7 @@ edited the wrong ICE source).
 > Prod parity (DONE): coturn is now wired into `docker/docker-compose.prod.yml` as the
 > `coturn` service (`image: coturn/coturn`, publishes `3478/udp+tcp` + relay range
 > `49152-49199/udp`, joins `voipnet`, mounts `prod/coturn/turnserver.conf` with
-> `external-ip=77.237.241.24`). The TURN entry is set in **both** prod ICE sources via the
+> `external-ip=185.193.19.118`). The TURN entry is set in **both** prod ICE sources via the
 > shared `x-ice-servers` YAML anchor (`username: callnet`, the password must equal coturn's
 > `user=`). On a Linux VPS, `network_mode: host` for FS is an alternative — but TURN is the
 > uniform fix across environments.
@@ -384,7 +384,7 @@ RTCPeerConnection({ iceServers })             packages/voice-widget/src/sip-call
 browser ⇄ coturn (STUN discover / TURN relay)
 ```
 
-1. **Parse** — `PUBLIC_ICE_SERVERS` (the JSON with `turn:77.237.241.24:3478`, `callnet`,
+1. **Parse** — `PUBLIC_ICE_SERVERS` (the JSON with `turn:185.193.19.118:3478`, `callnet`,
    `devsecret123`) is parsed once at startup by `parseIceServers()` into
    `config.widget.iceServers` (`src/core/config.ts`).
 2. **Build per request** — `buildIceServers()` (`src/core/turn.ts`) returns that list. If
