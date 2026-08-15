@@ -30,6 +30,9 @@ Thumbs.db
 docker/freeswitch_sounds/
 docker/pulse/
 
+# Prod compose (contains public IP + TURN credentials)
+docker-compose.yml
+
 # Runtime recordings / voicemail (generated at runtime)
 docker/recordings/
 docker/recordings-asterisk/
