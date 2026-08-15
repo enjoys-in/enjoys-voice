@@ -130,7 +130,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: callnet-postgres
     logging: *default-logging
     environment:
@@ -209,11 +209,11 @@ services:
       # dir is mounted into drachtio-freeswitch at
       # /usr/share/freeswitch/sounds/ivr so FreeSWITCH can play them.
       - ./freeswitch_sounds/ivr:/app/uploads/ivr
-    depends_on:
-      postgres:
-        condition: service_healthy
-      valkey:
-        condition: service_healthy
+    # depends_on:
+    #   postgres:
+    #     condition: service_healthy
+    #   valkey:
+    #     condition: service_healthy
     networks:
       - voipnet
     restart: unless-stopped
@@ -284,10 +284,10 @@ services:
     volumes:
       - callnet-recordings:/app/recordings
     depends_on:
-      postgres:
-        condition: service_healthy
-      valkey:
-        condition: service_healthy
+      # postgres:
+      #   condition: service_healthy
+      # valkey:
+      #   condition: service_healthy
       drachtio-server:
         condition: service_started
       drachtio-freeswitch:

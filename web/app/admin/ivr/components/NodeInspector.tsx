@@ -34,11 +34,13 @@ import {
   CONDITION_OPERATORS,
   CONDITION_VARIABLES,
   DTMF_DIGITS,
+  emptyPrompt,
   type ConditionOperator,
   type ConditionVariable,
   type DtmfDigit,
   type EmailNodeData,
   type AiAgentNodeData,
+  type MeetingJoinNodeData,
   type IvrNode,
 } from "../ivr.types";
 import { PromptEditor } from "./PromptEditor";
@@ -479,6 +481,15 @@ function NodeFields({
         />
       );
 
+    case "meeting_join":
+      return (
+        <MeetingJoinFields
+          nodeId={node.id}
+          data={data}
+          updateNodeData={updateNodeData}
+        />
+      );
+
     case "hangup":
       return (
         <p className="text-sm text-muted-foreground">
@@ -672,6 +683,163 @@ function AiAgentFields({
           </p>
         )}
       </Field>
+    </>
+  );
+}
+
+// ─── meeting join (experimental) ────────────────────────
+
+function MeetingJoinFields({
+  nodeId,
+  data,
+  updateNodeData,
+}: {
+  nodeId: string;
+  data: MeetingJoinNodeData;
+  updateNodeData: (id: string, patch: Record<string, unknown>) => void;
+}) {
+  const providers = data.providers ?? [];
+
+  const setProvider = (
+    i: number,
+    patch: Partial<{ digit: string; domain: string }>,
+  ) => {
+    const next = providers.map((p, idx) => (idx === i ? { ...p, ...patch } : p));
+    updateNodeData(nodeId, { providers: next });
+  };
+  const addProvider = () =>
+    updateNodeData(nodeId, {
+      providers: [...providers, { digit: "", domain: "" }],
+    });
+  const removeProvider = (i: number) =>
+    updateNodeData(nodeId, {
+      providers: providers.filter((_, idx) => idx !== i),
+    });
+
+  return (
+    <>
+      <p className="rounded-md border border-fuchsia-500/30 bg-fuchsia-500/10 px-2.5 py-2 text-[11px] leading-snug text-fuchsia-700 dark:text-fuchsia-400">
+        Experimental — collects a meeting ID (and provider) from the caller, then
+        bridges them into the meeting.
+      </p>
+
+      <Field label="Join type">
+        <Select
+          value={data.joinType}
+          onValueChange={(joinType) =>
+            updateNodeData(nodeId, {
+              joinType: joinType as MeetingJoinNodeData["joinType"],
+            })
+          }
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="external">External (provider menu)</SelectItem>
+            <SelectItem value="internal">Internal (lookup via API)</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+
+      {data.joinType === "internal" ? (
+        <>
+          <PromptEditor
+            label="Prompt"
+            value={data.prompt ?? emptyPrompt("Enter your meeting ID.")}
+            onChange={(prompt) => updateNodeData(nodeId, { prompt })}
+          />
+          <Field label="Lookup API URL">
+            <Input
+              value={data.apiUrl ?? ""}
+              placeholder="https://api.example.com/meetings/${digits}"
+              onChange={(e) => updateNodeData(nodeId, { apiUrl: e.target.value })}
+              className="text-sm"
+            />
+          </Field>
+          <Field label="Method">
+            <Select
+              value={data.method ?? "GET"}
+              onValueChange={(method) =>
+                updateNodeData(nodeId, {
+                  method: method as MeetingJoinNodeData["method"],
+                })
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="GET">GET</SelectItem>
+                <SelectItem value="POST">POST</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+        </>
+      ) : (
+        <>
+          <PromptEditor
+            label="Provider prompt"
+            value={
+              data.providerPrompt ??
+              emptyPrompt("Press 1 for Zoom, 2 for Google Meet.")
+            }
+            onChange={(providerPrompt) =>
+              updateNodeData(nodeId, { providerPrompt })
+            }
+          />
+          <PromptEditor
+            label="Meeting ID prompt"
+            value={
+              data.idPrompt ??
+              emptyPrompt("Enter your meeting ID, followed by the pound key.")
+            }
+            onChange={(idPrompt) => updateNodeData(nodeId, { idPrompt })}
+          />
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Providers</Label>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={addProvider}
+              >
+                <Plus className="h-3.5 w-3.5" /> Add
+              </Button>
+            </div>
+            {providers.length === 0 && (
+              <p className="text-[11px] text-muted-foreground/70">
+                Add a digit → domain mapping (e.g. 1 → zoomcrc.com).
+              </p>
+            )}
+            {providers.map((p, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  value={p.digit}
+                  placeholder="1"
+                  onChange={(e) => setProvider(i, { digit: e.target.value })}
+                  className="w-14 text-sm font-mono"
+                />
+                <Input
+                  value={p.domain}
+                  placeholder="zoomcrc.com"
+                  onChange={(e) => setProvider(i, { domain: e.target.value })}
+                  className="flex-1 text-sm"
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => removeProvider(i)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </>
   );
 }

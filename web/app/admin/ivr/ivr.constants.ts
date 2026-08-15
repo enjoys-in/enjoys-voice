@@ -13,6 +13,7 @@ import {
   Voicemail,
   Mail,
   Bot,
+  Video,
   PhoneOff,
   type LucideIcon,
 } from "lucide-react";
@@ -108,6 +109,15 @@ export const NODE_META: Record<IvrNodeKind, NodeMeta> = {
     accent: "text-cyan-500 border-cyan-500/40",
     addable: true,
   },
+  meeting_join: {
+    kind: "meeting_join",
+    title: "Join meeting",
+    description: "Collect a meeting ID/provider and bridge the caller into it.",
+    icon: Video,
+    accent: "text-fuchsia-500 border-fuchsia-500/40",
+    addable: true,
+    experimental: true,
+  },
   hangup: {
     kind: "hangup",
     title: "Hang up",
@@ -127,6 +137,7 @@ export const PALETTE_KINDS: IvrNodeKind[] = [
   "voicemail",
   "email",
   "ai_agent",
+  "meeting_join",
   "hangup",
 ];
 
@@ -232,6 +243,18 @@ export function defaultNodeData(kind: IvrNodeKind, extension = ""): IvrNodeData 
         kind: "ai_agent",
         label: "AI agent",
         agentId: "",
+      };
+    case "meeting_join":
+      return {
+        kind: "meeting_join",
+        label: "Join meeting",
+        joinType: "external",
+        providerPrompt: emptyPrompt("Press 1 for Zoom, 2 for Google Meet."),
+        idPrompt: emptyPrompt("Enter your meeting ID, followed by the pound key."),
+        providers: [
+          { digit: "1", domain: "zoomcrc.com" },
+          { digit: "2", domain: "meet.google.com" },
+        ],
       };
     case "hangup":
       return { kind: "hangup", label: "Hang up" };
