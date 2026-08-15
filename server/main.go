@@ -70,7 +70,7 @@ func main() {
 	}
 
 	// ─── Cache (Valkey) ──────────────────────────────────
-	valkey, err := cache.NewValkeyCache(cfg.ValkeyAddr, cfg.ValkeyPass, cfg.ValkeyDB)
+	valkey, err := cache.NewValkeyCache(cfg.ValkeyURL, cfg.ValkeyAddr, cfg.ValkeyUser, cfg.ValkeyPass, cfg.ValkeyDB)
 	if err != nil {
 		log.Fatalf("Failed to connect to Valkey: %v", err)
 	}

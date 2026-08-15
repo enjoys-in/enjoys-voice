@@ -6,7 +6,8 @@ import { buildValkeyUrl } from '../../core/config';
 export type StoreType = 'memory' | 'redis';
 
 export function createRegistrationStore(type?: StoreType): RegistrationStore {
-  const storeType = type || (process.env.VALKEY_ADDR ? 'redis' : 'memory');
+  const storeType =
+    type || (process.env.VALKEY_URL || process.env.VALKEY_ADDR ? 'redis' : 'memory');
 
   switch (storeType) {
     case 'redis':

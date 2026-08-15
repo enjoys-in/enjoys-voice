@@ -9,9 +9,13 @@ import (
 )
 
 type Config struct {
-	Port          string
-	DatabaseURL   string
+	Port        string
+	DatabaseURL string
+	// ValkeyURL, when set, is a full redis:// / rediss:// URL (may carry an ACL
+	// username + TLS scheme) and takes precedence over the Addr/User/Pass fields.
+	ValkeyURL     string
 	ValkeyAddr    string
+	ValkeyUser    string
 	ValkeyPass    string
 	ValkeyDB      int
 	JWTSecret     string
@@ -120,7 +124,9 @@ func Load() *Config {
 		// the migration, so the Go API listens on the next free port.
 		Port:          getEnv("PORT", "3003"),
 		DatabaseURL:   getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"),
+		ValkeyURL:     getEnv("VALKEY_URL", ""),
 		ValkeyAddr:    getEnv("VALKEY_ADDR", "localhost:6379"),
+		ValkeyUser:    getEnv("VALKEY_USERNAME", ""),
 		ValkeyPass:    getEnv("VALKEY_PASSWORD", ""),
 		ValkeyDB:      getEnvInt("VALKEY_DB", 0),
 		JWTSecret:     getEnv("JWT_SECRET", "enjoys-voice-secret-change-me"),

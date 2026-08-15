@@ -11,13 +11,26 @@ type valkeyCache struct {
 	client *redis.Client
 }
 
-// NewValkeyCache creates a cache backed by Valkey (Redis-compatible).
-func NewValkeyCache(addr, password string, db int) (Cache, error) {
-	client := redis.NewClient(&redis.Options{
-		Addr:     addr,
-		Password: password,
-		DB:       db,
-	})
+// NewValkeyCache creates a cache backed by Valkey (Redis-compatible). A non-empty
+// url (redis:// / rediss://, optionally with an ACL username) wins; otherwise the
+// client is built from addr + username + password + db.
+func NewValkeyCache(url, addr, username, password string, db int) (Cache, error) {
+	var opts *redis.Options
+	if url != "" {
+		parsed, err := redis.ParseURL(url)
+		if err != nil {
+			return nil, err
+		}
+		opts = parsed
+	} else {
+		opts = &redis.Options{
+			Addr:     addr,
+			Username: username,
+			Password: password,
+			DB:       db,
+		}
+	}
+	client := redis.NewClient(opts)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

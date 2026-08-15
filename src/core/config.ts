@@ -270,14 +270,22 @@ export interface AppConfig {
 const FS_RECORDINGS_DIR = process.env.FS_RECORDINGS_DIR || '/usr/local/freeswitch/recordings'; // container (FS write side)
 const HOST_RECORDINGS_DIR = process.env.RECORDINGS_DIR || 'docker/recordings';                  // host (API read side)
 
-// We run Valkey (Redis-compatible). The env is VALKEY_ADDR=host:port (no scheme,
-// to match the Go API), plus optional VALKEY_PASSWORD / VALKEY_DB. node-redis
-// wants a full URL, so build redis://[:password@]host:port[/db] from those.
+// We run Valkey (Redis-compatible). A full VALKEY_URL wins (lets you pass an ACL
+// username, a rediss:// TLS scheme, etc.). Otherwise the URL is built from
+// VALKEY_ADDR=host:port (no scheme, to match the Go API) plus optional
+// VALKEY_USERNAME / VALKEY_PASSWORD / VALKEY_DB — node-redis wants a full URL.
 export function buildValkeyUrl(): string {
+  const full = process.env.VALKEY_URL;
+  if (full && full.trim()) return full.trim();
+
   const addr = process.env.VALKEY_ADDR || 'localhost:6379';
+  const username = process.env.VALKEY_USERNAME || '';
   const password = process.env.VALKEY_PASSWORD || '';
   const db = process.env.VALKEY_DB || '';
-  const auth = password ? `:${encodeURIComponent(password)}@` : '';
+  const auth =
+    username || password
+      ? `${encodeURIComponent(username)}:${encodeURIComponent(password)}@`
+      : '';
   const path = db ? `/${db}` : '';
   return `redis://${auth}${addr}${path}`;
 }
