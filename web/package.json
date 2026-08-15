@@ -1,10 +1,11 @@
 {
   "name": "callnet-web",
-  "version": "0.1.225",
+  "version": "0.1.226",
   "private": true,
   "scripts": {
     "predev": "node scripts/gen-runtime-config.mjs",
     "dev": "next dev -p 4500",
+    "prebuild": "node scripts/gen-runtime-config.mjs",
     "build": "next build",
     "start": "next start -p 4500",
     "lint": "eslint"
