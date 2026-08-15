@@ -34,8 +34,16 @@ type UserSettings struct {
 	CallerIDVerified      bool       `gorm:"column:caller_id_verified;default:false" json:"caller_id_verified"`
 	CallerIDVerifiedAt    *time.Time `gorm:"column:caller_id_verified_at" json:"caller_id_verified_at"`
 	CallerIDValidationSid string     `gorm:"column:caller_id_validation_sid;size:64" json:"-"`
-	CreatedAt             time.Time  `json:"created_at"`
-	UpdatedAt             time.Time  `json:"updated_at"`
+	// Missed-call / voicemail notification preferences. Push channels default on;
+	// email is opt-in (voicemail email on by default since it carries content).
+	// NotificationEmail is where email notifications are sent (empty = disabled).
+	NotifyMissedPush     bool      `gorm:"column:notify_missed_push;default:true" json:"notify_missed_push"`
+	NotifyMissedEmail    bool      `gorm:"column:notify_missed_email;default:false" json:"notify_missed_email"`
+	NotifyVoicemailPush  bool      `gorm:"column:notify_vm_push;default:true" json:"notify_vm_push"`
+	NotifyVoicemailEmail bool      `gorm:"column:notify_vm_email;default:true" json:"notify_vm_email"`
+	NotificationEmail    string    `gorm:"column:notification_email;size:255" json:"notification_email"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 
 	User User `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"-"`
 }
@@ -60,24 +68,35 @@ type SettingsResponse struct {
 	OutboundCallerID   string     `json:"outbound_caller_id"`
 	CallerIDVerified   bool       `json:"caller_id_verified"`
 	CallerIDVerifiedAt *time.Time `json:"caller_id_verified_at"`
+	// Missed-call / voicemail notification preferences.
+	NotifyMissedPush     bool   `json:"notify_missed_push"`
+	NotifyMissedEmail    bool   `json:"notify_missed_email"`
+	NotifyVoicemailPush  bool   `json:"notify_vm_push"`
+	NotifyVoicemailEmail bool   `json:"notify_vm_email"`
+	NotificationEmail    string `json:"notification_email"`
 }
 
 func (s *UserSettings) ToResponse() SettingsResponse {
 	return SettingsResponse{
-		Extension:          s.Extension,
-		SoundsEnabled:      s.SoundsEnabled,
-		DtmfEnabled:        s.DtmfEnabled,
-		CallerTune:         s.CallerTune,
-		Ringtone:           s.Ringtone,
-		PstnEnabled:        s.PstnEnabled,
-		PstnMobile:         s.PstnMobile,
-		PstnCountryCode:    s.PstnCountryCode,
-		RecordingEnabled:   s.RecordingEnabled,
-		VoicemailEnabled:   s.VoicemailEnabled,
-		DND:                s.DND,
-		RatePlanID:         s.RatePlanID,
-		OutboundCallerID:   s.OutboundCallerID,
-		CallerIDVerified:   s.CallerIDVerified,
-		CallerIDVerifiedAt: s.CallerIDVerifiedAt,
+		Extension:            s.Extension,
+		SoundsEnabled:        s.SoundsEnabled,
+		DtmfEnabled:          s.DtmfEnabled,
+		CallerTune:           s.CallerTune,
+		Ringtone:             s.Ringtone,
+		PstnEnabled:          s.PstnEnabled,
+		PstnMobile:           s.PstnMobile,
+		PstnCountryCode:      s.PstnCountryCode,
+		RecordingEnabled:     s.RecordingEnabled,
+		VoicemailEnabled:     s.VoicemailEnabled,
+		DND:                  s.DND,
+		RatePlanID:           s.RatePlanID,
+		OutboundCallerID:     s.OutboundCallerID,
+		CallerIDVerified:     s.CallerIDVerified,
+		CallerIDVerifiedAt:   s.CallerIDVerifiedAt,
+		NotifyMissedPush:     s.NotifyMissedPush,
+		NotifyMissedEmail:    s.NotifyMissedEmail,
+		NotifyVoicemailPush:  s.NotifyVoicemailPush,
+		NotifyVoicemailEmail: s.NotifyVoicemailEmail,
+		NotificationEmail:    s.NotificationEmail,
 	}
 }

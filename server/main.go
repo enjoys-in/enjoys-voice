@@ -83,6 +83,7 @@ func main() {
 	blockRepo := repository.NewBlockRepository(db)
 	fwdRepo := repository.NewForwardingRepository(db)
 	soundRepo := repository.NewSoundRepository(db)
+	recordingRepo := repository.NewRecordingRepository(db)
 	ivrRepo := repository.NewIvrFlowRepository(db)
 	auditRepo := repository.NewAuditRepository(db)
 	vmRepo := repository.NewVoicemailRepository(db)
@@ -107,6 +108,7 @@ func main() {
 	blockSvc := service.NewBlockService(blockRepo, userRepo, valkey)
 	fwdSvc := service.NewForwardingService(fwdRepo, userRepo, valkey)
 	soundSvc := service.NewSoundService(soundRepo, userRepo, valkey)
+	recordingSvc := service.NewRecordingService(recordingRepo)
 	ivrSvc := service.NewIvrService(ivrRepo, valkey)
 	auditSvc := service.NewAuditService(auditRepo)
 	vmSvc := service.NewVoicemailService(vmRepo)
@@ -151,6 +153,7 @@ func main() {
 		Ivr:            handler.NewIvrHandler(ivrSvc),
 		Audit:          handler.NewAuditHandler(auditSvc),
 		Voicemail:      handler.NewVoicemailHandler(vmSvc, cfg.VoicemailDir),
+		Recording:      handler.NewRecordingHandler(recordingSvc, cfg.RecordingDir),
 		SystemSettings: handler.NewSystemSettingsHandler(systemSettingsSvc),
 		Rate:           handler.NewRateHandler(rateSvc),
 		CallerID:       handler.NewCallerIDHandler(callerIDSvc),

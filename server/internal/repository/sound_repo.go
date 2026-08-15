@@ -61,6 +61,18 @@ func (r *recordingRepo) GetByExtension(ctx context.Context, ext string) ([]model
 	return recs, err
 }
 
+func (r *recordingRepo) Get(ctx context.Context, id uint) (*models.Recording, error) {
+	var rec models.Recording
+	if err := r.db.WithContext(ctx).First(&rec, id).Error; err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}
+
+func (r *recordingRepo) Delete(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).Delete(&models.Recording{}, id).Error
+}
+
 // Voicemail repo
 
 type voicemailRepo struct {

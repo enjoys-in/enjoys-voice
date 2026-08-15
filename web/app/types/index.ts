@@ -22,6 +22,10 @@ export interface Contact {
   username: string;
   online: boolean;
   registered: boolean;
+  /** External phone number (personal contacts only). */
+  phone?: string;
+  /** Free-form notes (personal contacts only). */
+  notes?: string;
 }
 
 export interface CallRecord {
@@ -143,6 +147,12 @@ export interface UserSettings {
   recordingEnabled: boolean;
   voicemailEnabled: boolean;
   dnd: boolean;
+  /** Missed-call / voicemail notification preferences. */
+  notifyMissedPush: boolean;
+  notifyMissedEmail: boolean;
+  notifyVoicemailPush: boolean;
+  notifyVoicemailEmail: boolean;
+  notificationEmail: string;
   forwarding: ForwardingRules;
   blockedNumbers: string[];
 }

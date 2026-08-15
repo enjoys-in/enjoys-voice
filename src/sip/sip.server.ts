@@ -5,7 +5,7 @@ import type { WidgetTokenClaims } from '@/core';
 import { SipStatus, CallStatus, CallDirection, UnreachableReason, CallNotifyEvent, CallNotifyReason } from '@/core/types';
 import { DatabaseService, TrunkService, AuditService, DialPlanService, RouteType } from '@/services';
 import type { DialResult, ConferenceService, QueueService, RoutingRuleRecord } from '@/services';
-import { PushService } from '@/services';
+import { PushService, insertRecording } from '@/services';
 import type { RegistrationStore } from '@/services/registration';
 import type { RoutingOrchestrator } from '@/modules/routing';
 import { IVRSystem } from './ivr.system';
@@ -317,7 +317,7 @@ export class SipServer {
 
         this.db.logCall({
           id: callId, from: callingNumber, to: calledNumber,
-          fromName: this.db.getUser(callingNumber)?.name || callingNumber,
+          fromName: this.resolveCallerName(calledNumber, callingNumber, req.callingName),
           status: CallStatus.Ringing, direction: CallDirection.Inbound, startTime: new Date().toISOString(),
         });
         this.audit.log('call_start', callingNumber, { to: calledNumber, callId }, ip);
@@ -371,7 +371,7 @@ export class SipServer {
         if (this.push.enabled && !widgetClaims) {
           const callee = this.db.getUser(calledNumber);
           if (callee && (config.push.always || !this.db.isRegistered(calledNumber))) {
-            const fromName = this.db.getUser(callingNumber)?.name || callingNumber;
+            const fromName = this.resolveCallerName(calledNumber, callingNumber, req.callingName);
             void this.push.sendIncomingCall(calledNumber, {
               callId, from: callingNumber, fromName, to: calledNumber,
             });
@@ -446,7 +446,7 @@ export class SipServer {
       case 'voicemail': {
         // Send the caller straight to the rule owner's voicemail.
         if (config.voicemail.enabled && this.ivr) {
-          const fromName = ctx.req.callingName || this.db.getUser(ctx.callingNumber)?.name || ctx.callingNumber;
+          const fromName = this.resolveCallerName(rule.ownerExtension, ctx.callingNumber, ctx.req.callingName);
           const saved = await this.ivr.recordVoicemail(ctx.req, ctx.res, rule.ownerExtension, ctx.callingNumber, fromName);
           this.db.updateCall(ctx.callId, { status: saved ? CallStatus.Voicemail : CallStatus.Missed });
         } else {
@@ -503,6 +503,108 @@ export class SipServer {
         return true;
       default:
         return false;
+    }
+  }
+
+  /**
+   * Resolve the display name for an inbound caller as seen by `calleeExt`: a
+   * known internal user's name, else the callee's own saved contact name for
+   * that number (caller-ID enrichment from their personal contacts), else the
+   * SIP From display name, else the raw number.
+   */
+  private resolveCallerName(calleeExt: string, callingNumber: string, callingName?: string): string {
+    return (
+      this.db.getUser(callingNumber)?.name ||
+      this.db.lookupContactName(calleeExt, callingNumber) ||
+      callingName ||
+      callingNumber
+    );
+  }
+
+  /** Local extensions party to this call that have opted into recording. */
+  private recordingOwners(callingNumber: string, calledExt: string): string[] {
+    const owners: string[] = [];
+    if (this.db.getUser(callingNumber)?.recordingEnabled) owners.push(callingNumber);
+    if (this.db.getUser(calledExt)?.recordingEnabled) owners.push(calledExt);
+    return owners;
+  }
+
+  /**
+   * Media-anchor a registered-callee call through FreeSWITCH and record the
+   * bridged session. The caller is answered onto an FS endpoint (A-leg), a 3pcc
+   * endpoint dials the callee (B-leg), the two are bridged and `recordSession`
+   * captures both legs. A `recordings` row is persisted per opted-in party on
+   * teardown so it appears in their playback list.
+   *
+   * Returns true when it took over the call (answered on FS), false ONLY when it
+   * couldn't start (no media server) so the caller can fall back to the fast
+   * relay B2BUA. NOTE: once the A-leg is answered we can't fall back; a callee
+   * decline/failure here just tears down (recorded calls don't run the offline
+   * fallback chain). Recording is opt-in, so this path never affects other calls.
+   */
+  private async recordedBridge(
+    req: any, res: any, contactUri: string, callId: string,
+    callingNumber: string, calledExt: string, owners: string[],
+  ): Promise<boolean> {
+    const ms = this.ivr?.mediaServer;
+    if (!ms) return false; // no media server → caller falls back to relay B2BUA
+
+    let aLeg: any, bLeg: any, uac: any, dialog: any, torndown = false;
+    const teardown = () => {
+      if (torndown) return;
+      torndown = true;
+      try { uac?.destroy?.(); } catch { /* noop */ }
+      try { bLeg?.destroy?.(); } catch { /* noop */ }
+      try { aLeg?.destroy?.(); } catch { /* noop */ }
+      try { dialog?.destroy?.(); } catch { /* noop */ }
+    };
+
+    const startTime = Date.now();
+    const filename = `call-${callId}.wav`;
+    const fsPath = `${config.callRecording.fsDir}/${filename}`;
+    const hostPath = `${config.callRecording.hostDir}/${filename}`;
+
+    try {
+      this.notifyFn?.(callingNumber, CallNotifyEvent.Ringing, { target: calledExt, callId });
+      // A-leg: answer the caller onto FreeSWITCH (handles WebRTC DTLS-SRTP).
+      ({ endpoint: aLeg, dialog } = await ms.connectCaller(req, res));
+      // B-leg: a 3pcc endpoint offers to the callee; dial their contact, then
+      // point FS at the answer.
+      bLeg = await ms.createEndpoint();
+      uac = await this.srf.createUAC(contactUri, { localSdp: bLeg.local.sdp || '' });
+      await bLeg.modify(uac.remote?.sdp || '');
+      // Record the bridged session (both legs) to the shared recordings volume.
+      await aLeg.recordSession(fsPath).catch((err: any) => console.warn(`⚠️  record start failed: ${err?.message}`));
+
+      const onDestroy = () => {
+        const duration = Math.max(0, Math.round((Date.now() - startTime) / 1000));
+        this.db.updateCall(callId, { status: CallStatus.Ended, endTime: new Date().toISOString(), duration });
+        this.audit.log('call_ended', callingNumber, { to: calledExt, callId, recorded: true });
+        // One recordings row per opted-in local party (best-effort).
+        for (const owner of owners) {
+          void insertRecording({ extension: owner, callId, filename, duration, path: hostPath })
+            .catch((err) => console.warn(`⚠️  record persist failed: ${err?.message}`));
+        }
+        teardown();
+      };
+      uac.on('destroy', onDestroy);
+      dialog.on('destroy', onDestroy);
+      bLeg.on('destroy', onDestroy);
+      aLeg.on('destroy', onDestroy);
+
+      await aLeg.bridge(bLeg);
+      console.log(`✅ Recorded call connected: ${callingNumber} → ${calledExt}`);
+      this.notifyFn?.(callingNumber, CallNotifyEvent.Answered, { target: calledExt, callId });
+      this.audit.log('call_answered', callingNumber, { to: calledExt, callId });
+      this.db.updateCall(callId, { status: CallStatus.Answered });
+      return true;
+    } catch (err: any) {
+      console.error(`❌ Recorded bridge failed (${callingNumber} → ${calledExt}): ${err?.message}`);
+      this.db.updateCall(callId, { status: CallStatus.Missed });
+      teardown();
+      // If FS already answered the caller, the INVITE is consumed → handled here.
+      // Otherwise res is still open, so return false to fall back to the relay.
+      return res.finalResponseSent;
     }
   }
 
@@ -567,6 +669,18 @@ export class SipServer {
     // drachtio-server internally maps .invalid Contact URIs to the WebSocket
     // connection established during REGISTER. Pass Contact URI directly.
     console.log(`   Sending INVITE to: ${contactUri}`);
+
+    // Recorded calls: when a party has opted into recording (and capture is
+    // globally enabled), media-anchor the call through FreeSWITCH so the bridged
+    // audio can be recorded. Opt-in per user (default off), so normal calls are
+    // untouched. If the media server isn't available the recorded bridge returns
+    // false and we fall through to the fast relay B2BUA below.
+    if (config.callRecording.enabled) {
+      const owners = this.recordingOwners(callingNumber, calledExt);
+      if (owners.length > 0 && await this.recordedBridge(req, res, contactUri, callId, callingNumber, calledExt, owners)) {
+        return;
+      }
+    }
 
     try {
       // Create B2BUA with a 15s no-answer timeout
@@ -693,7 +807,7 @@ export class SipServer {
     //    ring out), so we skip voicemail and play a spoken status tone instead.
     if (reason === UnreachableReason.Offline && config.voicemail.enabled && this.ivr) {
       console.log(`📭 ${calledExt} offline → voicemail`);
-      const fromName = req.callingName || this.db.getUser(callingNumber)?.name || callingNumber;
+      const fromName = this.resolveCallerName(calledExt, callingNumber, req.callingName);
       const saved = await this.ivr.recordVoicemail(req, res, calledExt, callingNumber, fromName);
       // A left message is its own outcome (`voicemail`), not `answered` — the
       // callee never picked up. If nothing was recorded it's `unreachable`.
@@ -743,7 +857,7 @@ export class SipServer {
     // Voicemail: let the caller leave a message even though the device is silent.
     if (config.voicemail.enabled && this.ivr) {
       console.log(`🔕 ${calledExt} on DND → voicemail`);
-      const fromName = req.callingName || this.db.getUser(callingNumber)?.name || callingNumber;
+      const fromName = this.resolveCallerName(calledExt, callingNumber, req.callingName);
       const saved = await this.ivr.recordVoicemail(req, res, calledExt, callingNumber, fromName);
       this.db.updateCall(callId, { status: saved ? CallStatus.Voicemail : CallStatus.Missed });
       this.notifyFn?.(callingNumber, CallNotifyEvent.Unavailable, { target: calledExt, reason: CallNotifyReason.Dnd, callId });

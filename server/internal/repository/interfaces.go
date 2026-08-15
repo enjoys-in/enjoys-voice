@@ -130,6 +130,8 @@ type SoundRepository interface {
 type RecordingRepository interface {
 	Create(ctx context.Context, rec *models.Recording) error
 	GetByExtension(ctx context.Context, ext string) ([]models.Recording, error)
+	Get(ctx context.Context, id uint) (*models.Recording, error)
+	Delete(ctx context.Context, id uint) error
 }
 
 type VoicemailRepository interface {

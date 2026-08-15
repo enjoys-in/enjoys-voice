@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { LogOut, Shield, PhoneForwarded, Volume2, Voicemail, Music, Radio, Mic, Play, Square, Upload, Trash2, Phone, Globe, Settings2, BellOff } from "lucide-react";
+import { LogOut, Shield, PhoneForwarded, Volume2, Voicemail, Music, Radio, Mic, Play, Square, Upload, Trash2, Phone, Globe, Settings2, BellOff, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -46,7 +46,7 @@ const RINGTONES = [
 export function SettingsScreen() {
   const { user, logout } = useAuthStore();
   const { settings, setSettings, setForwarding, addBlockedNumber, removeBlockedNumber } = useSettingsStore();
-  const { saveForwarding, blockNumber, unblockNumber, savePstnForward, saveDnd } = useSettingsSync();
+  const { saveForwarding, blockNumber, unblockNumber, savePstnForward, saveDnd, saveNotifications, saveRecording } = useSettingsSync();
   const { allowUserDnd } = useSystemPolicies();
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -343,6 +343,48 @@ export function SettingsScreen() {
               </Card>
               )}
 
+              {/* Missed-call & voicemail notifications */}
+              <Card className="border-border/50 bg-card/50">
+                <CardHeader className="p-4 pb-2">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <Bell className="h-4 w-4" /> Notifications
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4 pt-2 space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Get notified about missed calls and new voicemails when you’re away.
+                  </p>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="nmp" className="text-sm">Missed-call push</Label>
+                    <Switch id="nmp" checked={settings.notifyMissedPush}
+                      onCheckedChange={(v) => { setSettings({ notifyMissedPush: v }); saveNotifications({ notify_missed_push: v }); }} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="nvp" className="text-sm">Voicemail push</Label>
+                    <Switch id="nvp" checked={settings.notifyVoicemailPush}
+                      onCheckedChange={(v) => { setSettings({ notifyVoicemailPush: v }); saveNotifications({ notify_vm_push: v }); }} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="nme" className="text-sm">Missed-call email</Label>
+                    <Switch id="nme" checked={settings.notifyMissedEmail}
+                      onCheckedChange={(v) => { setSettings({ notifyMissedEmail: v }); saveNotifications({ notify_missed_email: v }); }} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="nve" className="text-sm">Voicemail email</Label>
+                    <Switch id="nve" checked={settings.notifyVoicemailEmail}
+                      onCheckedChange={(v) => { setSettings({ notifyVoicemailEmail: v }); saveNotifications({ notify_vm_email: v }); }} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="nemail" className="text-xs">Notification email</Label>
+                    <Input id="nemail" type="email" placeholder="you@example.com"
+                      value={settings.notificationEmail}
+                      onChange={(e) => setSettings({ notificationEmail: e.target.value })}
+                      onBlur={(e) => saveNotifications({ notification_email: e.target.value.trim() })} />
+                    <p className="text-[11px] text-muted-foreground">Where email notifications are sent (leave empty to disable email).</p>
+                  </div>
+                </CardContent>
+              </Card>
+
               {/* Sounds & Tunes */}
               <Card className="border-border/50 bg-card/50">
                 <CardHeader className="p-4 pb-2">
@@ -595,12 +637,12 @@ export function SettingsScreen() {
                     <Switch
                       id="recording"
                       checked={settings.recordingEnabled}
-                      onCheckedChange={(v) => setSettings({ recordingEnabled: v })}
+                      onCheckedChange={(v) => { setSettings({ recordingEnabled: v }); saveRecording(v); }}
                     />
                   </div>
                   {settings.recordingEnabled && (
                     <p className="text-xs text-muted-foreground">
-                      Recordings will be available in the admin panel
+                      Your calls are recorded and appear in Recents for playback.
                     </p>
                   )}
                 </CardContent>

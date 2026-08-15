@@ -25,11 +25,14 @@ import {
   loadEnabledWebhooks,
   loadAiAgentById,
   loadEnabledAiAgents,
+  loadAllContactPhones,
+  loadContactPhonesByOwner,
   type ConnectorRecord,
   type RoutingRuleRecord,
   type WebhookRecord,
   type AiAgentRecord,
   type ForwardingRow,
+  type PstnRow,
 } from './postgres';
 import type { IvrFlowGraph } from '@/sip/ivr/flow.types';
 
@@ -98,6 +101,13 @@ export class DatabaseService extends EventEmitter {
   private aiAgents = new Map<number, AiAgentRecord | null>();
   private aiAgentsByOwner: Map<string, AiAgentRecord[]> | null = null;
   /**
+   * Owner-extension → (normalized phone key → contact name). Powers inbound
+   * caller-ID enrichment: when an external number rings a user, their saved
+   * contact name is shown instead of the raw number. Loaded in bulk at startup
+   * and refreshed per-owner on a `contacts` NOTIFY.
+   */
+  private contactsByPhone = new Map<string, Map<string, string>>();
+  /**
    * Optional call rater. Injected (not imported) to avoid a module cycle with
    * the rating service. When set, a call transitioning to `ended` is priced here
    * — the single choke point every terminal `ended` flows through — so cost is
@@ -130,6 +140,7 @@ export class DatabaseService extends EventEmitter {
     }
     await this.hydrateAllDetail();
     await this.hydrateIvrFlowExtensions();
+    await this.hydrateAllContacts();
     return rows.length;
   }
 
@@ -145,6 +156,54 @@ export class DatabaseService extends EventEmitter {
     const calls = await loadRecentCalls(limit);
     this.callLogs = calls;
     return calls.length;
+  }
+
+  /**
+   * Bulk-load every user's contacts that carry a phone number and index them by
+   * owner for inbound caller-ID enrichment. Fully replaces the prior index.
+   */
+  async hydrateAllContacts(): Promise<void> {
+    const rows = await loadAllContactPhones();
+    const next = new Map<string, Map<string, string>>();
+    for (const r of rows) {
+      let byPhone = next.get(r.owner_extension);
+      if (!byPhone) { byPhone = new Map(); next.set(r.owner_extension, byPhone); }
+      for (const key of DatabaseService.phoneKeys(r.phone)) byPhone.set(key, r.name);
+    }
+    this.contactsByPhone = next;
+  }
+
+  /** Refresh one owner's contact→name index (triggered on a `contacts` NOTIFY). */
+  async hydrateContactsByOwner(owner: string): Promise<void> {
+    const rows = await loadContactPhonesByOwner(owner);
+    if (rows.length === 0) { this.contactsByPhone.delete(owner); return; }
+    const byPhone = new Map<string, string>();
+    for (const r of rows) {
+      for (const key of DatabaseService.phoneKeys(r.phone)) byPhone.set(key, r.name);
+    }
+    this.contactsByPhone.set(owner, byPhone);
+  }
+
+  /**
+   * The name `ownerExt` has saved for `phone` in their personal contacts, or
+   * undefined. Matches on full digits and on the last 10 digits so a stored
+   * +91… number still matches a local-format inbound number and vice-versa.
+   */
+  lookupContactName(ownerExt: string, phone: string): string | undefined {
+    const byPhone = this.contactsByPhone.get(ownerExt);
+    if (!byPhone || !phone) return undefined;
+    for (const key of DatabaseService.phoneKeys(phone)) {
+      const name = byPhone.get(key);
+      if (name) return name;
+    }
+    return undefined;
+  }
+
+  /** Candidate match keys for a phone: digits-only, plus its last 10 digits. */
+  private static phoneKeys(phone: string): string[] {
+    const digits = (phone || '').replace(/\D/g, '');
+    if (!digits) return [];
+    return digits.length > 10 ? [digits, digits.slice(-10)] : [digits];
   }
 
   /**
@@ -173,6 +232,8 @@ export class DatabaseService extends EventEmitter {
       user.outboundCallerId = undefined;
       user.balance = undefined;
       user.balanceCurrency = undefined;
+      user.recordingEnabled = false;
+      this.applyNotify(user, null);
     }
 
     for (const b of blocked) {
@@ -183,7 +244,8 @@ export class DatabaseService extends EventEmitter {
       this.applyForwardingRow(this.users.get(f.extension), f);
     }
     for (const p of pstn) {
-      this.applyPstn(this.users.get(p.extension), p.pstn_enabled, p.pstn_mobile, p.dnd, p.rate_plan_id, p.outbound_caller_id);
+      this.applyPstn(this.users.get(p.extension), p.pstn_enabled, p.pstn_mobile, p.dnd, p.rate_plan_id, p.outbound_caller_id, p.recording_enabled);
+      this.applyNotify(this.users.get(p.extension), p);
     }
     // Prepaid wallets are only hydrated when billing is on, so a workspace with
     // prepaid off never pays for the extra query.
@@ -215,7 +277,8 @@ export class DatabaseService extends EventEmitter {
     user.forwardOnNoAnswer = undefined;
     user.forwardOnUnavailable = undefined;
     for (const f of forwarding) this.applyForwardingRow(user, f);
-    this.applyPstn(user, pstn?.pstn_enabled ?? false, pstn?.pstn_mobile ?? null, pstn?.dnd ?? false, pstn?.rate_plan_id ?? null, pstn?.outbound_caller_id ?? null);
+    this.applyPstn(user, pstn?.pstn_enabled ?? false, pstn?.pstn_mobile ?? null, pstn?.dnd ?? false, pstn?.rate_plan_id ?? null, pstn?.outbound_caller_id ?? null, pstn?.recording_enabled ?? false);
+    this.applyNotify(user, pstn);
     if (config.billing.prepaidEnabled) {
       const bal = await loadBalanceByExtension(extension);
       this.applyBalance(user, bal?.balance ?? null, bal?.currency ?? null);
@@ -236,6 +299,17 @@ export class DatabaseService extends EventEmitter {
     }
   }
 
+  /** Map user_settings notification-preference columns onto the SipUser. A null
+   * row (no settings) applies the DB defaults (push on, missed-email off). */
+  private applyNotify(user: SipUser | undefined, row: PstnRow | null | undefined): void {
+    if (!user) return;
+    user.notifyMissedPush = row?.notify_missed_push ?? true;
+    user.notifyMissedEmail = row?.notify_missed_email ?? false;
+    user.notifyVoicemailPush = row?.notify_vm_push ?? true;
+    user.notifyVoicemailEmail = row?.notify_vm_email ?? true;
+    user.notificationEmail = row?.notification_email || undefined;
+  }
+
   /** Map user_settings PSTN + DND + billing fields onto the SipUser. */
   private applyPstn(
     user: SipUser | undefined,
@@ -244,6 +318,7 @@ export class DatabaseService extends EventEmitter {
     dnd = false,
     ratePlanId: number | null = null,
     outboundCallerId: string | null = null,
+    recordingEnabled = false,
   ): void {
     if (!user) return;
     user.pstnForwardToBrowser = enabled;
@@ -251,6 +326,7 @@ export class DatabaseService extends EventEmitter {
     user.dnd = dnd;
     user.ratePlanId = ratePlanId ?? undefined;
     user.outboundCallerId = outboundCallerId ?? undefined;
+    user.recordingEnabled = recordingEnabled;
   }
 
   /** Map a user_balances row onto the SipUser wallet fields (0 stays 0). */
@@ -436,6 +512,7 @@ export class DatabaseService extends EventEmitter {
   updateCall(callId: string, updates: Partial<CallLog>): void {
     const call = this.callLogs.find(c => c.id === callId);
     if (call) {
+      const prevStatus = call.status;
       // Price billable calls exactly once, as they reach the terminal `ended`
       // state (the only status that carries final talk time). The rater merges
       // cost/currency/ratePrefix/billedSecs into the updates before they're
@@ -467,6 +544,11 @@ export class DatabaseService extends EventEmitter {
       }
       Object.assign(call, next);
       this.emit(DbEvent.CallUpserted, call);
+      // Notify the callee once, on the transition INTO a missed state (covers
+      // busy/no-answer/offline/DND paths uniformly). Voicemail has its own event.
+      if (next.status === 'missed' && prevStatus !== 'missed') {
+        this.emit(DbEvent.CallMissed, call);
+      }
     }
   }
 
@@ -556,6 +638,7 @@ export class DatabaseService extends EventEmitter {
 
   async addVoicemail(vm: Voicemail): Promise<void> {
     await insertVoicemail(vm);
+    this.emit(DbEvent.VoicemailSaved, vm);
   }
 
   /** A mailbox's voicemails (newest first) plus its unread count, in one query. */

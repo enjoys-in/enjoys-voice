@@ -26,6 +26,10 @@ export enum DbEvent {
   /** A per-call charge to debit from a prepaid wallet (emitted at end-of-call
    * when prepaid billing is on and the call produced a non-zero cost). */
   BalanceDebit = 'balance:debit',
+  /** A call transitioned to `missed` — used to fire missed-call notifications. */
+  CallMissed = 'call:missed',
+  /** A voicemail was saved — used to fire new-voicemail notifications. */
+  VoicemailSaved = 'voicemail:saved',
 }
 
 /**
@@ -227,6 +231,17 @@ export interface SipUser {
   balance?: number;
   /** ISO-4217 currency the wallet balance is denominated in. */
   balanceCurrency?: string;
+  /** Missed-call / voicemail notification preferences (from user_settings).
+   * Push channels default on; email is opt-in. `notificationEmail` is where
+   * email notifications are sent (undefined/empty disables email). */
+  notifyMissedPush?: boolean;
+  notifyMissedEmail?: boolean;
+  notifyVoicemailPush?: boolean;
+  notifyVoicemailEmail?: boolean;
+  notificationEmail?: string;
+  /** Whether this user's calls should be recorded. Capture media-anchors the
+   * call through FreeSWITCH, so it only engages for opted-in users. */
+  recordingEnabled?: boolean;
 }
 
 export interface SipRegistration {

@@ -49,6 +49,14 @@ export interface PstnRow {
    * SQL gates this on caller_id_verified AND freshness (caller_id_verified_at
    * within the TTL) so Node never sees an unverified or stale number. */
   outbound_caller_id: string | null;
+  /** Missed-call / voicemail notification preferences. */
+  notify_missed_push: boolean;
+  notify_missed_email: boolean;
+  notify_vm_push: boolean;
+  notify_vm_email: boolean;
+  notification_email: string | null;
+  /** Whether this user's calls should be recorded (media-anchored capture). */
+  recording_enabled: boolean;
 }
 
 export async function loadAllBlocked(): Promise<BlockedRow[]> {
@@ -84,7 +92,13 @@ export async function loadForwardingByExtension(extension: string): Promise<Forw
 export async function loadAllPstn(): Promise<PstnRow[]> {
   const { rows } = await getPool().query<PstnRow>(
     `SELECT extension, pstn_enabled, pstn_mobile, COALESCE(dnd, false) AS dnd, rate_plan_id,
-            CASE WHEN COALESCE(caller_id_verified, false)${CALLER_ID_FRESH_SQL} THEN outbound_caller_id ELSE NULL END AS outbound_caller_id
+            CASE WHEN COALESCE(caller_id_verified, false)${CALLER_ID_FRESH_SQL} THEN outbound_caller_id ELSE NULL END AS outbound_caller_id,
+            COALESCE(notify_missed_push, true) AS notify_missed_push,
+            COALESCE(notify_missed_email, false) AS notify_missed_email,
+            COALESCE(notify_vm_push, true) AS notify_vm_push,
+            COALESCE(notify_vm_email, true) AS notify_vm_email,
+            notification_email,
+            COALESCE(recording_enabled, false) AS recording_enabled
      FROM user_settings`,
   );
   return rows;
@@ -93,7 +107,13 @@ export async function loadAllPstn(): Promise<PstnRow[]> {
 export async function loadPstnByExtension(extension: string): Promise<PstnRow | null> {
   const { rows } = await getPool().query<PstnRow>(
     `SELECT extension, pstn_enabled, pstn_mobile, COALESCE(dnd, false) AS dnd, rate_plan_id,
-            CASE WHEN COALESCE(caller_id_verified, false)${CALLER_ID_FRESH_SQL} THEN outbound_caller_id ELSE NULL END AS outbound_caller_id
+            CASE WHEN COALESCE(caller_id_verified, false)${CALLER_ID_FRESH_SQL} THEN outbound_caller_id ELSE NULL END AS outbound_caller_id,
+            COALESCE(notify_missed_push, true) AS notify_missed_push,
+            COALESCE(notify_missed_email, false) AS notify_missed_email,
+            COALESCE(notify_vm_push, true) AS notify_vm_push,
+            COALESCE(notify_vm_email, true) AS notify_vm_email,
+            notification_email,
+            COALESCE(recording_enabled, false) AS recording_enabled
      FROM user_settings WHERE extension = $1 LIMIT 1`,
     [extension],
   );

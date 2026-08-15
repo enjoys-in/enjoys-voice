@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/enjoys-in/enjoys-voice/api/internal/cache"
 	"github.com/enjoys-in/enjoys-voice/api/internal/models"
@@ -89,6 +90,21 @@ func (s *settingsService) Update(ctx context.Context, ext string, input *Setting
 	}
 	if input.DND != nil {
 		settings.DND = *input.DND
+	}
+	if input.NotifyMissedPush != nil {
+		settings.NotifyMissedPush = *input.NotifyMissedPush
+	}
+	if input.NotifyMissedEmail != nil {
+		settings.NotifyMissedEmail = *input.NotifyMissedEmail
+	}
+	if input.NotifyVoicemailPush != nil {
+		settings.NotifyVoicemailPush = *input.NotifyVoicemailPush
+	}
+	if input.NotifyVoicemailEmail != nil {
+		settings.NotifyVoicemailEmail = *input.NotifyVoicemailEmail
+	}
+	if input.NotificationEmail != nil {
+		settings.NotificationEmail = strings.TrimSpace(*input.NotificationEmail)
 	}
 	// Rate plan: only touch it when the field was present in the request body.
 	// An explicit null or 0 clears the assignment (→ workspace default); a

@@ -23,6 +23,8 @@ type ContactInput struct {
 	Name      *string `json:"name"`
 	Extension *string `json:"extension"`
 	Username  *string `json:"username"`
+	Phone     *string `json:"phone"`
+	Notes     *string `json:"notes"`
 }
 
 // ContactView is the API view of a personal contact.
@@ -32,6 +34,8 @@ type ContactView struct {
 	Name           string    `json:"name"`
 	Extension      string    `json:"extension"`
 	Username       string    `json:"username,omitempty"`
+	Phone          string    `json:"phone,omitempty"`
+	Notes          string    `json:"notes,omitempty"`
 	CreatedAt      time.Time `json:"createdAt"`
 	UpdatedAt      time.Time `json:"updatedAt"`
 }
@@ -136,6 +140,30 @@ func applyContactInput(c *models.Contact, input *ContactInput) {
 	if input.Username != nil {
 		c.Username = strings.TrimSpace(*input.Username)
 	}
+	if input.Phone != nil {
+		c.Phone = normalizeContactPhone(*input.Phone)
+	}
+	if input.Notes != nil {
+		c.Notes = strings.TrimSpace(*input.Notes)
+	}
+}
+
+// normalizeContactPhone strips formatting to a consistent, index-friendly form:
+// a leading + (if any) followed by digits only. Empty stays empty.
+func normalizeContactPhone(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	var b strings.Builder
+	for i, r := range raw {
+		if r == '+' && i == 0 {
+			b.WriteRune(r)
+		} else if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func toContactView(c *models.Contact) ContactView {
@@ -145,6 +173,8 @@ func toContactView(c *models.Contact) ContactView {
 		Name:           c.Name,
 		Extension:      c.Extension,
 		Username:       c.Username,
+		Phone:          c.Phone,
+		Notes:          c.Notes,
 		CreatedAt:      c.CreatedAt,
 		UpdatedAt:      c.UpdatedAt,
 	}

@@ -20,6 +20,7 @@ type Handlers struct {
 	Ivr            *handler.IvrHandler
 	Audit          *handler.AuditHandler
 	Voicemail      *handler.VoicemailHandler
+	Recording      *handler.RecordingHandler
 	Rate           *handler.RateHandler
 	CallerID       *handler.CallerIDHandler
 	Balance        *handler.BalanceHandler
@@ -166,6 +167,12 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool
 			protected.GET("/voicemails/:ext/:id/audio", selfOrAdmin, h.Voicemail.Audio)
 			protected.POST("/voicemails/:ext/:id/read", selfOrAdmin, h.Voicemail.MarkRead)
 			protected.DELETE("/voicemails/:ext/:id", selfOrAdmin, h.Voicemail.Delete)
+
+			// Call recordings (owner-scoped: the caller only sees recordings of
+			// calls they were a party to; the owner comes from the JWT).
+			protected.GET("/recordings", h.Recording.List)
+			protected.GET("/recordings/:id/audio", h.Recording.Audio)
+			protected.DELETE("/recordings/:id", h.Recording.Delete)
 
 			// Users — listing every user + deleting are admin-only; reading one
 			// extension is limited to the owner (or an admin).

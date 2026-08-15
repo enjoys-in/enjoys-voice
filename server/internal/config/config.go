@@ -20,6 +20,7 @@ type Config struct {
 	RefreshTTL    time.Duration
 	UploadDir     string
 	VoicemailDir  string
+	RecordingDir  string
 	MigrationsDir string
 	// FFmpegPath is the ffmpeg binary used to normalize IVR sound uploads to the
 	// FreeSWITCH-canonical format. Defaults to "ffmpeg" (resolved on PATH); a
@@ -129,6 +130,7 @@ func Load() *Config {
 		RefreshTTL:    getEnvDuration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
 		UploadDir:     getEnv("UPLOAD_DIR", "./uploads/sounds"),
 		VoicemailDir:  getEnv("VOICEMAIL_DIR", "./recordings/voicemail"),
+		RecordingDir:  getEnv("CALL_RECORDING_HOST_DIR", "./recordings/calls"),
 		MigrationsDir: getEnv("MIGRATIONS_DIR", "migrations"),
 		FFmpegPath:    getEnv("FFMPEG_PATH", "ffmpeg"),
 		// Default under uploads so a single bind mount can expose both; override

@@ -110,6 +110,17 @@ export class IVRSystem {
     return !!this.ms;
   }
 
+  /** The live FreeSWITCH media server, or null when not connected. Exposed so
+   * the SIP server can media-anchor a call for recording. */
+  get mediaServer(): Mrf.MediaServer | null {
+    return this.ms;
+  }
+
+  /** Ensure the media server is connected (public wrapper over the retry logic). */
+  ensureMediaServer(): Promise<boolean> {
+    return this.ensureConnected();
+  }
+
   getActiveCalls(): IVRCallState[] {
     return Array.from(this.activeCalls.values());
   }

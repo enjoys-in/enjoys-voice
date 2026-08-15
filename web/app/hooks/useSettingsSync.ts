@@ -41,7 +41,15 @@ export function useSettingsSync() {
         },
         pstnForwardToBrowser: pstnFwdRes.enabled,
         pstnForwardTarget: pstnFwdRes.target || "",
-        ...(settingsRes ? { dnd: settingsRes.dnd } : {}),
+        ...(settingsRes ? {
+          dnd: settingsRes.dnd,
+          recordingEnabled: settingsRes.recording_enabled,
+          notifyMissedPush: settingsRes.notify_missed_push,
+          notifyMissedEmail: settingsRes.notify_missed_email,
+          notifyVoicemailPush: settingsRes.notify_vm_push,
+          notifyVoicemailEmail: settingsRes.notify_vm_email,
+          notificationEmail: settingsRes.notification_email || "",
+        } : {}),
       });
     } catch {
       settingsLoaded = false; // Allow retry on failure
@@ -119,5 +127,38 @@ export function useSettingsSync() {
     [user]
   );
 
-  return { loadSettings, saveForwarding, blockNumber, unblockNumber, savePstnForward, saveDnd };
+  // Save the call-recording opt-in.
+  const saveRecording = useCallback(
+    async (recording_enabled: boolean) => {
+      if (!user) return;
+      try {
+        await goApi.updateSettings(user.extension, { recording_enabled });
+      } catch {
+        // silent
+      }
+    },
+    [user]
+  );
+
+  // Save missed-call / voicemail notification preferences (snake_case keys map
+  // to models.SettingsResponse on the server).
+  const saveNotifications = useCallback(
+    async (updates: {
+      notify_missed_push?: boolean;
+      notify_missed_email?: boolean;
+      notify_vm_push?: boolean;
+      notify_vm_email?: boolean;
+      notification_email?: string;
+    }) => {
+      if (!user) return;
+      try {
+        await goApi.updateSettings(user.extension, updates);
+      } catch {
+        // silent
+      }
+    },
+    [user]
+  );
+
+  return { loadSettings, saveForwarding, blockNumber, unblockNumber, savePstnForward, saveDnd, saveNotifications, saveRecording };
 }

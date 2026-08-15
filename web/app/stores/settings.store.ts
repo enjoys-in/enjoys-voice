@@ -20,6 +20,11 @@ const DEFAULT_SETTINGS: UserSettings = {
   recordingEnabled: false,
   voicemailEnabled: false,
   dnd: false,
+  notifyMissedPush: true,
+  notifyMissedEmail: false,
+  notifyVoicemailPush: true,
+  notifyVoicemailEmail: true,
+  notificationEmail: "",
   forwarding: {},
   blockedNumbers: [],
 };

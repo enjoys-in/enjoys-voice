@@ -37,6 +37,10 @@ export { AiAgentSyncListener } from './ai-agent-notify';
 export type { AiAgentSyncOptions } from './ai-agent-notify';
 export { loadAiAgentById, loadEnabledAiAgents } from './ai-agent.repo';
 export type { AiAgentRecord } from './ai-agent.repo';
+export { ContactSyncListener } from './contact-notify';
+export type { ContactSyncOptions } from './contact-notify';
+export { loadAllContactPhones, loadContactPhonesByOwner } from './contact.repo';
+export type { ContactPhoneRow } from './contact.repo';
 export { loadRatePlans } from './rate.repo';
 export type { RatePlanRow, RateRow } from './rate.repo';
 export { debitForCall } from './balance.repo';
@@ -50,3 +54,5 @@ export {
 } from './voicemail.repo';
 export { ensureCallSchema, upsertCall, loadRecentCalls } from './call.repo';
 export { ensureAuditSchema, insertAuditLogs } from './audit.repo';
+export { insertRecording } from './recording.repo';
+export type { NewRecording } from './recording.repo';

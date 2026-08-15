@@ -15,6 +15,8 @@ function toContact(c: GoContact): Contact {
     username: c.username || c.extension,
     online: false,
     registered: false,
+    phone: c.phone,
+    notes: c.notes,
   };
 }
 
@@ -58,8 +60,8 @@ interface ContactStore {
   myLoading: boolean;
   /** Load the caller's own contacts once; `force` re-fetches (refresh button). */
   fetchMyContacts: (force?: boolean) => Promise<void>;
-  addContact: (input: { name: string; extension: string }) => Promise<void>;
-  updateContact: (id: number, data: { name?: string; extension?: string }) => Promise<void>;
+  addContact: (input: { name: string; extension: string; phone?: string; notes?: string }) => Promise<void>;
+  updateContact: (id: number, data: { name?: string; extension?: string; phone?: string; notes?: string }) => Promise<void>;
   removeContact: (id: number) => Promise<void>;
   filteredMyContacts: () => Contact[];
 }
@@ -122,6 +124,8 @@ export const useContactStore = create<ContactStore>((set, get) => ({
     const created = await goApi.contacts.create({
       name: input.name,
       extension: input.extension,
+      phone: input.phone,
+      notes: input.notes,
     });
     set((s) => ({ myContacts: [...s.myContacts, toContact(created)] }));
   },

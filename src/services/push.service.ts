@@ -15,6 +15,23 @@ export interface IncomingCallPush {
   to: string;
 }
 
+/** Payload for a `missed_call` notification (not a ring — a normal push). */
+export interface MissedCallPush {
+  callId: string;
+  from: string;
+  fromName: string;
+  timestamp: string;
+}
+
+/** Payload for a `new_voicemail` notification. */
+export interface NewVoicemailPush {
+  voicemailId: string;
+  from: string;
+  fromName: string;
+  duration: number;
+  transcript?: string;
+}
+
 const FCM_ENDPOINT = 'https://fcm.googleapis.com/fcm/send';
 
 /**
@@ -82,6 +99,69 @@ export class PushService {
       await this.sendFcm(fcmTokens, payload).catch((err) => {
         console.warn('⚠️  Push: FCM send failed:', (err as Error).message);
       });
+    }
+  }
+
+  /**
+   * Fire a missed-call notification (normal priority — not a full-screen ring).
+   * Best-effort; never throws. Callers gate this on the user's
+   * `notifyMissedPush` preference before invoking.
+   */
+  async sendMissedCall(extension: string, payload: MissedCallPush): Promise<void> {
+    await this.sendData(extension, {
+      type: 'missed_call',
+      callId: payload.callId,
+      from: payload.from,
+      fromName: payload.fromName,
+      timestamp: payload.timestamp,
+    });
+  }
+
+  /**
+   * Fire a new-voicemail notification. Best-effort; never throws. Callers gate
+   * this on the user's `notifyVoicemailPush` preference before invoking.
+   */
+  async sendNewVoicemail(extension: string, payload: NewVoicemailPush): Promise<void> {
+    await this.sendData(extension, {
+      type: 'new_voicemail',
+      voicemailId: payload.voicemailId,
+      from: payload.from,
+      fromName: payload.fromName,
+      duration: String(payload.duration),
+      ...(payload.transcript ? { transcript: payload.transcript } : {}),
+    });
+  }
+
+  /**
+   * Send a normal-priority FCM data message to every non-VoIP device registered
+   * for [extension]. Shared by the missed-call and voicemail notifications;
+   * fully guarded so a push failure never propagates into the call path.
+   */
+  private async sendData(extension: string, data: Record<string, string>): Promise<void> {
+    if (!this.enabled) return;
+    const tokens = this.byExtension.get(extension);
+    if (!tokens || tokens.size === 0) return;
+    if (!config.push.fcmServerKey) return;
+
+    const fcmTokens: string[] = [];
+    for (const rec of tokens.values()) {
+      if (rec.platform === 'ios_voip') continue;
+      fcmTokens.push(rec.token);
+    }
+    if (fcmTokens.length === 0) return;
+
+    try {
+      const res = await fetch(FCM_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `key=${config.push.fcmServerKey}`,
+        },
+        body: JSON.stringify({ registration_ids: fcmTokens, priority: 'normal', data }),
+      });
+      if (!res.ok) throw new Error(`FCM HTTP ${res.status}`);
+    } catch (err) {
+      console.warn(`⚠️  Push: ${data.type} send failed:`, (err as Error).message);
     }
   }
 
