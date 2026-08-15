@@ -2,6 +2,8 @@ package cache
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"time"
 )
 
@@ -37,4 +39,13 @@ func BlockedKey(ext string) string    { return KeyBlocked + ext }
 func ForwardingKey(ext string) string { return KeyForwarding + ext }
 func UserKey(ext string) string       { return KeyUser + ext }
 func SoundsKey(ext string) string     { return KeySounds + ext }
-func IvrKey(ext string) string        { return KeyIvr + ext }
+
+// IvrKey is the shared Redis key for a flow's cached graph. The entry extension
+// is globally unique (one flow per extension), so a short SHA-256 hash of it is a
+// unique, fixed-length key that never collides across users — two users can never
+// both own 6000. The Node SIP runtime derives the SAME key from the dialed number,
+// so a Del here invalidates its cache.
+func IvrKey(ext string) string {
+	sum := sha256.Sum256([]byte(ext))
+	return KeyIvr + hex.EncodeToString(sum[:8]) // 8 bytes = 16 hex chars
+}

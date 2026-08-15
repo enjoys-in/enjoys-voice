@@ -32,6 +32,21 @@ import {
   type ForwardingRow,
 } from './postgres';
 import type { IvrFlowGraph } from '@/sip/ivr/flow.types';
+import { getRedis } from './redis';
+import crypto from 'crypto';
+
+/** Shared-cache TTL for a cached IVR flow graph (backstop; the Go API DELs on edit). */
+const IVR_CACHE_TTL_SECONDS = 24 * 60 * 60;
+
+/**
+ * Redis key for a flow's cached graph. The entry extension is globally unique
+ * (one flow per extension — DB uniqueIndex), so a short SHA-256 hash of it is a
+ * unique, fixed-length key that never collides across users (nobody else can own
+ * 6000). The Go API derives the SAME key to invalidate on every save/delete.
+ */
+function ivrCacheKey(extension: string): string {
+  return `ivr:${crypto.createHash('sha256').update(extension).digest('hex').slice(0, 16)}`;
+}
 
 /**
  * Minimal shape of the rating engine the DatabaseService depends on. Declared
@@ -52,13 +67,6 @@ export class DatabaseService extends EventEmitter {
   private registrations = new Map<string, SipRegistration>();
   /** phone number → extension lookup */
   private phoneIndex = new Map<string, string>();
-  /**
-   * Per-extension IVR-flow cache. A present value is the loaded flow; `null` is a
-   * negative cache ("no enabled flow for this DID") so calls to plain extensions
-   * don't hit Postgres on every INVITE. Invalidated per-extension on an
-   * `ivr_flows` NOTIFY and cleared wholesale on listener reconnect.
-   */
-  private ivrFlows = new Map<string, IvrFlowGraph | null>();
   /**
    * The set of entry extensions that have an ENABLED IVR flow. Read
    * synchronously on the INVITE path so the dial-plan can route a dialed number
@@ -583,21 +591,35 @@ export class DatabaseService extends EventEmitter {
   // ─── IVR flows ───────────────────────────────────────
   // Visual IVR flows are authored in the dashboard and persisted by the Go API
   // in the shared `ivr_flows` table. The SIP runtime only READS them, keyed by
-  // the dialed DID/extension, with a small in-memory cache kept fresh by the
-  // ivr-flow-sync LISTEN/NOTIFY listener (see invalidateIvrFlow / clearIvrFlowCache).
+  // the dialed DID/extension, through a shared Redis cache the Go API DELs on
+  // every save/delete — so a builder edit (e.g. new prompt text) is picked up on
+  // the next call with no restart and no dependency on LISTEN/NOTIFY.
 
   /**
    * The enabled IVR flow for a dialed DID/extension, or undefined when none
-   * exists. Caches both hits and misses; a DB error returns undefined (the
+   * exists. Read-through the shared Redis cache (key = short hash of the
+   * extension); an empty string is a negative cache. On a miss (or Redis down)
+   * it loads from Postgres and refills Redis. A DB error returns undefined (the
    * caller falls back to the built-in menu) and is NOT cached.
    */
   async getIvrFlow(extension: string): Promise<IvrFlowGraph | undefined> {
-    if (this.ivrFlows.has(extension)) {
-      return this.ivrFlows.get(extension) ?? undefined;
+    const key = ivrCacheKey(extension);
+    try {
+      const redis = await getRedis();
+      const cached = await redis.get(key);
+      if (cached !== null) {
+        if (cached === '') return undefined; // negative cache: no enabled flow
+        try { return JSON.parse(cached) as IvrFlowGraph; } catch { /* corrupt → reload below */ }
+      }
+    } catch (err: any) {
+      console.warn(`⚠️ IVR: Redis read failed for ${extension}: ${err?.message}`);
     }
     try {
       const flow = await loadIvrFlowByExtension(extension);
-      this.ivrFlows.set(extension, flow ?? null);
+      try {
+        const redis = await getRedis();
+        await redis.set(key, flow ? JSON.stringify(flow) : '', { EX: IVR_CACHE_TTL_SECONDS });
+      } catch { /* best-effort cache fill */ }
       return flow;
     } catch (err: any) {
       console.warn(`⚠️ IVR: flow lookup failed for ${extension}: ${err?.message}`);
@@ -605,9 +627,19 @@ export class DatabaseService extends EventEmitter {
     }
   }
 
+  /** Best-effort DEL of a flow's shared Redis cache entry. */
+  private async delIvrCache(extension: string): Promise<void> {
+    try {
+      const redis = await getRedis();
+      await redis.del(ivrCacheKey(extension));
+    } catch (err: any) {
+      console.warn(`⚠️ IVR: Redis del failed for ${extension}: ${err?.message}`);
+    }
+  }
+
   /** Drop one extension's cached flow (on an `ivr_flows` change NOTIFY). */
   invalidateIvrFlow(extension: string): void {
-    this.ivrFlows.delete(extension);
+    void this.delIvrCache(extension);
   }
 
   /**
@@ -618,13 +650,15 @@ export class DatabaseService extends EventEmitter {
    * disable / delete) apply live with no restart and no rescanning every flow.
    */
   async syncIvrFlowExtension(extension: string): Promise<void> {
-    this.ivrFlows.delete(extension);
+    // Belt-and-suspenders: the Go API already DELs the shared Redis key on every
+    // save/delete, but drop it here too so a direct-SQL edit still invalidates.
+    await this.delIvrCache(extension);
     try {
       const flow = await loadIvrFlowByExtension(extension);
       if (flow) this.ivrFlowExtensions.add(extension);
       else this.ivrFlowExtensions.delete(extension);
       console.log(
-        `🔄 IVR: flow ${extension} changed → graph cache dropped, ` +
+        `🔄 IVR: flow ${extension} changed → Redis cache dropped, ` +
           `${flow ? 'enabled (latest nodes/text reload on next call)' : 'disabled/removed'} ` +
           `(${this.ivrFlowExtensions.size} enabled flow extension(s))`,
       );
@@ -633,9 +667,13 @@ export class DatabaseService extends EventEmitter {
     }
   }
 
-  /** Drop all cached flows (on listener reconnect, to catch missed changes). */
+  /**
+   * No-op for the graph cache: it now lives in shared Redis and the Go API DELs
+   * each key on write, so there is nothing to clear on a listener reconnect (the
+   * routing Set is re-hydrated separately). Kept for the sync wiring.
+   */
   clearIvrFlowCache(): void {
-    this.ivrFlows.clear();
+    /* graph cache is Redis-backed and invalidated by the Go API on write */
   }
 
   /**
