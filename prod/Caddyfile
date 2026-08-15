@@ -3,7 +3,56 @@
 #  Serves voice.enjoys.in (A record → VPS 185.193.19.118).
 #  Caddy runs on the HOST; the compose stack publishes its ports to
 #  localhost, so upstreams are reached via 127.0.0.1:<published-port>.
+#
+#  The frontend now lives on Vercel (voice.enjoys.in → Vercel), so the
+#  browser talks to the backend via the api.voice.enjoys.in block below.
+#  That hostname MUST reach THIS Caddy for TLS to work end-to-end — in
+#  Cloudflare set it to "DNS only" (grey cloud, A → 185.193.19.118) like
+#  api.terminus.enjoys.in, or keep the proxy on with SSL mode Full (strict)
+#  so Cloudflare trusts this origin's Let's Encrypt cert. A proxied
+#  (orange-cloud) record with no valid origin block yields Cloudflare 525/526.
 # ════════════════════════════════════════════════════════════════
+
+# ── API + realtime host for the Vercel frontend ──────────────────
+api.voice.enjoys.in {
+	encode zstd gzip
+
+	# SIP over WebSocket (drachtio) → wss://api.voice.enjoys.in/sip
+	@sip path /sip /sip/*
+	handle @sip {
+		reverse_proxy https://127.0.0.1:5065 {
+			transport http {
+				tls_insecure_skip_verify
+			}
+		}
+	}
+
+	# App signaling WebSocket → wss://api.voice.enjoys.in/signal
+	handle /signal /signal/* {
+		reverse_proxy localhost:3002
+	}
+
+	# Browser-bridge media WebSocket → wss://api.voice.enjoys.in/bridge
+	# (optional; only when the streaming/bridge feature is enabled).
+	handle /bridge /bridge/* {
+		reverse_proxy localhost:3005
+	}
+
+	# Go CRUD API → https://api.voice.enjoys.in/api/g/*
+	handle /api/g/* {
+		reverse_proxy localhost:3003
+	}
+
+	# Node engine API → https://api.voice.enjoys.in/api/n/*
+	handle /api/n/* {
+		reverse_proxy localhost:3001
+	}
+
+	# Anything else → Node API (health checks, etc.). No frontend here.
+	handle {
+		reverse_proxy localhost:3001
+	}
+}
 
 voice.enjoys.in {
 	encode zstd gzip
