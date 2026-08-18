@@ -299,3 +299,20 @@ export type IvrFlowSummary = Pick<
   IvrFlow,
   "id" | "name" | "extension" | "enabled" | "createdAt" | "updatedAt"
 > & { nodeCount: number };
+
+// ─── Import / Export ────────────────────────────────────
+
+/**
+ * Portable on-disk representation of a flow (builder Export ▸ / Import ▸).
+ * Deliberately omits the server-managed fields (`id`, timestamps) so an
+ * exported file can be re-imported into any flow without clobbering identity.
+ */
+export type IvrFlowExport = {
+  __type: "enjoys.ivr.flow";
+  version: 1;
+  name: string;
+  extension: string;
+  enabled: boolean;
+  nodes: IvrNode[];
+  edges: IvrEdge[];
+};

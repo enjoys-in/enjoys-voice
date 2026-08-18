@@ -3,13 +3,21 @@
  */
 "use client";
 
-import { ArrowLeft, Save, Loader2, Eye } from "lucide-react";
+import { useRef, useState } from "react";
+import { ArrowLeft, Save, Loader2, Eye, Download, Upload } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { useBuilderStore } from "../store/builder.store";
+
+/** Turn a flow name/extension into a filesystem-safe file stem. */
+function safeFileStem(name: string, extension: string): string {
+  const base = (name || extension || "ivr-flow").trim();
+  const slug = base.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `ivr-${slug || "flow"}`;
+}
 
 export function Toolbar({ onBack }: { onBack: () => void }) {
   const name = useBuilderStore((s) => s.name);
@@ -20,6 +28,36 @@ export function Toolbar({ onBack }: { onBack: () => void }) {
   const readOnly = useBuilderStore((s) => s.readOnly);
   const setMeta = useBuilderStore((s) => s.setMeta);
   const save = useBuilderStore((s) => s.save);
+  const exportFlow = useBuilderStore((s) => s.exportFlow);
+  const importFlow = useBuilderStore((s) => s.importFlow);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  const handleExport = () => {
+    const data = exportFlow();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${safeFileStem(name, extension)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-importing the same file
+    if (!file) return;
+    setImportError(null);
+    try {
+      const parsed = JSON.parse(await file.text());
+      const result = importFlow(parsed);
+      if (!result.ok) setImportError(result.error);
+    } catch {
+      setImportError("Could not read the file — expected valid JSON.");
+    }
+  };
 
   return (
     <div className="flex items-center gap-3 border-b border-border/50 bg-card/40 px-4 py-2.5">
@@ -52,6 +90,42 @@ export function Toolbar({ onBack }: { onBack: () => void }) {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        {importError && (
+          <span className="text-xs text-destructive" title={importError}>
+            {importError}
+          </span>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={handleImportFile}
+        />
+
+        {!readOnly && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+            title="Import a flow from a JSON file"
+          >
+            <Upload className="mr-1 h-4 w-4" />
+            Import
+          </Button>
+        )}
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleExport}
+          title="Export this flow to a JSON file"
+        >
+          <Download className="mr-1 h-4 w-4" />
+          Export
+        </Button>
+
         {readOnly ? (
           <Badge variant="secondary" className="gap-1">
             <Eye className="h-3.5 w-3.5" />

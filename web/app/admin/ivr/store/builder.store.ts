@@ -23,6 +23,7 @@ import type {
   DtmfDigit,
   IvrEdge,
   IvrFlow,
+  IvrFlowExport,
   IvrNode,
   IvrNodeData,
   IvrNodeKind,
@@ -117,6 +118,51 @@ export function createEmptyFlow(name: string, extension: string): IvrFlow {
   };
 }
 
+// ─── import validation ──────────────────────────────────
+
+/**
+ * Coerces an untrusted parsed JSON value (an exported flow file, a bare
+ * `{ nodes, edges }` graph, or a full IvrFlow) into the graph fields the
+ * builder needs. Returns null when the shape is unusable so the caller can
+ * surface a friendly error. A `start` node is required — it's the flow entry.
+ */
+function normalizeImport(
+  data: unknown,
+): Pick<IvrFlow, "name" | "extension" | "enabled" | "nodes" | "edges"> | null {
+  if (!data || typeof data !== "object") return null;
+  const obj = data as Record<string, unknown>;
+  const { nodes, edges } = obj;
+  if (!Array.isArray(nodes) || !Array.isArray(edges)) return null;
+
+  const nodesOk = nodes.every((n) => {
+    if (!n || typeof n !== "object") return false;
+    const node = n as Record<string, unknown>;
+    return (
+      typeof node.id === "string" &&
+      typeof node.type === "string" &&
+      !!node.data &&
+      typeof node.data === "object"
+    );
+  });
+  if (!nodesOk) return null;
+  if (!nodes.some((n) => (n as { type?: unknown }).type === "start")) return null;
+
+  const edgesOk = edges.every((e) => {
+    if (!e || typeof e !== "object") return false;
+    const edge = e as Record<string, unknown>;
+    return typeof edge.source === "string" && typeof edge.target === "string";
+  });
+  if (!edgesOk) return null;
+
+  return {
+    name: typeof obj.name === "string" ? obj.name : "",
+    extension: typeof obj.extension === "string" ? obj.extension : "",
+    enabled: typeof obj.enabled === "boolean" ? obj.enabled : true,
+    nodes: nodes as IvrNode[],
+    edges: edges as IvrEdge[],
+  };
+}
+
 // ─── store shape ────────────────────────────────────────
 
 interface BuilderState {
@@ -144,6 +190,10 @@ interface BuilderState {
 
   // flow meta
   setMeta: (patch: Partial<Pick<IvrFlow, "name" | "extension" | "enabled">>) => void;
+
+  // import / export (portable JSON — excludes server id/timestamps)
+  exportFlow: () => IvrFlowExport;
+  importFlow: (data: unknown) => { ok: true } | { ok: false; error: string };
 
   // React Flow controlled handlers
   onNodesChange: (changes: NodeChange<IvrNode>[]) => void;
@@ -271,6 +321,45 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   setReadOnly: (v) => set({ readOnly: v }),
 
   setMeta: (patch) => set((s) => (s.readOnly ? s : { ...s, ...patch, dirty: true })),
+
+  exportFlow: () => {
+    const s = get();
+    return {
+      __type: "enjoys.ivr.flow",
+      version: 1,
+      name: s.name,
+      extension: s.extension,
+      enabled: s.enabled,
+      nodes: s.nodes,
+      edges: s.edges,
+    };
+  },
+
+  importFlow: (data) => {
+    const s = get();
+    if (s.readOnly) return { ok: false, error: "This flow is read-only." };
+    const parsed = normalizeImport(data);
+    if (!parsed) return { ok: false, error: "This file is not a valid IVR flow." };
+    set({
+      // Keep the current flowId so a subsequent Save overwrites the open flow
+      // rather than creating a duplicate. Meta falls back to the current values
+      // when the file omits them (e.g. a bare graph export).
+      ...pushHistory(s),
+      name: parsed.name || s.name,
+      extension: parsed.extension || s.extension,
+      enabled: parsed.enabled,
+      nodes: parsed.nodes.map((n, i) => {
+        const node = withSafePosition(n, i);
+        return node.type === "start"
+          ? ({ ...node, deletable: false } as IvrNode)
+          : node;
+      }),
+      edges: parsed.edges,
+      selectedNodeId: null,
+      dirty: true,
+    });
+    return { ok: true };
+  },
 
   onNodesChange: (changes) =>
     set((s) => {
