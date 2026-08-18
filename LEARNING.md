@@ -343,6 +343,42 @@ edited the wrong ICE source).
 - 🔑 *"STUN discovers, TURN relays, ICE decides"* — when media must cross a boundary the
   endpoints can't address directly (container ↔ host, symmetric NAT), **TURN is the
   reliable answer**, not media-IP config knobs.
+
+### 8.2 War story: "Connection timeout" part 2 — the `answer()` blocks DTLS deadlock
+
+> Sequel to 8.1 (2026-08). Even with coturn working, the "Connection timeout" came
+> back after moving the SIP engine into Docker. Root cause was subtler.
+
+**The setup.** SIP engine (Node/Bun) runs in a Docker container (`callnet-api`) on the
+same `voipnet` as FreeSWITCH. The FS dialplan runs `answer()` then `socket ... async
+full`. The `drachtio-fsmrf` library's `connectCaller()` sends a SIP INVITE to FS, waits
+for the 200 OK, then answers the browser.
+
+**The deadlock:**
+1. FS executes `answer()` → sends 200 OK to drachtio → BUT `answer()` blocks the
+   dialplan thread waiting for the DTLS handshake with the browser to complete.
+2. DTLS can't start until the browser receives FS's SDP → the library does this AFTER
+   receiving the 200 OK → but it also needs the ESL outbound connection from `socket()`.
+3. `socket()` can't run because `answer()` is still blocking.
+4. 4-second timer fires → BYE → channel killed.
+
+**Additional gotcha — `socket ... full`:** The `full` flag gives the ESL client complete
+channel control and prevents subsequent dialplan actions from executing. So `socket`
+must always be the LAST action.
+
+**The fix (for container-to-container):** Keep `answer()` before `socket ... async full`
+in the dialplan. Since both FS and the SIP engine are on the same Docker network, DTLS
+completes quickly (no NAT/coturn needed between containers). The `answer()` unblocks,
+`socket` runs, ESL connects, and `connectCaller` resolves.
+
+**When the host IP changes:** coturn's `external-ip` and the browser's `PUBLIC_ICE_SERVERS`
+must match the current host LAN IP. If the IP changes (DHCP), coturn is unreachable,
+DTLS can't complete, `answer()` blocks → same deadlock. Check with `ipconfig` and update
+`docker/coturn/turnserver.dev.conf` + `web/.env.local` + `.env`.
+
+**drachtio-fsmrf race condition:** The library's `connectCaller` DTLS path didn't handle
+the ESL outbound connection arriving before the SIP 200 OK. A patch in
+`patches/mediaserver.js` adds the `obj.conn` check to the `createUAC` callback.
 - 🔑 FS only honours `ext-rtp-ip` for **non-local** SIP peers; a relayed-SDP topology
   defeats it.
 - 🔑 Always trace **which** ICE config the client actually loaded before assuming a server

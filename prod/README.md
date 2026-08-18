@@ -7,18 +7,21 @@ Nothing here affects your local dev setup (`docker/docker-compose.yml`).
 
 | File | Purpose |
 |------|---------|
-| `docker-compose.prod.yml` | Full stack: Caddy, web, api, drachtio, FreeSWITCH, coturn |
-| `.env.production.example` | All env vars — copy to `.env` and fill `REPLACE_ME` |
 | `Caddyfile` | Auto-TLS reverse proxy (Let's Encrypt) + WSS routing |
+| `.env.production.example` | All env vars — copy to `.env` and fill `REPLACE_ME` |
 | `coturn/turnserver.conf` | TURN/STUN for WebRTC media across NAT |
 | `freeswitch/drachtio_mrf.xml` | MRF profile override with the public IP for RTP |
-| `api.Dockerfile` / `web.Dockerfile` | Production images (built from repo root) |
+| `freeswitch/dialplan-mrf.xml` | MRF dialplan: answer → socket (DTLS-safe order) |
+| `freeswitch/tts_commandline.conf.xml` | Piper neural TTS config |
+
+The compose file is at `docker/docker-compose.prod.yml` (not in this folder).
 
 ## Architecture
 
 ```
-Browser ──HTTPS/WSS──> Caddy :443 ─┬─> web   :3000   (UI)
-                                   ├─> api   :3001   (/api REST)
+Browser ──HTTPS/WSS──> Caddy :443 ─┬─> web   :4500   (UI)
+                                   ├─> go-api:3003   (/api/g CRUD)
+                                   ├─> api   :3001   (/api/n REST)
                                    ├─> api   :3002   (/signal WS)
                                    └─> drachtio :5065 (/sip SIP-over-WS)
 
@@ -34,9 +37,11 @@ SIP trunk ──SIP──────> drachtio :5060            (PSTN)
 2. **Secrets** — `DRACHTIO_SECRET`, `FREESWITCH_SECRET`, `TURN_PASSWORD` in `.env`.
 3. **TURN** — same password in `.env`, `coturn/turnserver.conf`, and the
    `PUBLIC_ICE_SERVERS` credential. Set `realm`/`external-ip` in the conf.
-4. **Public IP in FreeSWITCH** — `freeswitch/drachtio_mrf.xml` `ext-rtp-ip` /
-   `ext-sip-ip` (already `185.193.19.118` — change only if the IP changes).
-5. **SIP trunk** — fill `TRUNK_*` in `.env` for outbound PSTN.
+4. **Cookie domain** — `COOKIE_DOMAIN=.voice.enjoys.in` + `COOKIE_SECURE=true`
+   on the Go API when the frontend is on a different subdomain.
+5. **Public IP in FreeSWITCH** — `freeswitch/drachtio_mrf.xml` `ext-rtp-ip`
+   (already `185.193.19.118` — change only if the IP changes).
+6. **SIP trunk** — fill `TRUNK_*` in `.env` for outbound PSTN.
 
 > The backend now reads `PUBLIC_WS_URL` / `PUBLIC_SIP_WS_URL` / `PUBLIC_API_BASE`.
 > When unset (local), it falls back to the old `ws://<ip>:<port>` behavior, so
@@ -65,9 +70,9 @@ docker compose -f docker-compose.prod.yml logs -f
 | 80, 443 | TCP | HTTP/HTTPS (Caddy + ACME) |
 | 443 | UDP | HTTP/3 (optional) |
 | 5060 | UDP/TCP | SIP trunk signaling |
-| 16384–16403 | UDP | FreeSWITCH RTP media |
+| 16384–16500 | UDP | FreeSWITCH RTP media |
 | 3478 | UDP/TCP | TURN/STUN |
-| 49152–65535 | UDP | TURN relay range |
+| 49152–49199 | UDP | TURN relay range |
 
 **Keep closed/internal:** `9022` (drachtio control), `8021` (FreeSWITCH ESL),
 `3001/3002/3000/5065/5090` (reached only through Caddy on the internal network).

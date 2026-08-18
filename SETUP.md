@@ -25,15 +25,19 @@ Browser (WebRTC/SIP.js) ──WSS──▶ Drachtio ──SIP──▶ FreeSWITC
 | Port | Protocol | Service | Notes |
 |------|----------|---------|-------|
 | 80/443 | TCP | Next.js Frontend | Behind reverse proxy |
-| 3001 | TCP | CallNet HTTP API | Can proxy via Nginx |
+| 3001 | TCP | CallNet HTTP API | Can proxy via Nginx/Caddy |
 | 3002 | TCP | CallNet WebSocket | Signaling |
-| 3003 | TCP | Media Stream WS | Twilio Media Streams (wss in prod). Only if `MEDIA_STREAM_ENABLED=true` |
-| 3005 | TCP | Browser Bridge WS | Browser listen/talk audio. Internal/LAN only — never exposed to Twilio |
+| 3003 | TCP | Go CRUD API | User/IVR/billing/sounds CRUD |
+| 3004 | TCP | Media Stream WS | Twilio/Plivo/FreeSWITCH audio streaming |
+| 3005 | TCP | Browser Bridge WS | Browser listen/talk audio. Internal/LAN only |
+| 3478 | UDP+TCP | TURN (coturn) | WebRTC media relay |
 | 5060 | UDP+TCP | SIP | Drachtio SIP signaling |
-| 5065 | TCP | SIP WebSocket | Browser SIP.js connections |
+| 5065 | TCP | SIP WebSocket | Browser SIP.js connections (wss in prod) |
 | 8021 | TCP | FreeSWITCH ESL | Internal only (Docker network) |
-| 9022 | TCP | Drachtio Admin | Internal only (Docker network) |
-| 16384-32768 | UDP | RTP Media | FreeSWITCH audio/video |
+| 8085 | TCP | ESL Outbound | FS→API callback (internal Docker network) |
+| 9022 | TCP | Drachtio Admin | Internal only (loopback) |
+| 16384-16500 | UDP | RTP Media | FreeSWITCH audio |
+| 49152-49199 | UDP | TURN Relay | coturn relay range (prod) |
 
 ## Environment Variables
 
@@ -82,10 +86,16 @@ IVR_DEFAULT_LANG=en
 
 ## Changes Required for Production
 
-> The Compose files are split: **local dev** is `docker/docker-compose.dev.yml` and
-> **production** is `docker/docker-compose.prod.yml` (with Caddy + coTURN configured
-> under [prod/](prod/)). The interactive [`run.sh`](run.sh) helper wraps both
-> (pick env → action → service), so you rarely type raw `docker compose` commands.
+> The Compose files are split: **local dev** is `docker/docker-compose.local.yml`
+> (SIP engine in Docker, host Postgres/Valkey), **full dev** is
+> `docker/docker-compose.dev.yml` (includes its own Postgres/Valkey), and
+> **production** is `docker/docker-compose.prod.yml` (with Caddy + coTURN
+> configured under [prod/](prod/)).
+>
+> **Cookie auth (cross-subdomain):** When the Go API and frontend are on different
+> subdomains (e.g. `api.voice.enjoys.in` / `voice.enjoys.in`), set
+> `COOKIE_DOMAIN=.voice.enjoys.in` and `COOKIE_SECURE=true` on the Go API so the
+> httpOnly auth cookie is shared across both origins.
 
 ### 1. Docker Compose (`docker/docker-compose.dev.yml`)
 
@@ -296,21 +306,27 @@ bun run start &
 | "Lost connection to FreeSWITCH" | Container restarted/ESL unreachable | Check `docker logs drachtio-freeswitch`, verify port 8021 exposed |
 | Tone keeps playing after hangup | Async sound fetch race condition | Fixed: uses monotonic `toneIdRef` counter to cancel stale audio |
 
-## STUN/TURN (for NAT traversal)
+## STUN/TURN (coturn)
 
-For clients behind NAT, configure a TURN server:
-```bash
-# Install coturn
-apt install coturn
+coturn runs as a Docker container (both dev and prod compose). It relays WebRTC
+media between the browser and FreeSWITCH when they can't reach each other
+directly (always the case on a VPS, and on Docker Desktop where FS has a
+container-internal IP the browser can't route to).
 
-# /etc/turnserver.conf
-listening-port=3478
-external-ip=YOUR_SERVER_PUBLIC_IP
-realm=your-domain.com
-user=turnuser:turnpassword
-```
+**Key files:**
+- Dev: `docker/coturn/turnserver.dev.conf` + `docker-compose.local.yml`
+- Prod: `prod/coturn/turnserver.conf` + `docker-compose.prod.yml`
 
-Then update the frontend SIP.js config to use the TURN server.
+**Critical config that must match:**
+1. `external-ip` in turnserver.conf = the host/VPS public IP
+2. `user=callnet:<password>` in turnserver.conf = the TURN credential
+3. `PUBLIC_ICE_SERVERS` in `.env` / compose = same IP + credential
+4. `min-port/max-port` in turnserver.conf = published UDP range in compose
+5. The browser gets ICE servers from `web/public/runtime-config.js` (dev) or
+   the `web` container's env (prod) — **both sources must have the TURN entry**
+
+**Windows gotcha:** Some UDP relay ports overlap with Hyper-V reserved ranges.
+Check `netsh int ipv4 show excludedportrange udp` and pick a range outside them.
 
 ## Windows Development Notes
 
