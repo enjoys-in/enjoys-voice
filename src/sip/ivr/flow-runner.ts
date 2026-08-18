@@ -77,8 +77,13 @@ export type FlowResult =
 
 /** Hard ceiling on node hops so a mis-wired (cyclic) graph can never loop forever. */
 const MAX_HOPS = 50;
-/** Bare-filename guard for user-uploaded audio (no path separators / traversal). */
-const SAFE_AUDIO_FILE = /^[A-Za-z0-9._-]+$/;
+/**
+ * Guard for user-uploaded audio references. Accepts a bare filename OR a
+ * sounds-root-relative subpath (`<ext>/<datetime>/<name>.wav`) as written by the
+ * Go upload handler. Path separators are allowed between safe segments; `..` is
+ * rejected separately so no segment can traverse out of the IVR sounds dir.
+ */
+const SAFE_AUDIO_FILE = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/;
 
 // ─── Pure graph helpers (exported for tests) ─────────────────────────────
 
@@ -163,14 +168,15 @@ export function evaluateCondition(
 /**
  * Render a prompt to a single play()-able string, or null if unplayable.
  * TTS → `say:<text>` (uses the channel's tts engine/voice).
- * Audio → absolute path under the FreeSWITCH-shared IVR sounds dir, with a
- * strict bare-filename check to prevent path traversal on user uploads.
+ * Audio → absolute path under the FreeSWITCH-shared IVR sounds dir. The stored
+ * value is a sounds-root-relative name/subpath; a safe-segment check plus a `..`
+ * reject prevent path traversal on user uploads.
  */
 export function renderPrompt(prompt?: Prompt): string | null {
   if (!prompt) return null;
   if (prompt.mode === 'audio') {
     const file = (prompt.audioFile ?? '').trim();
-    if (!file || !SAFE_AUDIO_FILE.test(file)) return null;
+    if (!file || file.includes('..') || !SAFE_AUDIO_FILE.test(file)) return null;
     return `${config.sounds.basePath.replace(/\/$/, '')}/ivr/${file}`;
   }
   const text = (prompt.text ?? '').trim();

@@ -378,6 +378,12 @@ export interface GoSound {
   type: "caller_tune" | "ringtone" | "ivr";
   filename: string;
   original_name: string;
+  /**
+   * Absolute on-disk path (shared volume). For IVR sounds `filename` is a
+   * sounds-root-relative playback subpath (`<ext>/<datetime>/<name>.wav`) the
+   * flow stores; `path` is the disk location used server-side for cleanup.
+   */
+  path?: string;
   created_at: string;
 }
 
@@ -1053,11 +1059,11 @@ export const goApi = {
   uploadSound(
     type: "caller_tune" | "ringtone" | "ivr",
     file: File,
-  ): Promise<{ filename: string; id: number }> {
+  ): Promise<{ filename: string; path?: string; id: number }> {
     const form = new FormData();
     form.append("type", type);
     form.append("file", file);
-    return goRequest<{ filename: string; id: number }>(`/sounds/upload`, {
+    return goRequest<{ filename: string; path?: string; id: number }>(`/sounds/upload`, {
       method: "POST",
       body: form,
     });

@@ -71,7 +71,7 @@ services:
     ports:
       - "3478:3478/udp"
       - "3478:3478/tcp"
-      - "49160-49200:49160-49200/udp" # relay range (matches turnserver.dev.conf)
+      - "49252-49292:49252-49292/udp" # relay range (matches turnserver.dev.conf)
     volumes:
       - ./coturn/turnserver.dev.conf:/etc/coturn/turnserver.conf:ro
     networks:

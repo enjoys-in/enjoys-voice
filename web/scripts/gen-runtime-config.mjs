@@ -30,6 +30,10 @@ function loadEnvFile(file) {
       (val.startsWith("'") && val.endsWith("'"))
     ) {
       val = val.slice(1, -1);
+    } else {
+      // Strip inline comments (unquoted values only)
+      const hash = val.indexOf('#');
+      if (hash !== -1) val = val.slice(0, hash).trimEnd();
     }
     out[key] = val;
   }

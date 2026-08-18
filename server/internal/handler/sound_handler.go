@@ -38,6 +38,28 @@ func safeExtToken(ext string) string {
 	}, ext)
 }
 
+// safeSoundName derives a filesystem-safe .wav name from the user's original
+// filename. It drops any directory part, strips the extension, replaces unsafe
+// characters (dots included, so no ".." can survive), truncates, and re-adds
+// .wav (IVR uploads are always transcoded to WAV). This keeps the stored
+// playback path free of traversal sequences.
+func safeSoundName(name string) string {
+	stem := strings.TrimSuffix(filepath.Base(name), filepath.Ext(name))
+	stem = strings.Map(func(r rune) rune {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' || r == '-' {
+			return r
+		}
+		return '_'
+	}, stem)
+	if len(stem) > 60 {
+		stem = stem[:60]
+	}
+	if stem == "" {
+		stem = "audio"
+	}
+	return stem + ".wav"
+}
+
 func (h *SoundHandler) Upload(c *gin.Context) {
 	// Ownership: a sound is always stored for the authenticated caller. Derive
 	// the extension from the verified JWT claim (set by the auth middleware),
@@ -101,13 +123,24 @@ func (h *SoundHandler) Upload(c *gin.Context) {
 	storeName := rawName
 
 	if soundType == "ivr" {
-		if err := os.MkdirAll(h.ivrDir, 0o755); err != nil {
+		// Organize IVR prompts per-extension and per-upload so the stored path is
+		// stable, human-traceable and collision-free:
+		//   <ivrDir>/<ext>/<datetime>/<name>.wav
+		// The same tree is bind-mounted into FreeSWITCH, which plays the prompt by
+		// this path. Filename holds the sounds-root-relative playback path
+		// (<ext>/<datetime>/<name>.wav) that the IVR flow references; Path holds
+		// the absolute on-disk location used for cleanup on delete.
+		datetime := time.Now().UTC().Format("20060102-150405.000")
+		relDir := filepath.Join(safeExt, datetime)
+		absDir := filepath.Join(h.ivrDir, relDir)
+		if err := os.MkdirAll(absDir, 0o755); err != nil {
 			_ = os.Remove(rawPath)
 			response.Internal(c, "Failed to prepare IVR directory")
 			return
 		}
-		storeName = fmt.Sprintf("%s_ivr_%d.wav", safeExt, time.Now().UnixMilli())
-		storePath = filepath.Join(h.ivrDir, storeName)
+		baseName := safeSoundName(file.Filename)
+		storeName = filepath.ToSlash(filepath.Join(relDir, baseName))
+		storePath = filepath.Join(absDir, baseName)
 
 		if err := h.transcoder.ToFreeswitchWav(c.Request.Context(), rawPath, storePath); err != nil {
 			log.Printf("ivr transcode failed for %s: %v", ext, err)
@@ -129,6 +162,7 @@ func (h *SoundHandler) Upload(c *gin.Context) {
 
 	response.Created(c, "Sound uploaded", gin.H{
 		"filename": sound.Filename,
+		"path":     sound.Path,
 		"id":       sound.ID,
 	})
 }
