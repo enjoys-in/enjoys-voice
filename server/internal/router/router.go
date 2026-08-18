@@ -330,4 +330,13 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool
 		c.Next()
 	})
 	r.Static("/system-sounds", sysDir)
+
+	// IVR uploaded prompts — serve per-user uploaded IVR WAVs so the builder can
+	// preview them in the browser (FreeSWITCH plays the real file from the shared
+	// volume; this HTTP route is browser-only).
+	ivrDir := os.Getenv("IVR_SOUND_DIR")
+	if ivrDir == "" {
+		ivrDir = "../docker/freeswitch_sounds/ivr"
+	}
+	r.Static("/ivr-sounds", ivrDir)
 }

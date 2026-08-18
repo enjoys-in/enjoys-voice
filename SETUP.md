@@ -189,6 +189,31 @@ After editing volume-mounted config, recreate the container so it loads fresh:
 docker compose -f docker-compose.dev.yml up -d --force-recreate drachtio-freeswitch
 ```
 
+#### IVR audio prompts (recorded / uploaded sounds)
+
+An IVR prompt is either **spoken text** (`say:` → TTS, above) or a **pre-recorded
+WAV** (recorded in the builder or uploaded). The Go API normalizes uploads with
+ffmpeg to the FreeSWITCH-canonical 16 kHz mono WAV and writes them where
+**FreeSWITCH** can read them (FS plays prompts server-side from
+`/usr/share/freeswitch/sounds/ivr/…`). Three Go-API env vars control this:
+
+| Var | Purpose | Native dev (`go run .` from `server/`) | Docker / prod |
+| --- | --- | --- | --- |
+| `FFMPEG_PATH` | Transcode uploads to canonical WAV | `ffmpeg` on PATH | bundled in the go-api image |
+| `IVR_SOUND_DIR` | Where prompts are **written** (must be FS-readable) | leave unset → default `../docker/freeswitch_sounds/ivr` (the dir dockerized FS mounts as its sounds root) | `./uploads/ivr`, bind-mounted to `…/sounds/ivr` |
+| `FS_SYSTEM_SOUNDS_DIR` | Built-in FS library the builder lists/previews ("System library") | leave unset → default `../docker/freeswitch_sounds/en/us/callie` | mounted callie voice dir |
+
+> **Native-dev gotcha:** the app runs on the host but FreeSWITCH runs in Docker,
+> so the Go API MUST write prompts into the *same* directory the FS container
+> mounts (`docker/freeswitch_sounds/ivr`). The defaults above already do this. If
+> you override `IVR_SOUND_DIR` to a path outside that tree, FS plays nothing and
+> the log shows `play failed … File Not Found`. Restart the Go API after changing
+> it.
+
+Browser preview of these sounds is served by the Go API static routes
+`/ivr-sounds/*` (uploads) and `/system-sounds/*` (library); in prod Caddy proxies
+both to the Go API.
+
 
 ### 4. TLS/SSL Certificates
 
@@ -300,6 +325,7 @@ bun run start &
 | **IVR `488 Not Acceptable Here`** (WebRTC client) | FreeSWITCH `drachtio_mrf` profile rejected the browser's ICE candidates — default `wan.auto` ACL filters out RFC1918/LAN candidates → log shows `no suitable candidates found` → 488 | Add `apply-candidate-acl` (localnet.auto, wan_v4.auto, rfc1918.auto, any_v4.auto) to the `drachtio_mrf` profile, then recreate the container |
 | **IVR `488 Not Acceptable Here`** (WebRTC client) | Profile had no secure-media support, so the browser's DTLS-SRTP offer was refused | Add `<param name="rtp-secure-media" value="optional"/>` to the `drachtio_mrf` profile |
 | **IVR prompt silent / `say:` no audio** | No default TTS engine configured; `say:<text>` had nothing to synthesize with | Set `tts_engine=flite` + `tts_voice=slt` in `vars.xml` (mod_flite is built in) |
+| **IVR recorded/uploaded prompt `play failed … File Not Found`** | Native `go run .` wrote the prompt to `server/uploads/ivr` but dockerized FS reads `/usr/share/freeswitch/sounds/ivr` = `docker/freeswitch_sounds/ivr` — different dirs | Leave `IVR_SOUND_DIR` unset in native dev (default now writes into `../docker/freeswitch_sounds/ivr`) and restart the Go API; in docker/prod bind-mount `./uploads/ivr` into the FS sounds dir |
 | **IVR call answers then drops after ~3s** | `ext-rtp-ip` advertises the container's internal Docker IP (e.g. 172.21.0.3), unreachable by the browser, so media/DTLS never completes and FS tears the call down | Set `ext-rtp-ip`/`ext-sip-ip` to the host LAN/public IP (or `auto-nat`) and ensure the RTP port range is published + firewall-open |
 | WebRTC no audio | NAT traversal failure | Set correct ext-rtp-ip in FS profile, ensure STUN/TURN |
 | SIP register fails | Wrong domain/WS URL | Match DOMAIN env with client config |

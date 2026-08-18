@@ -137,9 +137,11 @@ func Load() *Config {
 		VoicemailDir:  getEnv("VOICEMAIL_DIR", "./recordings/voicemail"),
 		MigrationsDir: getEnv("MIGRATIONS_DIR", "migrations"),
 		FFmpegPath:    getEnv("FFMPEG_PATH", "ffmpeg"),
-		// Default under uploads so a single bind mount can expose both; override
-		// IVR_SOUND_DIR to a path shared with the FreeSWITCH container in prod.
-		IvrDir: getEnv("IVR_SOUND_DIR", "./uploads/ivr"),
+		// Dev default points into the docker/ FreeSWITCH-shared sounds tree (sibling
+		// of server/), so a native `go run .` writes IVR prompts where the dockerized
+		// FS reads them. Prod/containers override IVR_SOUND_DIR to their bind-mounted
+		// path. Mirrors the FS_SYSTEM_SOUNDS_DIR dev default.
+		IvrDir: getEnv("IVR_SOUND_DIR", "../docker/freeswitch_sounds/ivr"),
 		Cookie: CookieConfig{
 			Secure:        getEnvBool("COOKIE_SECURE", false),
 			Domain:        getEnv("COOKIE_DOMAIN", ""),

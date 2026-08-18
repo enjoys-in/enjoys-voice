@@ -48,6 +48,11 @@ api.voice.enjoys.in {
 		reverse_proxy localhost:3001
 	}
 
+	# Static sound assets (uploads + built-in library) for browser preview → Go API
+	handle /sounds/* /system-sounds/* /ivr-sounds/* {
+		reverse_proxy localhost:3003
+	}
+
 	# Anything else → Node API (health checks, etc.). No frontend here.
 	handle {
 		reverse_proxy localhost:3001
@@ -89,6 +94,11 @@ voice.enjoys.in {
 	# ── Node engine API → https://DOMAIN/api/n/* (live telephony) ──
 	handle /api/n/* {
 		reverse_proxy localhost:3001
+	}
+
+	# ── Static sound assets (uploads + built-in library) → Go API ──
+	handle /sounds/* /system-sounds/* /ivr-sounds/* {
+		reverse_proxy localhost:3003
 	}
 
 	# ── Frontend (Next.js) — everything else ─────────────────────
