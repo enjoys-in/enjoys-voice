@@ -11,7 +11,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Upload } from "lucide-react";
+import { Upload, Mic } from "lucide-react";
 
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,19 +19,35 @@ import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-import { goApi, type GoSound } from "../../../lib/go-api";
+import { goApi, type GoSound, type GoSystemSound } from "../../../lib/go-api";
 import { useAuthStore } from "../../../stores";
 import type { Prompt } from "../ivr.types";
+import { AudioRecorderModal, recorderSupported } from "./AudioRecorderModal";
 
 // Shared across PromptEditor mounts so switching nodes doesn't refetch the
 // user's sound list. Reset to null to force a reload after a new upload.
 let ivrSoundsCache: GoSound[] | null = null;
+// Built-in FS library sounds are global + immutable, so cache them process-wide.
+let sysSoundsCache: GoSystemSound[] | null = null;
+
+// FS sound-tree root the library sits under; `system:` prompts resolve here in
+// the IVR runtime (renderPrompt) straight off the sounds base, not the /ivr dir.
+const SYSTEM_SOUNDS_ROOT = "en/us/callie";
+const systemValue = (s: GoSystemSound) =>
+  `system:${SYSTEM_SOUNDS_ROOT}/${s.category}/8000/${s.file}`;
+const prettyName = (n: string) =>
+  n
+    .replace(/\.wav$/i, "")
+    .replace(/^ivr[-_]/, "")
+    .replace(/[-_]/g, " ");
 
 export function PromptEditor({
   label,
@@ -44,9 +60,13 @@ export function PromptEditor({
 }) {
   const ext = useAuthStore((s) => s.user?.extension);
   const [sounds, setSounds] = useState<GoSound[]>(ivrSoundsCache ?? []);
+  const [sysSounds, setSysSounds] = useState<GoSystemSound[]>(
+    sysSoundsCache ?? [],
+  );
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recorderOpen, setRecorderOpen] = useState(false);
 
   const loadSounds = async () => {
     if (!ext) return;
@@ -80,38 +100,69 @@ export function PromptEditor({
     };
   }, [value.mode, ext]);
 
+  // Load the built-in FS library (IVR category) once — global + immutable.
+  useEffect(() => {
+    if (value.mode !== "audio" || sysSoundsCache) return;
+    let cancelled = false;
+    goApi
+      .getSystemSounds("ivr")
+      .then((list) => {
+        if (cancelled) return;
+        sysSoundsCache = list;
+        setSysSounds(list);
+      })
+      .catch(() => {
+        /* the built-in library is optional; ignore load failures */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [value.mode]);
+
+  // Shared by the Upload picker and the recorder modal; resolves true on success
+  // so the modal knows it can close.
+  const uploadFile = async (file: File): Promise<boolean> => {
+    // Fast client-side guard mirroring the server's 250KB cap.
+    if (file.size > 250 * 1024) {
+      setError("File too large (max 250KB).");
+      return false;
+    }
+    setError(null);
+    setUploading(true);
+    try {
+      // Extension is derived from the JWT server-side; the returned filename is
+      // the relative playback path to store on the prompt.
+      const { filename } = await goApi.uploadSound("ivr", file);
+      ivrSoundsCache = null;
+      await loadSounds();
+      onChange({ ...value, mode: "audio", audioFile: filename });
+      return true;
+    } catch {
+      setError("Upload failed. Please try again.");
+      return false;
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleUpload = () => {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "audio/*";
-    input.onchange = async (e) => {
+    input.onchange = (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-      // Fast client-side guard mirroring the server's 250KB cap.
-      if (file.size > 250 * 1024) {
-        setError("File too large (max 250KB).");
-        return;
-      }
-      setError(null);
-      setUploading(true);
-      try {
-        // Extension is derived from the JWT server-side; the returned filename is
-        // the relative playback path to store on the prompt.
-        const { filename } = await goApi.uploadSound("ivr", file);
-        ivrSoundsCache = null;
-        await loadSounds();
-        onChange({ ...value, mode: "audio", audioFile: filename });
-      } catch {
-        setError("Upload failed. Please try again.");
-      } finally {
-        setUploading(false);
-      }
+      if (file) void uploadFile(file);
     };
     input.click();
   };
 
   const current = value.audioFile ?? "";
-  const currentMissing = !!current && !sounds.some((s) => s.filename === current);
+  // Show the current pick as a fallback item when its list hasn't loaded yet
+  // (covers both uploads and `system:` library values).
+  const currentUnlisted =
+    !!current &&
+    !sounds.some((s) => s.filename === current) &&
+    !sysSounds.some((s) => systemValue(s) === current);
 
   return (
     <div className="space-y-1.5">
@@ -153,36 +204,75 @@ export function PromptEditor({
               />
             </SelectTrigger>
             <SelectContent>
-              {currentMissing && (
+              {currentUnlisted && (
                 <SelectItem value={current}>
-                  {current.split("/").pop()} (current)
+                  {prettyName(current.split("/").pop() ?? current)} (current)
                 </SelectItem>
               )}
-              {sounds.length === 0 && !currentMissing ? (
-                <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                  {loading ? "Loading…" : "No uploads yet"}
-                </div>
-              ) : (
-                sounds.map((s) => (
-                  <SelectItem key={s.id} value={s.filename}>
-                    {s.original_name}
-                  </SelectItem>
-                ))
+              <SelectGroup>
+                <SelectLabel className="text-[11px]">Your uploads</SelectLabel>
+                {sounds.length === 0 ? (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                    {loading ? "Loading…" : "No uploads yet"}
+                  </div>
+                ) : (
+                  sounds.map((s) => (
+                    <SelectItem key={s.id} value={s.filename}>
+                      {s.original_name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectGroup>
+              {sysSounds.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel className="text-[11px]">
+                    System library
+                  </SelectLabel>
+                  {sysSounds.map((s) => (
+                    <SelectItem
+                      key={`${s.category}/${s.file}`}
+                      value={systemValue(s)}
+                    >
+                      {prettyName(s.name)}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
               )}
             </SelectContent>
           </Select>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="w-full"
-            onClick={handleUpload}
-            disabled={uploading}
-          >
-            <Upload className="mr-1.5 h-3.5 w-3.5" />
-            {uploading ? "Uploading…" : "Upload audio"}
-          </Button>
+          <div className="flex gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={handleUpload}
+              disabled={uploading}
+            >
+              <Upload className="mr-1.5 h-3.5 w-3.5" />
+              {uploading ? "Uploading…" : "Upload"}
+            </Button>
+            {recorderSupported && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                onClick={() => setRecorderOpen(true)}
+                disabled={uploading}
+              >
+                <Mic className="mr-1.5 h-3.5 w-3.5" />
+                Record
+              </Button>
+            )}
+          </div>
           {error && <p className="text-[11px] text-destructive">{error}</p>}
+
+          <AudioRecorderModal
+            open={recorderOpen}
+            onOpenChange={setRecorderOpen}
+            onSave={uploadFile}
+          />
         </div>
       )}
     </div>

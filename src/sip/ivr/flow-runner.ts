@@ -175,9 +175,18 @@ export function evaluateCondition(
 export function renderPrompt(prompt?: Prompt): string | null {
   if (!prompt) return null;
   if (prompt.mode === 'audio') {
-    const file = (prompt.audioFile ?? '').trim();
-    if (!file || file.includes('..') || !SAFE_AUDIO_FILE.test(file)) return null;
-    return `${config.sounds.basePath.replace(/\/$/, '')}/ivr/${file}`;
+    const raw = (prompt.audioFile ?? '').trim();
+    if (!raw) return null;
+    const base = config.sounds.basePath.replace(/\/$/, '');
+    // Built-in FreeSWITCH library sound (picked from /system-sounds). Resolved
+    // straight under the sounds root instead of the per-user /ivr/ upload dir.
+    if (raw.startsWith('system:')) {
+      const file = raw.slice('system:'.length);
+      if (!file || file.includes('..') || !SAFE_AUDIO_FILE.test(file)) return null;
+      return `${base}/${file}`;
+    }
+    if (raw.includes('..') || !SAFE_AUDIO_FILE.test(raw)) return null;
+    return `${base}/ivr/${raw}`;
   }
   const text = (prompt.text ?? '').trim();
   return text ? `say:${text}` : null;

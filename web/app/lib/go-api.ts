@@ -388,6 +388,17 @@ export interface GoSound {
 }
 
 /**
+ * A built-in FreeSWITCH library sound (global, read-only) from
+ * `GET /system-sounds`. `category`/`file` locate it under the FS sounds tree
+ * (`en/us/callie/<category>/8000/<file>`).
+ */
+export interface GoSystemSound {
+  name: string;
+  category: string;
+  file: string;
+}
+
+/**
  * Workspace-wide customization (branding + default policies) managed from the
  * admin Customization tab. GET is public (login screen branding); PUT is gated.
  */
@@ -1070,6 +1081,15 @@ export const goApi = {
   },
   deleteSound(id: number): Promise<{ id: number }> {
     return goRequest<{ id: number }>(`/sounds/${id}`, { method: "DELETE" });
+  },
+
+  // Built-in FreeSWITCH library sounds (global, not per-extension). Optionally
+  // filtered to one category (e.g. "ivr"). A nil server slice decodes as null.
+  getSystemSounds(category?: string): Promise<GoSystemSound[]> {
+    const q = category ? `?category=${encodeURIComponent(category)}` : "";
+    return goRequest<GoSystemSound[] | null>(`/system-sounds${q}`).then(
+      (list) => list ?? [],
+    );
   },
 
   // Workspace-wide customization (branding + default policies).
