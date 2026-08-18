@@ -10,6 +10,9 @@ const { version } = JSON.parse(
 ) as { version: string };
 
 const nextConfig: NextConfig = {
+  // Emit a self-contained server (.next/standalone) so the runtime image only
+  // needs that + .next/static + public — not the full node_modules/source.
+  output: "standalone",
   env: {
     NEXT_PUBLIC_APP_VERSION: version,
   },

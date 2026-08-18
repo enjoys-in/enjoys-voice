@@ -31,4 +31,5 @@ EOF
 echo "Generated $CONFIG_PATH:"
 cat "$CONFIG_PATH"
 
-exec bun run start
+# Standalone Next.js server (output: "standalone"). Honours PORT/HOSTNAME env.
+exec bun server.js
