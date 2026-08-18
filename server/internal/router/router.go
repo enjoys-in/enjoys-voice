@@ -1,6 +1,9 @@
 package router
 
 import (
+	"os"
+	"strings"
+
 	"github.com/enjoys-in/enjoys-voice/api/internal/handler"
 	"github.com/enjoys-in/enjoys-voice/api/internal/middleware"
 	"github.com/enjoys-in/enjoys-voice/api/internal/response"
@@ -285,6 +288,9 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool
 			protected.POST("/sounds/upload", h.Sound.Upload)
 			protected.GET("/sounds/:ext", selfOrAdmin, h.Sound.GetByExtension)
 			protected.DELETE("/sounds/:id", h.Sound.Delete)
+
+			// System sounds — built-in FS sound library (global, not per-extension)
+			protected.GET("/system-sounds", h.Sound.ListSystemSounds)
 		}
 
 		// Edge appliances — per-device-token authenticated sync surface (NOT
@@ -311,4 +317,17 @@ func Setup(r *gin.Engine, h *Handlers, tm *token.Manager, admins map[string]bool
 		c.Next()
 	})
 	r.Static("/sounds", "./uploads/sounds")
+
+	// System sounds preview — serve the FS sound library WAVs (immutable, cached 1 year)
+	sysDir := os.Getenv("FS_SYSTEM_SOUNDS_DIR")
+	if sysDir == "" {
+		sysDir = "../docker/freeswitch_sounds/en/us/callie"
+	}
+	r.Use(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/system-sounds/") {
+			c.Header("Cache-Control", "public, max-age=31536000, immutable")
+		}
+		c.Next()
+	})
+	r.Static("/system-sounds", sysDir)
 }

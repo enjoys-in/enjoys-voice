@@ -197,3 +197,53 @@ func (h *SoundHandler) Delete(c *gin.Context) {
 	}
 	response.Success(c, "Sound deleted", gin.H{"id": id})
 }
+
+// ListSystemSounds returns the built-in FreeSWITCH sound library grouped by category.
+// These are global (not per-extension) and read from the mounted FS sounds dir.
+func (h *SoundHandler) ListSystemSounds(c *gin.Context) {
+	baseDir := os.Getenv("FS_SYSTEM_SOUNDS_DIR")
+	if baseDir == "" {
+		baseDir = "../docker/freeswitch_sounds/en/us/callie"
+	}
+	category := c.Query("category")
+
+	type soundEntry struct {
+		Name     string `json:"name"`
+		Category string `json:"category"`
+		File     string `json:"file"`
+	}
+
+	var results []soundEntry
+	categories, err := os.ReadDir(baseDir)
+	if err != nil {
+		log.Printf("system-sounds: cannot read %s: %v", baseDir, err)
+		response.OK(c, []any{})
+		return
+	}
+	log.Printf("system-sounds: found %d categories in %s", len(categories), baseDir)
+	for _, cat := range categories {
+		if !cat.IsDir() {
+			continue
+		}
+		if category != "" && cat.Name() != category {
+			continue
+		}
+		wavDir := filepath.Join(baseDir, cat.Name(), "8000")
+		files, err := os.ReadDir(wavDir)
+		if err != nil {
+			continue
+		}
+		for _, f := range files {
+			if f.IsDir() || !strings.HasSuffix(f.Name(), ".wav") {
+				continue
+			}
+			name := strings.TrimSuffix(f.Name(), ".wav")
+			results = append(results, soundEntry{
+				Name:     name,
+				Category: cat.Name(),
+				File:     f.Name(),
+			})
+		}
+	}
+	response.OK(c, results)
+}

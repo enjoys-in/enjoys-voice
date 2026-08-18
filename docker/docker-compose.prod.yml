@@ -211,6 +211,9 @@ services:
       # dir is mounted into drachtio-freeswitch at
       # /usr/share/freeswitch/sounds/ivr so FreeSWITCH can play them.
       - ./freeswitch_sounds/ivr:/app/uploads/ivr
+      # System sounds for the preview/listing API (read-only)
+      - ./freeswitch_sounds/en/us/callie:/app/freeswitch_sounds/en/us/callie:ro
+      - ./freeswitch_sounds/music:/app/freeswitch_sounds/music:ro
     depends_on:
       postgres:
         condition: service_healthy
