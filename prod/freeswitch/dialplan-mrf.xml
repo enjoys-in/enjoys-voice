@@ -35,17 +35,11 @@
         <action application="log" data="ERR HIT SOCKET DIALPLAN ua=${sip_user_agent} esl=${sip_h_X-esl-outbound}"/>
         <action application="set" data="rtp_secure_media=optional"/>
         <action application="set" data="rtp_secure_media_inbound=optional"/>
-        <!-- socket MUST run BEFORE answer: answer() blocks until DTLS completes,
-             but DTLS can't start until the library gets the ESL connection and
-             answers the browser. -->
-        <action application="socket" data="10.89.0.10:8085 async full"/>
         <action application="answer"/>
         <action application="set" data="send_silence_when_idle=-1"/>
         <action application="set" data="hangup_after_bridge=false"/>
         <action application="set" data="park_after_bridge=true"/>
         <action application="set" data="playback_terminators=none"/>
-        <!-- Update this IP if the api service ipv4_address in
-             docker-compose.prod.yml changes. -->
         <action application="socket" data="10.89.0.10:8085 async full"/>
       </condition>
     </extension>
