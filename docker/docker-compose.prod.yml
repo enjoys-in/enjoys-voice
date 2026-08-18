@@ -197,6 +197,8 @@ services:
       # voice.enjoys.in, so mark them Secure. SameSite defaults to "lax" and the
       # domain is host-only (empty) — correct for the single same-origin domain.
       COOKIE_SECURE: "true"
+      COOKIE_DOMAIN: ".voice.enjoys.in"
+      COOKIE_SAMESITE: "lax"
       # SIP config returned to the browser in the login response (sipConfig).
       # Without these the login returns ws://127.0.0.1:5065 + sip:localhost,
       # which a remote browser cannot reach. Point them at the public Caddy
