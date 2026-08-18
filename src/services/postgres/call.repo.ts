@@ -9,6 +9,9 @@ import type { CallLog } from '@/core';
  * Run idempotently from Node so the SIP engine doesn't depend on a Go redeploy.
  */
 const ENSURE_SCHEMA_SQL = [
+  // Widen from/to for UUIDs and long international numbers (was varchar(20))
+  `ALTER TABLE call_records ALTER COLUMN "from" TYPE VARCHAR(50)`,
+  `ALTER TABLE call_records ALTER COLUMN "to" TYPE VARCHAR(50)`,
   `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS call_id VARCHAR(100)`,
   `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS direction VARCHAR(10)`,
   `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS from_name VARCHAR(200)`,
@@ -16,8 +19,8 @@ const ENSURE_SCHEMA_SQL = [
   // exact lookup (from_ext = ? OR to_ext = ?) that also covers PSTN legs, where
   // "from"/"to" hold an external number rather than the extension. NULL = the leg
   // is external / not a local user.
-  `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS from_ext VARCHAR(20)`,
-  `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS to_ext VARCHAR(20)`,
+  `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS from_ext VARCHAR(50)`,
+  `ALTER TABLE call_records ADD COLUMN IF NOT EXISTS to_ext VARCHAR(50)`,
   // Billing fields (Node rates the call at end-of-call and stamps these). The Go
   // API reads cost for reporting but never writes it. All nullable/defaulted so
   // dropping them fully reverses billing without touching call history.

@@ -52,14 +52,14 @@ export function createRoutes(
   // WRITER of call history into the shared call_records table; Go only reads it.
 
   // ─── Users ───────────────────────────────────────────
-  router.get('/users', (_req: Request, res: Response) => {
+  router.get('/users', requireAuth, (_req: Request, res: Response) => {
     ok(res, db.getUsers().map(u => ({
       extension: u.extension, name: u.name,
       username: u.username, registered: u.registered,
     })));
   });
 
-  router.get('/users/:ext', (req: Request, res: Response) => {
+  router.get('/users/:ext', requireAuth, (req: Request, res: Response) => {
     const user = db.getUser(req.params.ext);
     if (!user) { fail(res, 404, 'Not found'); return; }
     ok(res, { extension: user.extension, name: user.name, registered: user.registered });

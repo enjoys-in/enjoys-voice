@@ -1,0 +1,21 @@
+--- a/lib/mediaserver.js
++++ b/lib/mediaserver.js
+@@ -424,8 +424,15 @@
+           /* update pending connection state now that freeswitch has answered */
+           const obj = this.pendingConnections.get(uuid);
+           obj.dialog = dlg;
+-          obj.connTimeout = setTimeout(timeoutFn.bind(this, dlg, uuid), 4000);
+-          obj.fn = produceEndpoint.bind(this, obj.dialog);
++
++          /* If the ESL outbound connection arrived before the SIP 200 OK
++             (e.g. dialplan runs socket before answer), use it immediately. */
++          if (obj.conn) {
++            this.pendingConnections.delete(uuid);
++            produceEndpoint.bind(this, obj.dialog)(obj.conn);
++          } else {
++            obj.connTimeout = setTimeout(timeoutFn.bind(this, dlg, uuid), 4000);
++            obj.fn = produceEndpoint.bind(this, obj.dialog);
++          }
+ 
+           /* propagate answer back to caller, allowing dtls handshake to proceed */
+           this.srf.createUAS(req, res, {

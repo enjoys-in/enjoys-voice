@@ -177,20 +177,18 @@ services:
       WS_PORT: "3002"
       MEDIA_STREAM_WS_PORT: "3004"
       MEDIA_STREAM_BRIDGE_PORT: "3005"
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable
-      VALKEY_ADDR: valkey:6379
+      # Use the HOST's Postgres and Valkey (auto-migrated by native Go API)
+      DATABASE_URL: postgres://postgres:postgres@host.docker.internal:5432/postgres?sslmode=disable
+      VALKEY_ADDR: host.docker.internal:6379
       VALKEY_PASSWORD: ""
       VALKEY_DB: "0"
       # Must match the Go API so the signaling WS can verify its access tokens.
       JWT_SECRET: change-this-to-a-secure-random-string
       # SIP realm/domain — MUST match the Go API DOMAIN so the REGISTER the
       # browser sends (sip:<ext>@voice.enjoys.in) is accepted.
-      DOMAIN: voice.enjoys.in
-      # Public SIP-over-WS URL the signaling server hands the browser in its
-      # `registered` message. Without this it falls back to ws://127.0.0.1:5065,
-      # which a remote browser cannot reach. /sip -> drachtio (wss) via Caddy.
-      PUBLIC_SIP_WS_URL: "ws://127.0.0.1:5065"
-      PUBLIC_WS_URL: "ws://127.0.0.1:3002/signal"
+      DOMAIN: localhost
+      PUBLIC_SIP_WS_URL: "ws://drachtio-server:5065"
+      PUBLIC_WS_URL: "ws://callnet-api:3002/signal"
       # Origins allowed to open the signaling WebSocket (CSWSH defense). Without
       # this, only localhost is allowed and the prod browser handshake at
       # wss://voice.enjoys.in/signal is REJECTED before connecting.
@@ -200,7 +198,12 @@ services:
       DRACHTIO_SECRET: siprocks
       FREESWITCH_HOST: drachtio-freeswitch
       FREESWITCH_PORT: "8021"
+      # ESL outbound: FS connects back to THIS container for per-call control
+      FREESWITCH_LISTEN_ADDRESS: callnet-api
+      FREESWITCH_LISTEN_PORT: "8085"
       RECORDINGS_DIR: /app/recordings
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - callnet-recordings:/app/recordings
     depends_on:

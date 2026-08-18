@@ -16,6 +16,9 @@ WORKDIR /app
 COPY package.json ./
 RUN bun install
 
+# Patch drachtio-fsmrf: handle ESL outbound arriving before SIP 200 OK
+COPY patches/mediaserver.js node_modules/drachtio-fsmrf/lib/mediaserver.js
+
 # App source (src/, tsconfig.json, type defs, static assets like
 # src/trunk/streaming/public/bridge-test.html).
 COPY tsconfig.json ./
