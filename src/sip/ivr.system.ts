@@ -1102,6 +1102,23 @@ export class IVRSystem {
 
       console.log(`✅ IVR: media connected, channel=${endpoint.uuid} [${callId}]`);
 
+      // Start live audio streaming to the transcription server if enabled.
+      // Uses the inbound ESL conn (not the channel) so a WS failure doesn't kill the call.
+      if (process.env.FS_AUDIO_STREAM_ENABLED === 'true') {
+        const port = process.env.MEDIA_STREAM_WS_PORT || '3004';
+        const addr = config.freeswitch.listenAddress;
+        const streamUrl = `ws://${addr}:${port}/${endpoint.uuid}?provider=freeswitch&mode=log`;
+        try {
+          this.ms!.api(`uuid_audio_stream ${endpoint.uuid} start ${streamUrl} mono 16k`, (res: any) => {
+            const body = res?.body || res?.getBody?.() || '';
+            if (body.startsWith('-ERR')) console.warn(`⚠️ IVR: audio stream: ${body.trim()} [${callId}]`);
+            else console.log(`🎤 IVR: audio stream started [${callId}]`);
+          });
+        } catch (err: any) {
+          console.warn(`⚠️ IVR: audio stream start failed: ${err.message} [${callId}]`);
+        }
+      }
+
       // Calmer, clearer TTS voice + brief lead-in silence (see prepareVoice).
       await this.prepareVoice(endpoint);
 

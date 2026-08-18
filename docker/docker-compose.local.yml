@@ -24,7 +24,7 @@ services:
     restart: unless-stopped
 
   drachtio-freeswitch:
-    image: mullayam06/freeswitch-piper:latest
+    image: mullayam06/freeswitch-audiostream-piper:latest
     container_name: drachtio-freeswitch
     ports:
       - "8021:8021"
@@ -39,7 +39,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./freeswitch_configs:/etc/freeswitch
+      # audiostream image uses /usr/local/freeswitch/etc/freeswitch (built from source)
+      - ./freeswitch_configs:/usr/local/freeswitch/etc/freeswitch
       - ./freeswitch_sounds:/usr/share/freeswitch/sounds
       - ./recordings:/usr/local/freeswitch/recordings
     healthcheck:
@@ -99,6 +100,10 @@ services:
       FREESWITCH_PORT: "8021"
       FREESWITCH_LISTEN_ADDRESS: callnet-api
       FREESWITCH_LISTEN_PORT: "8085"
+      FS_AUDIO_STREAM_ENABLED: "true"
+      MEDIA_STREAM_ENABLED: "true"
+      FS_STT_PROVIDER: deepgram
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
       RECORDINGS_DIR: /app/recordings
     extra_hosts:
       - "host.docker.internal:host-gateway"

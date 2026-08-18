@@ -33,6 +33,13 @@ import {
   encodePlivoMark,
   encodePlivoMedia,
 } from "./plivo.protocol";
+import {
+  decodeFsMedia,
+  decodeFsStart,
+  encodeFsClear,
+  encodeFsMark,
+  encodeFsMedia,
+} from "./freeswitch.protocol";
 
 /**
  * A media-provider wire codec. Twilio and Plivo both speak start/media/stop JSON
@@ -63,8 +70,18 @@ const PLIVO_PROTOCOL: StreamProtocol = {
   encodeMark: encodePlivoMark,
 };
 
+const FS_PROTOCOL: StreamProtocol = {
+  decodeStart: (_msg, urlParams) => decodeFsStart('', urlParams),
+  decodeMedia: (msg) => decodeFsMedia(msg),
+  encodeMedia: encodeFsMedia,
+  encodeClear: encodeFsClear,
+  encodeMark: encodeFsMark,
+};
+
 function selectProtocol(provider: string): StreamProtocol {
-  return provider === "plivo" ? PLIVO_PROTOCOL : TWILIO_PROTOCOL;
+  if (provider === "plivo") return PLIVO_PROTOCOL;
+  if (provider === "freeswitch") return FS_PROTOCOL;
+  return TWILIO_PROTOCOL;
 }
 
 export class MediaStreamServer {
@@ -130,12 +147,26 @@ export class MediaStreamServer {
       }
     };
 
-    ws.on("message", (raw: Buffer) => {
+    ws.on("message", (raw: Buffer, isBinary: boolean) => {
+      // mod_audio_stream sends raw binary L16 PCM (no JSON envelope)
+      if (provider === "freeswitch") {
+        if (!session) {
+          const meta = decodeFsStart(req.url || '', urlParams);
+          session = this.createSession(ws, meta, proto);
+          this.handlers.onStart?.(session, meta);
+        }
+        if (isBinary || !raw.toString().startsWith('{')) {
+          const frame = decodeFsMedia(raw);
+          this.handlers.onAudio?.(session, frame);
+        }
+        return;
+      }
+
       let msg: any;
       try {
         msg = JSON.parse(raw.toString());
       } catch {
-        return; // ignore non-JSON frames
+        return;
       }
 
       switch (msg.event) {
