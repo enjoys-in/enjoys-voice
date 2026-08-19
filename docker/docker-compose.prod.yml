@@ -193,6 +193,10 @@ services:
       # container can play the prompts the Go API writes.
       FFMPEG_PATH: ffmpeg
       IVR_SOUND_DIR: ./uploads/ivr
+      # Built-in FS sound library the IVR builder lists/previews (GET /system-sounds).
+      # Must match the read-only ./freeswitch_sounds/en/us/callie volume below;
+      # the code default (../docker/...) resolves outside /app in the container.
+      FS_SYSTEM_SOUNDS_DIR: ./freeswitch_sounds/en/us/callie
       # The auth cookies (token + refresh_token) are served over HTTPS at
       # voice.enjoys.in, so mark them Secure. SameSite defaults to "lax" and the
       # domain is host-only (empty) — correct for the single same-origin domain.
